@@ -1,0 +1,9 @@
+# DPS - Document Processing System
+# All dependencies for the full pipeline.
+#
+# Install:  pip install -r requirements.txt
+# Python:   3.10 or later required (uses X | Y type hint syntax)
+
+python-docx>=0.8.11    # Read/write .docx files (all scripts)
+pyyaml>=6.0            # Read dps_config.yaml (profiler + pipeline runner)
+openpyxl>=3.1.0        # Write Excel inventory spreadsheet (profiler)
