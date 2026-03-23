@@ -6,35 +6,42 @@
 # every tunable setting for every script in the pipeline.
 #
 # PIPELINE ORDER (scripts run in this sequence):
-#   Step 0  policy_profiler.py        Scan & classify all docs
-#   Step 1  cross_reference_extractor.py  Capture cross-refs (BEFORE any edits)
-#   Step 2  heading_style_fixer.py    Fix fake headings → real Word styles
-#   Step 3  section_splitter.py       Split docs at H1 boundaries
-#   Step 4  extract_controls.py       Pull structured control data
-#   Step 5  word_counter.py           Word counts (QA / validation)
+#   Step 0  policy_profiler.py            Scan & classify all docs (includes word counts)
+#   Step 1  extract_controls.py           Pull structured control data
+#   Step 2  cross_reference_extractor.py  Capture cross-refs (BEFORE any edits)
+#   Step 3  heading_style_fixer.py        Fix fake headings → real Word styles
+#   Step 4  section_splitter.py           Split docs at H1 boundaries
+#   Step 5  add_metadata.py              Stamp sub-docs with identity metadata
 #
 # HOW TO RUN:
 #   Full pipeline:   python run_pipeline.py
 #   Single script:   python run_pipeline.py --step 0
 #   Range of steps:  python run_pipeline.py --step 1-3
-#   Standalone:      python scripts/word_counter.py input/ output/5\ -\ reports/
+#   Standalone:      python scripts/extract_controls.py --config dps_config.yaml input/ output/1\ -\ controls/
 #
+# ----------------------------------------------------------------------------
+# QUICK START — Check these first, everything else has sensible defaults:
+#
+#   SETTING                              SECTION   WHAT IT DOES
+#   input.directory                      1         Where your .docx files are
+#   output.directory                     2         Where results are written
+#   thresholds.max_characters            8         AI context window size limit
+#   headings.custom_heading_styles       4         Your org's Word heading styles
+#   control_extraction.control_id_patterns  10     Regex for your control ID format
+#   metadata.url.*                       12        SharePoint URL mapping
+#
+# You can run the full pipeline without changing anything else.
 # ============================================================================
 
 
 # ============================================================================
-# SECTION 1: INPUT — Where your .docx source files live
+# SECTION 1: INPUT — Where your .docx source files live        [YOU SET THIS]
 # ============================================================================
 # ALL scripts read from this ONE folder. Drop your policy .docx files here.
-# No need to copy files between folders or remember different paths.
 
 input:
   # Path to the folder containing your .docx policy documents.
   # Can be absolute or relative to where you run the script from.
-  #
-  # FIRST TIME SETUP:
-  #   1. Copy (or move) all your .docx policy files into this folder
-  #   2. That's it — every script in the pipeline reads from here
   directory: "./input"
 
   # File glob pattern — almost always "*.docx"
@@ -51,30 +58,21 @@ input:
     - "~$"           # Word temp/lock files (created when a doc is open)
     - "_optimized"   # Already-processed files from a previous run
     - "_backup"      # Backup copies
-    - "_fixed"       # Output from Step 2 (heading fixer) — don't re-process
+    - "_fixed"       # Output from Step 3 (heading fixer) — don't re-process
     - "template"     # Template files, not actual policies
 
 
 # ============================================================================
-# SECTION 2: OUTPUT — Where results go
+# SECTION 2: OUTPUT — Where results go                         [YOU SET THIS]
 # ============================================================================
-# Every script writes into a numbered sub-folder so outputs stay organized
-# and you always know which step produced which file.
-#
-# FOLDER STRUCTURE (created automatically on first run):
-#   output/
-#   ├── 0 - profiler/            ← Step 0: inventory, profiles, CSVs
-#   ├── 1 - cross_references/    ← Step 1: cross_references.csv
-#   ├── 2 - heading_fixes/       ← Step 2: *_fixed.docx + heading_changes.csv
-#   ├── 3 - split_documents/     ← Step 3: sub-docs + split_manifest.csv
-#   ├── 4 - controls/            ← Step 4: controls_output.csv + checkpoint
-#   └── 5 - reports/             ← Step 5: word_counts.csv
+# Sub-folders are created automatically on first run:
+#   0 - profiler/  1 - controls/  2 - cross_references/
+#   3 - heading_fixes/  4 - split_documents/  5 - metadata/
 
 output:
-  # Root output directory. Sub-folders are created automatically.
   directory: "./output"
 
-  # --- Step 0: Profiler outputs ---
+  # --- Step 0: Profiler outputs (includes word counts) ---
   profiler:
     directory: "0 - profiler"
     inventory_file: "document_inventory.xlsx"    # Master spreadsheet — start here
@@ -83,46 +81,51 @@ output:
     tables_file: "table_inventory.csv"           # One row per table per doc
     crossrefs_file: "crossref_inventory.csv"     # One row per cross-reference
 
-  # --- Step 1: Cross-reference extractor outputs ---
-  cross_references:
-    directory: "1 - cross_references"
-    output_file: "cross_references.csv"
-
-  # --- Step 2: Heading style fixer outputs ---
-  heading_fixes:
-    directory: "2 - heading_fixes"
-    changes_file: "heading_changes.csv"
-    # Fixed .docx files are also written here (named *_fixed.docx)
-
-  # --- Step 3: Section splitter outputs ---
-  split_documents:
-    directory: "3 - split_documents"
-    manifest_file: "split_manifest.csv"
-    # Sub-document .docx files are also written here
-
-  # --- Step 4: Control extractor outputs ---
+  # --- Step 1: Control extractor outputs ---
   controls:
-    directory: "4 - controls"
+    directory: "1 - controls"
     output_file: "controls_output.csv"
+    output_file_xlsx: "controls_output.xlsx"
     checkpoint_file: "checkpoint.json"           # Tracks progress for resume
     error_log: "errors.log"
 
-  # --- Step 5: Word counter outputs ---
-  reports:
-    directory: "5 - reports"
-    word_counts_file: "word_counts.csv"
+  # --- Step 2: Cross-reference extractor outputs ---
+  cross_references:
+    directory: "2 - cross_references"
+    output_file: "cross_references.csv"
+
+  # --- Step 3: Heading style fixer outputs ---
+  heading_fixes:
+    directory: "3 - heading_fixes"
+    changes_file: "heading_changes.csv"
+    # Fixed .docx files are also written here (named *_fixed.docx)
+
+  # --- Step 4: Section splitter outputs ---
+  split_documents:
+    directory: "4 - split_documents"
+    manifest_file: "split_manifest.csv"
+    # Sub-document .docx files are also written here
+
+  # --- Step 5: Metadata injector outputs ---
+  metadata:
+    directory: "5 - metadata"
+    manifest_file: "metadata_manifest.csv"
+    # Processed .docx files with metadata blocks are also written here
+
+  # --- Consolidated Excel Report ---
+  # After all steps complete, build a single .xlsx workbook with one tab
+  # per step's CSV output. Timestamped filename for versioning.
+  consolidated_report:
+    enabled: true
+    filename_prefix: "DPS_Report"    # produces DPS_Report_2026-03-23_143052.xlsx
 
 
 # ============================================================================
-# SECTION 3: DOCUMENT STRUCTURE DETECTION (used by Step 0 — Profiler)
+# SECTION 3: DOCUMENT STRUCTURE DETECTION (used by Step 0)   [LEAVE AS-IS]
 # ============================================================================
-# These patterns detect the standard 5-section policy structure.
-# The profiler checks H1-level headings against these keyword lists
-# (case-insensitive fuzzy match) to classify each section.
-#
-# WHY THIS MATTERS:
-#   Documents missing standard sections get flagged and scored higher
-#   priority, because they'll need more manual work before splitting.
+# Keywords the profiler matches against H1 headings to classify each section.
+# Docs missing standard sections get flagged higher priority.
+# Only edit if your org uses different section names than listed below.
 
 sections:
   purpose:
@@ -164,11 +167,14 @@ sections:
 
 
 # ============================================================================
-# SECTION 4: HEADING DETECTION (used by Step 0 + Step 2)
+# SECTION 4: HEADING DETECTION (used by Step 0 + Step 3)
 # ============================================================================
 
 headings:
-  # --- Standard Word heading style names to recognize ---
+
+  # ~~~ Custom styles — YOU MAY WANT TO CHANGE THESE ~~~~~~~~~~~~~~~~~~~~~~~~
+
+  # Standard Word heading style names (rarely needs editing)
   builtin_styles:
     - "Heading 1"
     - "Heading 2"
@@ -179,28 +185,18 @@ headings:
     - "heading 3"
     - "heading 4"
 
-  # --- Custom heading style names used in your org's Word templates ---
-  # If headings show up as "FAKE" in the profiler output but they're real
-  # headings in Word, it means the style name isn't listed here.
-  #
-  # TO FIND YOUR STYLE NAME:
-  #   1. Open the document in Word
-  #   2. Click on the heading paragraph
-  #   3. Look at the Styles pane (Home tab → Styles group)
-  #   4. The active/highlighted style is the one to add here
-  #   5. Copy the exact name, preserving capitalization
+  # Custom heading style names used in your org's Word templates.
+  # If headings show up as "FAKE" in the profiler but they're real headings
+  # in Word, add the style name here. (In Word: click the heading → check
+  # the Styles pane on the Home tab for the active style name.)
   custom_heading_styles:
     - "Policy Heading 1"
     - "Policy Heading 2"
     - "TOC Heading"
     - "AppendixHeading"
 
-  # --- Custom style → standard style mapping (used by Step 2 — Heading Fixer) ---
-  # Keys: your org's style name (case-insensitive)
-  # Values: the standard Word heading style to convert to
-  #
-  # The heading fixer uses this map to convert custom styles to standard
-  # Heading 1/2/3 styles that the section splitter (Step 3) can recognize.
+  # Maps your org's custom styles → standard Heading 1/2/3 (case-insensitive keys).
+  # The heading fixer (Step 3) uses this to convert styles the splitter can recognize.
   custom_style_map:
     "policy heading 1": "Heading 1"
     "policy heading 2": "Heading 2"
@@ -217,65 +213,47 @@ headings:
     "title heading": "Heading 1"
     "section heading": "Heading 1"
     "subsection heading": "Heading 2"
-    # -----------------------------------------------------------------------
-    # ADD YOUR ORG'S CUSTOM STYLE NAMES BELOW THIS LINE
-    # -----------------------------------------------------------------------
+    # ADD YOUR ORG'S CUSTOM STYLE NAMES BELOW THIS LINE:
 
-  # --- Fake heading detection thresholds ---
+  # ~~~ Fake heading detection — LEAVE AS-IS unless tuning ~~~~~~~~~~~~~~~~~~
   #
   # A "fake heading" is bold text with no Word Heading style applied.
-  # The profiler flags these; the heading fixer (Step 2) converts them.
+  # The profiler flags these; the heading fixer (Step 3) converts them.
 
-  # Font size threshold (pt). Bold text >= this size + no heading style = fake heading.
-  #
-  # IF FAKE HEADINGS ARE NOT DETECTED (count shows 0 but you see bold headers):
-  #   Your org probably uses 11pt bold for headings. Lower this to 11 or 10.
-  #
-  # IF TOO MANY THINGS FLAGGED AS FAKE (normal bold text in paragraphs):
-  #   Raise to 13 or 14 to require larger font before flagging.
+  # Min font size (pt) for bold text to be considered a fake heading.
+  # Too few detected? Lower to 11. Too many false positives? Raise to 13-14.
   fake_heading_min_font_size: 12
 
-  # Max character length for a paragraph to qualify as a fake heading.
-  # Short bold text = likely a heading. Long bold text = emphasis in prose.
-  # Most real headings are under 100 chars. 200 is a conservative ceiling.
+  # Max character length to qualify as a fake heading.
+  # The profiler uses a wider net (200) to flag candidates for review.
+  # The fixer uses a tighter limit (120) to avoid false positives during conversion.
   fake_heading_max_chars: 200
-
-  # Max chars for the heading fixer's detection (Step 2).
-  # Separate from profiler threshold above. Lower = fewer false positives.
   fake_heading_max_chars_fixer: 120
 
-  # --- Heading level numbering patterns (used by Step 2 — Heading Fixer) ---
-  # These regex patterns determine what level to assign a fake heading
-  # based on its numbering prefix. Checked in order: H3 → H1 → H2 → default H2.
+  # ~~~ Heading level numbering patterns — LEAVE AS-IS unless tuning ~~~~~~~~
   #
-  # EXAMPLES:
-  #   "1.0 Purpose"       → matches heading1_pattern → Heading 1
-  #   "III. Controls"     → matches heading1_pattern → Heading 1
-  #   "1.1 Access Rights" → matches heading2_pattern → Heading 2
-  #   "A. Overview"       → matches heading2_pattern → Heading 2
-  #   "1.1.1 Sub-point"   → matches heading3_pattern → Heading 3
-  #   "Purpose"           → no match → defaults to Heading 2
-  #
-  # TO ADD NEW PATTERNS (e.g., "Article 1 —" or "(A) Title"):
-  #   Add alternatives separated by | inside the (?:...) group.
+  # Regex patterns that determine what level to assign a fake heading.
+  # EXAMPLES: "1.0 Purpose" → H1, "1.1 Access" → H2, "1.1.1 Sub" → H3
+  # To add patterns (e.g., "Article 1"): add alternatives with | in the group.
   heading1_pattern: "^(?:\\d+\\.0\\s+|[IVXLC]+\\.\\s+)"
   heading2_pattern: "^(?:\\d+\\.\\d+\\s+|[A-Z]\\.\\s+)"
   heading3_pattern: "^\\d+\\.\\d+\\.\\d+\\s+"
 
-  # Default heading level for bold+short text with no numbering pattern.
-  # Change to 1 if your un-numbered bold headings are mostly top-level.
+  # Default level when no numbering pattern matches. Change to 1 if your
+  # un-numbered bold headings are mostly top-level.
   default_heading_level: 2
 
 
 # ============================================================================
-# SECTION 5: CROSS-REFERENCE DETECTION (used by Step 0 + Step 1)
+# SECTION 5: CROSS-REFERENCE DETECTION (used by Step 0 + Step 2) [LEAVE AS-IS]
 # ============================================================================
 
 cross_references:
-  # Regex patterns to detect cross-references (case-insensitive).
-  # Used by both the profiler (Step 0) for counting and the extractor
-  # (Step 1) for full extraction with context.
-  patterns:
+
+  # ~~~ Profiler patterns (Step 0) — LEAVE AS-IS ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  # Regex patterns for COUNTING cross-references. You probably don't need to
+  # edit these — they cover standard policy language. (regex101.com to test.)
+  profiler_patterns:
     - "see section\\s+[\\d\\.]+[a-z]?"
     - "refer to\\s+(section|the)"
     - "as described in\\s+(the|section)"
@@ -287,13 +265,69 @@ cross_references:
     - "see the\\s+\\w+\\s+policy"
     - "as specified in\\s+(the|section)"
 
+  # ~~~ Extraction patterns (Step 2) — LEAVE AS-IS unless adding phrases ~~~~
+  #
+  # Each entry: phrase (lead-in text) + type ("internal" or "external").
+  # The extractor auto-builds the full regex — just provide the phrase.
+  #
+  #   internal → matches "<phrase> Section <number>"   e.g., "See Section 4.3"
+  #   external → matches "<phrase> [the] <Doc Name>"   e.g., "Refer to the Access Control Policy"
+  #              (final word must be in document_name_keywords below)
+  #
+  # To add a pattern: add a phrase + type entry. Uncomment examples below.
+
+  extraction_patterns:
+    # --- Internal references (point to a section number within the same doc) ---
+    - phrase: "see"
+      type: "internal"
+    - phrase: "refer to"
+      type: "internal"
+    - phrase: "per"
+      type: "internal"
+    - phrase: "as described in"
+      type: "internal"
+    - phrase: "as defined in"
+      type: "internal"
+    # - phrase: "as outlined in"          # Uncomment if your docs use this phrasing
+    #   type: "internal"
+    # - phrase: "as specified in"         # Uncomment if your docs use this phrasing
+    #   type: "internal"
+    # - phrase: "pursuant to"             # Uncomment for legal/regulatory docs
+    #   type: "internal"
+    # - phrase: "noted in"               # Uncomment for audit/assessment docs
+    #   type: "internal"
+
+    # --- External references (point to another named document) ---
+    - phrase: "as described in"
+      type: "external"
+    - phrase: "as defined in"
+      type: "external"
+    - phrase: "refer to"
+      type: "external"
+    - phrase: "in accordance with"
+      type: "external"
+    # - phrase: "as outlined in"          # Uncomment if your docs use this phrasing
+    #   type: "external"
+    # - phrase: "as specified in"         # Uncomment if your docs use this phrasing
+    #   type: "external"
+    # - phrase: "as required by"          # Uncomment for compliance/regulatory docs
+    #   type: "external"
+    # - phrase: "consistent with"         # Uncomment for alignment references
+    #   type: "external"
+    # - phrase: "pursuant to"             # Uncomment for legal/regulatory docs
+    #   type: "external"
+    # - phrase: "established in"          # Uncomment for foundational references
+    #   type: "external"
+    # - phrase: "governed by"             # Uncomment for governance docs
+    #   type: "external"
+    # - phrase: "mandated by"             # Uncomment for mandate/directive docs
+    #   type: "external"
+
   # Also detect hyperlinks whose display text looks like a section or policy ref?
   detect_hyperlink_crossrefs: true
 
-  # --- Document name keywords (used by Step 1 — Cross-Ref Extractor) ---
-  # External reference patterns match phrases like "refer to the Access Control Policy".
-  # The last word must be one of these keywords. If your org has documents ending
-  # with other words (e.g., "Controls", "Manual"), add them here.
+  # External patterns match document names ending in one of these keywords.
+  # Add keywords if your org has docs ending in other words (e.g., "Manual").
   document_name_keywords:
     - "Policy"
     - "Standard"
@@ -307,13 +341,15 @@ cross_references:
     # - "Manual"       # Uncomment if you have documents ending in "Manual"
     # - "Controls"     # Uncomment if you have documents ending in "Controls"
     # - "Regulation"   # Uncomment if you have documents ending in "Regulation"
+    # - "Directive"    # Uncomment if you have documents ending in "Directive"
+    # - "Handbook"     # Uncomment if you have documents ending in "Handbook"
+    # - "Playbook"     # Uncomment if you have documents ending in "Playbook"
 
 
 # ============================================================================
-# SECTION 6: TABLE CLASSIFICATION (used by Step 0 — Profiler)
+# SECTION 6: TABLE CLASSIFICATION (used by Step 0)              [LEAVE AS-IS]
 # ============================================================================
-# Heuristics to classify table types based on first-row (header) content.
-# Each type has keywords to match against header row cell text.
+# Keywords matched against table header rows to classify table types.
 
 tables:
   classification:
@@ -370,16 +406,10 @@ tables:
 
 
 # ============================================================================
-# SECTION 7: DOCUMENT TYPE CLASSIFICATION (used by Step 0 — Profiler)
+# SECTION 7: DOCUMENT TYPE CLASSIFICATION (used by Step 0)     [LEAVE AS-IS]
 # ============================================================================
 # Auto-classifies docs into Types A/B/C/D/E based on content analysis.
-#
-# TYPE QUICK REFERENCE:
-#   Type A — Table-heavy (>40% tables)       → Flatten tables to prose
-#   Type B — Prose-heavy (<10% tables)       → Add context headers; fix cross-refs
-#   Type C — Hybrid (10-40% tables + procs)  → Preserve procedure order
-#   Type D — Appendix-dominant (>60% appx)   → Preserve glossaries verbatim
-#   Type E — Unclassified                    → STOP. Review manually first.
+# A=table-heavy, B=prose-heavy, C=hybrid, D=appendix-dominant, E=unclassified
 
 classification:
   type_a:
@@ -404,54 +434,37 @@ classification:
 # ============================================================================
 
 thresholds:
-  # --- AI context window limit ---
-  # Sub-documents must be under this many characters for reliable AI retrieval.
-  # Used by the profiler (Step 0) to flag oversized docs and by the splitter
-  # (Step 3) to decide when to split at Heading 2.
-  #
-  # CURRENT VALUE: 36,000 chars ≈ 20 pages ≈ fits in Copilot Studio / GPT-4o
-  #
-  # CHANGE THIS IF:
-  #   Your AI tool supports a larger context window → increase
-  #   You want smaller, more focused chunks → decrease (try 18,000 for tighter splits)
+
+  # ~~~ Key setting — YOU MAY WANT TO CHANGE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+  # Max characters per sub-document for AI retrieval.
+  # 36,000 ≈ 20 pages ≈ fits Copilot Studio / GPT-4o context window.
+  # Increase for larger context windows; decrease (try 18,000) for tighter splits.
   max_characters: 36000
+  max_pages: 20              # Approximate page equivalent (reporting only)
 
-  # Approximate page equivalent (for profiler reporting only)
-  max_pages: 20
+  # ~~~ Estimation ratios — LEAVE AS-IS unless calibrating ~~~~~~~~~~~~~~~~~~
 
-  # --- Page count estimation ---
-  # The profiler can't read actual Word page counts, so it estimates:
-  #   approx_pages = total_paragraphs / paragraphs_per_page
-  #
-  # CALIBRATE THIS:
-  #   1. Open a representative doc in Word
-  #   2. Note actual page count (status bar at bottom)
-  #   3. Estimate paragraph count (Ctrl+End, check paragraph counter)
-  #   4. Set this to: paragraph_count / actual_page_count
-  #
-  # IF PAGE COUNTS TOO HIGH → docs have many short paragraphs → lower to 20-25
-  # IF PAGE COUNTS TOO LOW  → docs have dense prose → raise to 35-40
+  # Page estimation: approx_pages = total_paragraphs / paragraphs_per_page
+  # Too high? Lower to 20-25. Too low? Raise to 35-40.
   paragraphs_per_page: 30
 
-  # --- Character-to-page ratio for split manifest ---
-  # Used by the section splitter (Step 3) to estimate pages in sub-documents.
-  # 1,800 chars/page is typical for standard policy docs.
-  # Lower (1,200) for table-heavy docs. Higher (2,200) for dense prose.
+  # Chars per page for split manifest estimates.
+  # 1,800 is typical. Lower (1,200) for table-heavy, higher (2,200) for dense prose.
   chars_per_page: 1800
 
-  # Flag sections exceeding this % of total doc length (profiler)
+  # Flag sections exceeding this % of total doc length
   section_dominance_pct: 50
 
-  # Flag documents with more tables than this (profiler)
+  # Flag documents with more tables than this
   high_table_count: 10
 
 
 # ============================================================================
-# SECTION 9: PRIORITY SCORING (used by Step 0 — Profiler)
+# SECTION 9: PRIORITY SCORING (used by Step 0)                  [LEAVE AS-IS]
 # ============================================================================
-# Computes a combined priority score for ranking documents.
 # Higher score = more optimization work needed = process sooner.
-# All weights are relative — adjust ratios to change what matters most.
+# Weights are relative — adjust ratios to change what matters most.
 
 priority_scoring:
   weights:
@@ -463,96 +476,216 @@ priority_scoring:
     merged_cells: 1.0         # Merged cells complicate table flattening
     over_size_limit: 3.0      # Over character limit is a hard retrieval problem
 
-  # --- Usage frequency scores (OPTIONAL) ---
-  # Manually assign how often each policy is queried (scale 0-10).
-  #   0 = nobody ever asks about this policy
-  #  10 = most-queried policy in the org
-  #
-  # These scores are multiplied by 2.0 and added to the priority score,
-  # so a score of 9 adds 18 points — enough to push a simple doc to the top.
-  #
-  # HOW TO USE:
-  #   Replace {} below with your filenames and scores.
-  #   Filenames must match exactly (including capitalization and spaces).
-  #
-  # EXAMPLE:
+  # OPTIONAL: Per-document usage frequency (scale 0-10). Multiplied by 2.0
+  # and added to priority. Filenames must match exactly.
+  # Example:
   #   usage_frequency:
   #     "Access_Control_Policy_POL-AC-2026-001.docx": 9
-  #     "Acceptable_Use_Policy_POL-AU-2026-006.docx": 7
   #     "Incident_Response_Policy_POL-IR-2026-003.docx": 8
   usage_frequency: {}
 
 
 # ============================================================================
-# SECTION 10: CONTROL EXTRACTION (used by Step 4 — Extract Controls)
+# SECTION 10: CONTROL EXTRACTION (used by Step 1 — Extract Controls)
 # ============================================================================
 
 control_extraction:
-  # --- Control ID pattern ---
-  # Regex to match control IDs like AC-1.001, IR001.002, CFG.1.0042
-  # Adjust if your org uses a different ID format.
-  #
-  # EXAMPLES MATCHED BY DEFAULT:
-  #   AC-1.001    IR001.002    CFG.1.0042    SC-3.12    AU.2.01
-  #
-  # IF ZERO CONTROLS EXTRACTED:
-  #   Your control IDs may use a different format. Common alternatives:
-  #     r'\b[A-Z]{2,4}-\d{1,3}\b'           # Simple: AC-1, IR-3
-  #     r'\b[A-Z]{2,4}\.\d{1,3}\.\d{1,3}\b' # Dotted: AC.1.1, IR.3.2
-  control_id_pattern: '\b[A-Z]{2,4}[-.]?\d{1,3}[-.]\d{2,4}\b'
 
-  # --- Implementation guidance trigger ---
-  # When this pattern appears in a control block, everything after it
-  # is classified as "implementation_guidelines" (separate CSV column).
-  implementation_trigger: '(?i)(implementation guidance|implementation:|guidelines:|how to implement)'
+  # ~~~ Common settings — CHECK THESE FIRST ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-  # --- Metadata scan limit ---
-  # How many paragraphs from the top of each doc to scan for
-  # purpose/scope/applicability metadata. Increase if metadata
-  # appears further down in your documents.
-  metadata_scan_paragraphs: 40
+  # Regex to match control IDs. Matches: AC-1.001, IR001.002, CFG.1.0042
+  # If zero controls extracted, your IDs may use a different format — add alternatives:
+  #   - '\b[A-Z]{2,4}-\d{1,3}\b'           # Simple: AC-1, IR-3
+  #   - '\b[A-Z]{2,4}\.\d{1,3}\.\d{1,3}\b' # Dotted: AC.1.1, IR.3.2
+  control_id_patterns:
+    - '\b[A-Z]{2,4}[-.]?\d{1,3}[-.]\d{2,4}\b'
 
-  # --- Checkpointing ---
-  # Enable to skip already-processed files on re-run (useful for large batches).
-  # Disable to always re-process everything from scratch.
+  # Filter by control ID. Supports exact IDs ("AC-1.001") and wildcards ("AC-*").
+  whitelist: []               # If non-empty, ONLY matching controls are kept
+  blacklist: []               # Matching controls are excluded (applied after whitelist)
+
+  # Skip already-processed files on re-run (useful for large batches)
   enable_checkpoint: true
+
+  # Output format: "csv", "xlsx", or "both"
+  output_format: "both"
+
+  # ~~~ Advanced settings — LEAVE AS-IS unless tuning ~~~~~~~~~~~~~~~~~~~~~~~
+
+  # Keywords marking the boundary between control text and supplemental guidance.
+  guidance_keywords:
+    - "implementation guidance"
+    - "implementation:"
+    - "guidelines:"
+    - "how to implement"
+    - "supplemental guidance"
+
+  # Metadata trigger keywords — extract doc-level metadata from first N paragraphs.
+  metadata_triggers:
+    purpose:
+      - "purpose"
+      - "objective"
+      - "intent"
+    scope:
+      - "scope"
+      - "coverage"
+      - "boundary"
+    applicability:
+      - "applicability"
+      - "applies to"
+      - "applies for"
+
+  # How the extractor identifies section boundaries.
+  heading_detection:
+    use_word_heading_style: true
+    section_keyword_pattern: '^[Ss]ection\s+\d{1,2}'
+    numbered_title_pattern: '^\d{1,2}\.?\d{0,2}\s+[A-Z][a-zA-Z\s]{3,50}$'
+    detect_allcaps: true
+    allcaps_max_length: 80
+    allcaps_min_words: 3
+    detect_bold_short: true
+    bold_max_length: 60
+
+  # Regex for guidance boundary within a control block
+  implementation_trigger: '(?i)(implementation guidance|implementation:|guidelines:|how to implement|supplemental guidance)'
+
+  # How many paragraphs from the top of each doc to scan for metadata
+  metadata_scan_paragraphs: 40
 
 
 # ============================================================================
 # SECTION 11: PIPELINE STEPS (used by run_pipeline.py)
 # ============================================================================
-# Control which steps run and in what order.
-# Set enabled: false to skip a step in the automated pipeline.
-# You can still run skipped steps individually with --step N.
+# Set enabled: false to skip a step. You can still run it with --step N.
 
 pipeline:
   steps:
     - name: "Step 0 - Document Profiler"
       script: "policy_profiler.py"
       enabled: true
-      description: "Scan all docs, extract metadata, classify types, score priority"
+      description: "Scan all docs, extract metadata, classify types, score priority, count words"
 
-    - name: "Step 1 - Cross-Reference Extractor"
-      script: "cross_reference_extractor.py"
-      enabled: true
-      description: "Capture all cross-refs BEFORE any structural changes"
-
-    - name: "Step 2 - Heading Style Fixer"
-      script: "heading_style_fixer.py"
-      enabled: true
-      description: "Convert fake bold headings to real Word Heading styles"
-
-    - name: "Step 3 - Section Splitter"
-      script: "section_splitter.py"
-      enabled: true
-      description: "Split fixed docs at H1 boundaries into sub-documents"
-
-    - name: "Step 4 - Control Extractor"
+    - name: "Step 1 - Control Extractor"
       script: "extract_controls.py"
       enabled: true
       description: "Extract structured control data from compliance docs"
 
-    - name: "Step 5 - Word Counter"
-      script: "word_counter.py"
+    - name: "Step 2 - Cross-Reference Extractor"
+      script: "cross_reference_extractor.py"
       enabled: true
-      description: "Count words in final sub-documents (QA validation)"
+      description: "Capture all cross-refs BEFORE any structural changes"
+
+    - name: "Step 3 - Heading Style Fixer"
+      script: "heading_style_fixer.py"
+      enabled: true
+      description: "Convert fake bold headings to real Word Heading styles"
+
+    - name: "Step 4 - Section Splitter"
+      script: "section_splitter.py"
+      enabled: true
+      description: "Split fixed docs at H1 boundaries into sub-documents"
+
+    - name: "Step 5 - Metadata Injector"
+      script: "add_metadata.py"
+      enabled: true
+      description: "Add identity metadata (name, URL, scope, intent, tags) to sub-documents"
+
+
+# ============================================================================
+# SECTION 12: METADATA INJECTION (used by Step 5 — Add Metadata)
+# ============================================================================
+# Stamps each sub-document with identity metadata (name, URL, scope, etc.)
+# so Copilot/RAG always knows what document a chunk came from.
+
+metadata:
+
+  # ~~~ Common settings — YOU MAY WANT TO CHANGE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+  # Where to insert the metadata block:
+  #   "top"            — top of document (default, best for most RAG scenarios)
+  #   "top_and_bottom" — both ends (for longer chunks where top may be truncated)
+  #   "each_page"      — Word header on every page (for Word/PDF viewing)
+  placement: "top"
+
+  add_separator: true         # Horizontal rule after metadata block
+  font_size: 8                # Font size (pt) for metadata text
+  label_color: "2F5496"       # Hex RGB color for metadata labels (blue)
+
+  # --- Fields: what metadata appears and in what order ---
+  # Set enabled: false to hide a field. Reorder by moving entries up/down.
+  # source: "auto" = built-in resolver, "static" = fixed value, "excel" = from spreadsheet
+  fields:
+    - key: "name"
+      label: "Document"
+      enabled: true
+      source: "auto"            # resolved from filename + split manifest
+
+    - key: "url"
+      label: "URL"
+      enabled: true
+      source: "auto"            # resolved from Excel lookup or fallback template
+
+    - key: "scope"
+      label: "Scope"
+      enabled: true
+      source: "auto"            # extracted from profiler data or direct doc scan
+
+    - key: "intent"
+      label: "Intent"
+      enabled: true
+      source: "auto"            # extracted from profiler data or direct doc scan
+
+    - key: "tags"
+      label: "Tags"
+      enabled: true
+      source: "auto"            # generated from doc type, sections, acronyms
+
+    # --- Custom field examples (uncomment and edit) ---
+    #
+    # - key: "classification"        # Static: same value on every document
+    #   label: "Classification"
+    #   enabled: true
+    #   source: "static"
+    #   value: "CUI // SP-NOFORN"
+    #
+    # - key: "owner"                 # Excel: pulled from your URL lookup spreadsheet
+    #   label: "Document Owner"
+    #   enabled: true
+    #   source: "excel"
+    #   excel_column: "Owner"        # must match a column header in your Excel file
+
+  # ~~~ URL Resolution — SET THIS if you want URLs in metadata ~~~~~~~~~~~~~~
+  #
+  # Resolution order: 1) Excel lookup → 2) fallback template → 3) "(URL not configured)"
+  url:
+    # Excel file mapping document names → URLs. Leave "" to skip.
+    # Needs at least a name column and a URL column.
+    # Matching: Excel name is checked as a substring of the .docx filename (case-insensitive).
+    lookup_file: ""
+    name_column: "Document Name"    # Column header for doc names
+    url_column: "SharePoint URL"    # Column header for URLs
+    sheet: 0                        # Sheet name (string) or index (0 = first)
+
+    # Fallback URL template when no Excel match found. Use {filename} as placeholder.
+    # Example: "https://contoso.sharepoint.com/sites/Policies/Shared Documents/{filename}"
+    fallback_template: ""
+
+  # ~~~ Advanced settings — LEAVE AS-IS ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+  # Scope/intent text is found via: 1) profiler JSON → 2) direct heading scan → 3) "(Not detected)"
+  # TIP: Run Step 0 (profiler) first for best results.
+  max_scope_chars: 300
+  max_intent_chars: 300
+
+  # Tag generation — multiple sources combined into a comma-separated list.
+  tags:
+    include_doc_type: true          # Add "Type-B" etc. from profiler
+    include_sections_found: true    # Add "has-scope", "has-controls" etc.
+
+    # Path to Acronym Finder output Excel (run Misc/Acronym Finder first).
+    # Leave "" to skip. Reads "Per Document" sheet, matches by filename.
+    acronym_audit_file: ""
+    max_acronym_tags: 15        # Most-frequent first. 0 = unlimited.
+
+    # Static tags added to ALL documents (e.g., ["InfoSec", "GCC-High"])
+    static_tags: []

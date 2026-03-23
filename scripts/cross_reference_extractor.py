@@ -1,5 +1,5 @@
 """
-Step 1 of 5: Cross-Reference Extractor
+Step 2: Cross-Reference Extractor
 ========================================
 
 RUN THIS FIRST before any other processing script.
@@ -11,7 +11,7 @@ Cross-references like "See Section 4.3" become unresolvable after heading
 fixes or document splits change the structure — so we capture them now.
 
 Usage (unified pipeline):
-    python run_pipeline.py --step 1
+    python run_pipeline.py --step 2
 
 Usage (standalone):
     python scripts/cross_reference_extractor.py
@@ -49,16 +49,27 @@ from shared_utils import (
 # ---------------------------------------------------------------------------
 # Cross-reference regex patterns
 # ---------------------------------------------------------------------------
-# Each tuple: (compiled_regex, reference_type)
-# reference_type is "internal" for section numbers, "external" for policy/doc names
+# Patterns are loaded from dps_config.yaml → cross_references.extraction_patterns
+# Each config entry has: phrase (lead-in text) and type ("internal" or "external")
 #
-# HOW TO ADD A NEW PATTERN:
-#   1. Add a new tuple at the end of the list
-#   2. Use re.IGNORECASE if your phrase can appear in any capitalisation
-#   3. The first capture group ( ) must contain the target reference
+# Internal patterns match: <phrase> Section <number>
+# External patterns match: <phrase> [the] <Document Name ending in keyword>
 #
-# NOTE: External reference patterns use document_name_keywords from config
-# if available. The default list is built from CROSS_REF_PATTERNS below.
+# Fallback defaults are used if the config section is missing.
+
+# Fallback patterns used when config has no extraction_patterns
+_DEFAULT_EXTRACTION_PATTERNS = [
+    {"phrase": "see",               "type": "internal"},
+    {"phrase": "refer to",          "type": "internal"},
+    {"phrase": "per",               "type": "internal"},
+    {"phrase": "as described in",   "type": "internal"},
+    {"phrase": "as defined in",     "type": "internal"},
+    {"phrase": "as described in",   "type": "external"},
+    {"phrase": "as defined in",     "type": "external"},
+    {"phrase": "refer to",          "type": "external"},
+    {"phrase": "in accordance with","type": "external"},
+]
+
 
 def build_doc_keyword_alternation(config: dict) -> str:
     """Build the regex alternation group for document name keywords from config."""
@@ -70,29 +81,32 @@ def build_doc_keyword_alternation(config: dict) -> str:
 
 
 def build_cross_ref_patterns(config: dict) -> list[tuple]:
-    """Build cross-reference patterns, using document_name_keywords from config."""
+    """Build cross-reference patterns from config extraction_patterns entries."""
     kw = build_doc_keyword_alternation(config)
 
-    return [
-        # "See Section 4.3" and variants
-        (re.compile(r"[Ss]ee\s+[Ss]ection\s+([\d]+(?:\.[\d]+)*)", re.IGNORECASE), "internal"),
-        # "refer to Section 4.3"
-        (re.compile(r"[Rr]efer\s+to\s+[Ss]ection\s+([\d]+(?:\.[\d]+)*)", re.IGNORECASE), "internal"),
-        # "per Section 4.3"
-        (re.compile(r"[Pp]er\s+[Ss]ection\s+([\d]+(?:\.[\d]+)*)", re.IGNORECASE), "internal"),
-        # "as described in Section 4.3"
-        (re.compile(r"[Aa]s\s+described\s+in\s+[Ss]ection\s+([\d]+(?:\.[\d]+)*)", re.IGNORECASE), "internal"),
-        # "as described in [Policy/Document Name]"
-        (re.compile(r"[Aa]s\s+described\s+in\s+(?:the\s+)?([A-Z][A-Za-z\s&-]{4,}" + kw + r")"), "external"),
-        # "as defined in Section 4.3"
-        (re.compile(r"[Aa]s\s+defined\s+in\s+[Ss]ection\s+([\d]+(?:\.[\d]+)*)", re.IGNORECASE), "internal"),
-        # "as defined in [Policy Name]"
-        (re.compile(r"[Aa]s\s+defined\s+in\s+(?:the\s+)?([A-Z][A-Za-z\s&-]{4,}" + kw + r")"), "external"),
-        # "refer to [document name]"
-        (re.compile(r"[Rr]efer\s+to\s+(?:the\s+)?([A-Z][A-Za-z\s&-]{4,}" + kw + r")"), "external"),
-        # "in accordance with [Policy Name]"
-        (re.compile(r"[Ii]n\s+accordance\s+with\s+(?:the\s+)?([A-Z][A-Za-z\s&-]{4,}" + kw + r")"), "external"),
-    ]
+    entries = config.get("cross_references", {}).get(
+        "extraction_patterns", _DEFAULT_EXTRACTION_PATTERNS
+    )
+
+    patterns = []
+    for entry in entries:
+        phrase = entry["phrase"]
+        ref_type = entry["type"]
+        # Escape the phrase for regex safety, then allow flexible whitespace
+        escaped = re.escape(phrase).replace(r"\ ", r"\s+")
+
+        if ref_type == "internal":
+            regex = re.compile(
+                escaped + r"\s+[Ss]ection\s+([\d]+(?:\.[\d]+)*)",
+                re.IGNORECASE,
+            )
+        else:  # external
+            regex = re.compile(
+                escaped + r"\s+(?:the\s+)?([A-Z][A-Za-z\s&-]{4,}" + kw + r")",
+            )
+        patterns.append((regex, ref_type))
+
+    return patterns
 
 
 def extract_hyperlink_refs(paragraph, doc_rels, config: dict) -> list[dict]:
@@ -181,7 +195,7 @@ def process_document(filepath: str, patterns: list[tuple], config: dict) -> list
 
 
 def main():
-    parser = setup_argparse("Step 1: Extract cross-references from .docx policy documents")
+    parser = setup_argparse("Step 2: Extract cross-references from .docx policy documents")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -227,7 +241,7 @@ def main():
         writer.writerows(all_records)
 
     print("\n" + "=" * 60)
-    print("STEP 1 — CROSS-REFERENCE EXTRACTION SUMMARY")
+    print("STEP 2 — CROSS-REFERENCE EXTRACTION SUMMARY")
     print("=" * 60)
     print(f"Files processed: {files_processed}")
     print(f"Files failed:    {files_failed}")

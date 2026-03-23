@@ -149,6 +149,7 @@ class DocumentProfile:
     filepath: str
     file_size_bytes: int
     total_char_count: int
+    total_word_count: int
     total_paragraphs: int
     approx_pages: float
     over_size_limit: bool
@@ -519,7 +520,7 @@ def classify_table(table, config: dict) -> tuple:
 def detect_cross_references(text: str, config: dict) -> list:
     """Find all cross-reference patterns in a text string. Returns list of (match_text, pattern_name)."""
     results = []
-    for pattern in config['cross_references']['patterns']:
+    for pattern in config['cross_references']['profiler_patterns']:
         for match in re.finditer(pattern, text, re.IGNORECASE):
             results.append((match.group(), pattern))
     return results
@@ -852,7 +853,7 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
     except PackageNotFoundError:
         return DocumentProfile(
             filename=filename, filepath=filepath, file_size_bytes=os.path.getsize(filepath),
-            total_char_count=0, total_paragraphs=0, approx_pages=0, over_size_limit=False,
+            total_char_count=0, total_word_count=0, total_paragraphs=0, approx_pages=0, over_size_limit=False,
             heading_count=0, h1_count=0, h2_count=0, h3_count=0, h4_count=0,
             builtin_heading_count=0, custom_heading_count=0, fake_heading_count=0,
             heading_styles_used=[], sections=[], has_purpose=False, has_scope=False,
@@ -871,7 +872,7 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
     except Exception as e:
         return DocumentProfile(
             filename=filename, filepath=filepath, file_size_bytes=os.path.getsize(filepath),
-            total_char_count=0, total_paragraphs=0, approx_pages=0, over_size_limit=False,
+            total_char_count=0, total_word_count=0, total_paragraphs=0, approx_pages=0, over_size_limit=False,
             heading_count=0, h1_count=0, h2_count=0, h3_count=0, h4_count=0,
             builtin_heading_count=0, custom_heading_count=0, fake_heading_count=0,
             heading_styles_used=[], sections=[], has_purpose=False, has_scope=False,
@@ -891,6 +892,7 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
     file_size = os.path.getsize(filepath)
     paragraphs = doc.paragraphs
     total_chars = sum(len(p.text) for p in paragraphs)
+    total_words = sum(len(p.text.split()) for p in paragraphs if p.text.strip())
     total_paras = len(paragraphs)
     ppp = config['thresholds']['paragraphs_per_page']
     approx_pages = round(total_paras / ppp, 1) if ppp > 0 else 0
@@ -993,12 +995,18 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
     # ----- Table analysis -----
     tables_info = []
     total_table_chars = 0
+    total_table_words = 0
     merged_count = 0
     type_counts = {}
 
     for tidx, table in enumerate(doc.tables):
         cls_name, header_row, has_merged, tbl_chars = classify_table(table, config)
         total_table_chars += tbl_chars
+        for row in table.rows:
+            for cell in row.cells:
+                cell_text = cell.text.strip()
+                if cell_text:
+                    total_table_words += len(cell_text.split())
         if has_merged:
             merged_count += 1
         type_counts[cls_name] = type_counts.get(cls_name, 0) + 1
@@ -1065,6 +1073,7 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
         filepath=filepath,
         file_size_bytes=file_size,
         total_char_count=total_chars,
+        total_word_count=total_words + total_table_words,
         total_paragraphs=total_paras,
         approx_pages=approx_pages,
         over_size_limit=over_size,
@@ -1215,6 +1224,7 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
         ("Priority Score", 12),
         ("Pages (approx)", 10),
         ("Characters", 12),
+        ("Words", 10),
         ("Over 36k Limit", 10),
         ("Tables", 7),
         ("Merged Cell Tables", 10),
@@ -1270,6 +1280,7 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
             p.priority_score,
             p.approx_pages,
             p.total_char_count,
+            p.total_word_count,
             bool_to_str(p.over_size_limit),
             p.table_count,
             p.tables_with_merged_cells,
@@ -1337,6 +1348,8 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
         ("Missing 1+ Standard Sections", len([p for p in profiles if p.missing_sections])),
         ("", ""),
         ("Avg Characters", round(sum(p.total_char_count for p in profiles) / len(profiles)) if profiles else 0),
+        ("Avg Words", round(sum(p.total_word_count for p in profiles) / len(profiles)) if profiles else 0),
+        ("Total Words Across All Docs", sum(p.total_word_count for p in profiles)),
         ("Avg Pages (approx)", round(sum(p.approx_pages for p in profiles) / len(profiles), 1) if profiles else 0),
         ("Avg Tables", round(sum(p.table_count for p in profiles) / len(profiles), 1) if profiles else 0),
         ("Avg Cross-Refs", round(sum(p.cross_ref_count for p in profiles) / len(profiles), 1) if profiles else 0),
@@ -1668,6 +1681,7 @@ def main():
                 print(
                     f"OK  [Type {profile.doc_type}]  "
                     f"{profile.total_char_count:,} chars  "
+                    f"{profile.total_word_count:,} words  "
                     f"{profile.table_count} tables  "
                     f"({elapsed:.1f}s)"
                 )

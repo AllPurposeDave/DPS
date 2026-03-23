@@ -1,0 +1,47 @@
+filename,section_heading,heading_level,heading_style,is_builtin_style,is_fake_heading,standard_section,char_count,paragraph_count,cross_ref_count
+Configuration_Management_Policy_POL-CM-2026-004.docx,Configuration Management Policy,1,,False,True,none,134,3,0
+Configuration_Management_Policy_POL-CM-2026-004.docx,Policy Purpose,1,,False,True,purpose,267,3,0
+Configuration_Management_Policy_POL-CM-2026-004.docx,Policy Scope,1,,False,True,scope,235,3,1
+Configuration_Management_Policy_POL-CM-2026-004.docx,Risk Context and Intent,1,,False,True,intent,357,3,1
+Configuration_Management_Policy_POL-CM-2026-004.docx,Section 2: Controls,1,,False,True,controls,132,3,0
+Configuration_Management_Policy_POL-CM-2026-004.docx,2.1 Baseline Configuration Controls,1,,False,True,controls,36,2,0
+Configuration_Management_Policy_POL-CM-2026-004.docx,2.2 Configuration Monitoring Controls,1,,False,True,controls,38,2,0
+Configuration_Management_Policy_POL-CM-2026-004.docx,Section 3: Roles and Responsibilities,1,,False,True,none,38,2,0
+Configuration_Management_Policy_POL-CM-2026-004.docx,Section 4: Change Impact Analysis Template,1,,False,True,none,129,3,0
+Configuration_Management_Policy_POL-CM-2026-004.docx,Appendix - Framework Crosswalk,1,,False,True,appendix,30,1,0
+Access_Control_Policy_POL-AC-2026-001.docx,Access Control Policy,1,Heading 1,True,False,none,122,3,0
+Access_Control_Policy_POL-AC-2026-001.docx,Purpose,1,Heading 1,True,False,purpose,268,3,1
+Access_Control_Policy_POL-AC-2026-001.docx,Scope,1,,False,True,scope,204,3,1
+Access_Control_Policy_POL-AC-2026-001.docx,Intent,1,Heading 1,True,False,intent,363,3,1
+Access_Control_Policy_POL-AC-2026-001.docx,Controls,1,Heading 1,True,False,controls,273,5,1
+Access_Control_Policy_POL-AC-2026-001.docx,Supplementary Access Requirements,1,,False,True,controls,182,4,0
+Access_Control_Policy_POL-AC-2026-001.docx,4. Enforcement,1,Heading 1,True,False,none,329,3,2
+Access_Control_Policy_POL-AC-2026-001.docx,5. Appendix A - Definitions,1,,False,True,appendix,28,2,0
+Access_Control_Policy_POL-AC-2026-001.docx,Appendix B - Revision History,1,,False,True,appendix,29,1,0
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,Risk Management Framework Compliance Mapping,1,Heading 1,True,False,none,144,3,0
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,Purpose,1,Heading 1,True,False,purpose,248,3,0
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,Scope,1,,False,True,scope,673,6,2
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,Appendix A: Access Control Crosswalk,1,Heading 1,True,False,appendix,38,3,0
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,Appendix B: Incident Response Crosswalk,1,Heading 1,True,False,appendix,40,2,0
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,Appendix C: Configuration Management Crosswalk,1,Heading 1,True,False,appendix,48,3,0
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,Appendix D: Control Inheritance Matrix,1,,False,True,appendix,266,3,0
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,Appendix E: Glossary,1,Heading 1,True,False,appendix,21,2,0
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,Revision History,1,,False,True,none,16,1,0
+Incident_Response_Policy_POL-IR-2026-003.docx,Incident Response Policy,1,Heading 1,True,False,none,123,3,0
+Incident_Response_Policy_POL-IR-2026-003.docx,1.0 Purpose,1,Heading 1,True,False,purpose,210,3,0
+Incident_Response_Policy_POL-IR-2026-003.docx,1.1 Policy Rationale,1,,False,True,none,357,3,0
+Incident_Response_Policy_POL-IR-2026-003.docx,2.0 Scope,1,Heading 1,True,False,scope,297,3,1
+Incident_Response_Policy_POL-IR-2026-003.docx,3.0 Intent,1,,False,True,intent,333,3,1
+Incident_Response_Policy_POL-IR-2026-003.docx,4.0 Controls and Procedures,1,Heading 1,True,False,controls,1472,12,3
+Incident_Response_Policy_POL-IR-2026-003.docx,4.3 Escalation Matrix,1,,False,True,none,54,4,0
+Incident_Response_Policy_POL-IR-2026-003.docx,5. Documentation and Retention,1,,False,True,none,386,3,0
+Incident_Response_Policy_POL-IR-2026-003.docx,Appendix A - References,1,Heading 1,True,False,appendix,328,6,0
+Acceptable_Use_Policy_POL-AU-2026-006.docx,Acceptable Use Policy,1,Heading 1,True,False,none,131,3,0
+Acceptable_Use_Policy_POL-AU-2026-006.docx,Purpose,1,Heading 1,True,False,purpose,322,3,0
+Acceptable_Use_Policy_POL-AU-2026-006.docx,Scope,1,Heading 1,True,False,scope,421,3,1
+Acceptable_Use_Policy_POL-AU-2026-006.docx,Intent,1,Heading 1,True,False,intent,911,4,1
+Acceptable_Use_Policy_POL-AU-2026-006.docx,General Use Requirements,1,Heading 1,True,False,controls,973,5,2
+Acceptable_Use_Policy_POL-AU-2026-006.docx,Email and Communications,1,Heading 1,True,False,none,1507,10,2
+Acceptable_Use_Policy_POL-AU-2026-006.docx,Controls,1,,False,True,controls,9,2,0
+Acceptable_Use_Policy_POL-AU-2026-006.docx,6. Enforcement and Disciplinary Actions,1,Heading 1,True,False,none,1136,8,1
+Acceptable_Use_Policy_POL-AU-2026-006.docx,Appendix,1,Heading 1,True,False,appendix,283,8,0

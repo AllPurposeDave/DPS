@@ -21,11 +21,11 @@ USAGE:
 
 PIPELINE ORDER:
     Step 0  Document Profiler          → output/0 - profiler/
-    Step 1  Cross-Reference Extractor  → output/1 - cross_references/
-    Step 2  Heading Style Fixer        → output/2 - heading_fixes/
-    Step 3  Section Splitter           → output/3 - split_documents/
-    Step 4  Control Extractor          → output/4 - controls/
-    Step 5  Word Counter               → output/5 - reports/
+    Step 1  Control Extractor          → output/1 - controls/
+    Step 2  Cross-Reference Extractor  → output/2 - cross_references/
+    Step 3  Heading Style Fixer        → output/3 - heading_fixes/
+    Step 4  Section Splitter           → output/4 - split_documents/
+    Step 5  Metadata Injector          → output/5 - metadata/
 
 REQUIREMENTS:
     pip install -r requirements.txt
@@ -100,49 +100,49 @@ def get_step_definitions(config: dict, config_path: str) -> list[dict]:
         {
             "number": 0,
             "name": "Step 0 — Document Profiler",
-            "description": "Scan all docs, extract metadata, classify types, score priority",
+            "description": "Scan all docs, extract metadata, classify types, score priority, count words",
             "script": os.path.join(scripts_dir, "policy_profiler.py"),
             "args": ["--config", abs_config, "--input", input_dir, "--output", out("profiler")],
             "enabled": True,
         },
         {
             "number": 1,
-            "name": "Step 1 — Cross-Reference Extractor",
-            "description": "Capture all cross-refs BEFORE any structural changes",
-            "script": os.path.join(scripts_dir, "cross_reference_extractor.py"),
-            "args": ["--config", abs_config, input_dir, out("cross_references")],
-            "enabled": True,
-        },
-        {
-            "number": 2,
-            "name": "Step 2 — Heading Style Fixer",
-            "description": "Convert fake bold headings to real Word Heading styles",
-            "script": os.path.join(scripts_dir, "heading_style_fixer.py"),
-            "args": ["--config", abs_config, input_dir, out("heading_fixes")],
-            "enabled": True,
-        },
-        {
-            "number": 3,
-            "name": "Step 3 — Section Splitter",
-            "description": "Split fixed docs at H1 boundaries into sub-documents",
-            "script": os.path.join(scripts_dir, "section_splitter.py"),
-            "args": ["--config", abs_config, out("heading_fixes"), out("split_documents")],
-            "enabled": True,
-        },
-        {
-            "number": 4,
-            "name": "Step 4 — Control Extractor",
+            "name": "Step 1 — Control Extractor",
             "description": "Extract structured control data from compliance docs",
             "script": os.path.join(scripts_dir, "extract_controls.py"),
             "args": ["--config", abs_config, input_dir, out("controls")],
             "enabled": True,
         },
         {
+            "number": 2,
+            "name": "Step 2 — Cross-Reference Extractor",
+            "description": "Capture all cross-refs BEFORE any structural changes",
+            "script": os.path.join(scripts_dir, "cross_reference_extractor.py"),
+            "args": ["--config", abs_config, input_dir, out("cross_references")],
+            "enabled": True,
+        },
+        {
+            "number": 3,
+            "name": "Step 3 — Heading Style Fixer",
+            "description": "Convert fake bold headings to real Word Heading styles",
+            "script": os.path.join(scripts_dir, "heading_style_fixer.py"),
+            "args": ["--config", abs_config, input_dir, out("heading_fixes")],
+            "enabled": True,
+        },
+        {
+            "number": 4,
+            "name": "Step 4 — Section Splitter",
+            "description": "Split fixed docs at H1 boundaries into sub-documents",
+            "script": os.path.join(scripts_dir, "section_splitter.py"),
+            "args": ["--config", abs_config, out("heading_fixes"), out("split_documents")],
+            "enabled": True,
+        },
+        {
             "number": 5,
-            "name": "Step 5 — Word Counter",
-            "description": "Count words in final sub-documents (QA validation)",
-            "script": os.path.join(scripts_dir, "word_counter.py"),
-            "args": ["--config", abs_config, out("split_documents"), out("reports")],
+            "name": "Step 5 — Metadata Injector",
+            "description": "Add identity metadata (name, URL, scope, intent, tags) to sub-documents",
+            "script": os.path.join(scripts_dir, "add_metadata.py"),
+            "args": ["--config", abs_config, out("split_documents"), out("metadata")],
             "enabled": True,
         },
     ]
@@ -235,6 +235,11 @@ def main():
         action="store_true",
         help="List all steps and their enabled status, then exit",
     )
+    parser.add_argument(
+        "--no-excel",
+        action="store_true",
+        help="Skip generating the consolidated Excel report after pipeline completes",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -313,6 +318,22 @@ def main():
         output_dir = os.path.abspath(config.get("output", {}).get("directory", "./output"))
         print(f"\n  All steps completed successfully!")
         print(f"  Results are in: {output_dir}")
+
+        # --- Consolidated Excel Report ---
+        report_enabled = config.get("output", {}).get("consolidated_report", {}).get("enabled", True)
+        if report_enabled and not args.no_excel:
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts"))
+            from shared_utils import build_consolidated_workbook
+            # Inject _config_dir so build_consolidated_workbook can resolve paths
+            config["_config_dir"] = os.path.dirname(os.path.abspath(args.config))
+            timestamp_str = time.strftime("%Y-%m-%d_%H%M%S")
+            try:
+                report_path = build_consolidated_workbook(config, timestamp_str)
+                if report_path:
+                    print(f"\n  Consolidated report: {report_path}")
+            except Exception as e:
+                print(f"\n  WARNING: Could not generate consolidated Excel report: {e}")
+
     print("=" * 70)
     print()
 

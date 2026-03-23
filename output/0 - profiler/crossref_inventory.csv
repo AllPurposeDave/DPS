@@ -1,0 +1,23 @@
+filename,cross_ref_text,pattern_matched,paragraph_index,parent_section
+Configuration_Management_Policy_POL-CM-2026-004.docx,Refer to Section,refer to\s+(section|the),7,Policy Scope
+Configuration_Management_Policy_POL-CM-2026-004.docx,As described in the,as described in\s+(the|section),10,Risk Context and Intent
+Access_Control_Policy_POL-AC-2026-001.docx,in accordance with the,in accordance with\s+(the|section),4,Purpose
+Access_Control_Policy_POL-AC-2026-001.docx,refer to Section,refer to\s+(section|the),7,Scope
+Access_Control_Policy_POL-AC-2026-001.docx,See Section 5.2,see section\s+[\d\.]+[a-z]?,10,Intent
+Access_Control_Policy_POL-AC-2026-001.docx,As described in the,as described in\s+(the|section),13,Controls
+Access_Control_Policy_POL-AC-2026-001.docx,Refer to Section,refer to\s+(section|the),22,4. Enforcement
+Access_Control_Policy_POL-AC-2026-001.docx,as described in the,as described in\s+(the|section),22,4. Enforcement
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,refer to the,refer to\s+(section|the),7,Scope
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,As described in the,as described in\s+(the|section),10,Scope
+Incident_Response_Policy_POL-IR-2026-003.docx,refer to Section,refer to\s+(section|the),10,2.0 Scope
+Incident_Response_Policy_POL-IR-2026-003.docx,as described in the,as described in\s+(the|section),13,3.0 Intent
+Incident_Response_Policy_POL-IR-2026-003.docx,refer to Section,refer to\s+(section|the),21,4.0 Controls and Procedures
+Incident_Response_Policy_POL-IR-2026-003.docx,see Section 3.4,see section\s+[\d\.]+[a-z]?,23,4.0 Controls and Procedures
+Incident_Response_Policy_POL-IR-2026-003.docx,As described in Section,as described in\s+(the|section),25,4.0 Controls and Procedures
+Acceptable_Use_Policy_POL-AU-2026-006.docx,refer to Section,refer to\s+(section|the),7,Scope
+Acceptable_Use_Policy_POL-AU-2026-006.docx,As described in the,as described in\s+(the|section),11,Intent
+Acceptable_Use_Policy_POL-AU-2026-006.docx,See Section 4.1,see section\s+[\d\.]+[a-z]?,15,General Use Requirements
+Acceptable_Use_Policy_POL-AU-2026-006.docx,Refer to Section,refer to\s+(section|the),16,General Use Requirements
+Acceptable_Use_Policy_POL-AU-2026-006.docx,As described in the,as described in\s+(the|section),20,Email and Communications
+Acceptable_Use_Policy_POL-AU-2026-006.docx,refer to Section,refer to\s+(section|the),23,Email and Communications
+Acceptable_Use_Policy_POL-AU-2026-006.docx,Refer to Section,refer to\s+(section|the),36,6. Enforcement and Disciplinary Actions

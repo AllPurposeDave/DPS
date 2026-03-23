@@ -1,15 +1,15 @@
 """
-Step 2 of 5: Heading Style Fixer
-==================================
+Step 3: Heading Style Fixer
+=============================
 
-RUN THIS SECOND — after cross_reference_extractor.py, before section_splitter.py.
+RUN THIS AFTER cross_reference_extractor.py, before section_splitter.py.
 
 Converts fake headings (bold text with no Word Heading style) to real
-Word Heading 1/2/3 styles. The splitter (Step 3) depends on correct
+Word Heading 1/2/3 styles. The splitter (Step 4) depends on correct
 Heading styles to know where to cut.
 
 Usage (unified pipeline):
-    python run_pipeline.py --step 2
+    python run_pipeline.py --step 3
 
 Usage (standalone):
     python scripts/heading_style_fixer.py
@@ -126,7 +126,7 @@ def is_fake_heading(paragraph, max_chars: int = 120) -> bool:
     return True
 
 
-def get_custom_style_mapping(style_name: str, style_map: dict) -> str | None:
+def get_custom_style_mapping(style_name: str, style_map: dict):
     """Check if a style name matches a known custom heading style."""
     if not style_name:
         return None
@@ -184,7 +184,7 @@ def process_document(filepath: str, output_dir: str, config: dict) -> list[dict]
 
 
 def main():
-    parser = setup_argparse("Step 2: Fix heading styles in .docx policy documents")
+    parser = setup_argparse("Step 3: Fix heading styles in .docx policy documents")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -226,7 +226,7 @@ def main():
         writer.writerows(all_changes)
 
     print("\n" + "=" * 60)
-    print("STEP 2 — HEADING STYLE FIXER SUMMARY")
+    print("STEP 3 — HEADING STYLE FIXER SUMMARY")
     print("=" * 60)
     print(f"Files processed: {files_processed}")
     print(f"Files failed:    {files_failed}")

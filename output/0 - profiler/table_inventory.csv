@@ -1,0 +1,20 @@
+filename,table_index,rows,cols,classification,has_merged_cells,char_count,header_row
+Configuration_Management_Policy_POL-CM-2026-004.docx,0,5,6,control_matrix,False,1058,Control ID | Title | Description | NIST Mapping | Implementation Status | Responsible Party
+Configuration_Management_Policy_POL-CM-2026-004.docx,1,5,6,control_matrix,False,995,Control ID | Title | Description | NIST Mapping | Implementation Status | Responsible Party
+Configuration_Management_Policy_POL-CM-2026-004.docx,2,6,2,role_responsibility,False,576,Role | Responsibilities
+Configuration_Management_Policy_POL-CM-2026-004.docx,3,6,2,unclassified,False,537,Analysis Element | Required Information
+Configuration_Management_Policy_POL-CM-2026-004.docx,4,9,4,control_matrix,False,342,Org Control ID | NIST 800-53 | CIS Control | FedRAMP Baseline
+Access_Control_Policy_POL-AC-2026-001.docx,0,7,6,control_matrix,False,1173,Control ID | Control Title | Requirement | NIST Mapping | Status | Owner
+Access_Control_Policy_POL-AC-2026-001.docx,1,4,3,control_matrix,False,468,Req ID | Description | Framework Ref
+Access_Control_Policy_POL-AC-2026-001.docx,2,5,2,reference_table,False,437,Term | Definition
+Access_Control_Policy_POL-AC-2026-001.docx,3,4,4,unclassified,False,219,Version | Date | Author | Changes
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,0,10,7,control_matrix,False,807,Org Control | Control Title | NIST 800-53 | CIS v8 | FedRAMP | Parent Policy | Status
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,1,6,7,control_matrix,False,470,Org Control | Control Title | NIST 800-53 | CIS v8 | FedRAMP | Parent Policy | Status
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,2,9,7,control_matrix,False,680,Org Control | Control Title | NIST 800-53 | CIS v8 | FedRAMP | Parent Policy | Status
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,3,5,5,control_matrix,False,398,Org Control | Inheritance Type | Provider | Provider Control | Validation Method
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,4,9,2,reference_table,False,1156,Term | Definition
+RMF_Compliance_Mapping_POL-RMF-2026-010.docx,5,4,3,unclassified,False,219,Version | Date | Changes
+Incident_Response_Policy_POL-IR-2026-003.docx,0,5,5,crosswalk_table,False,695,Category | Severity | Description | Response Timeline | NIST Mapping
+Incident_Response_Policy_POL-IR-2026-003.docx,1,5,5,applicability_table,False,331,Incident Severity | Primary Contact | Secondary Contact | Executive Notification | External Reporting
+Incident_Response_Policy_POL-IR-2026-003.docx,2,6,4,control_matrix,False,747,Control ID | Requirement | NIST Ref | Status
+Acceptable_Use_Policy_POL-AU-2026-006.docx,0,4,3,control_matrix,False,371,Control ID | Requirement | NIST Ref

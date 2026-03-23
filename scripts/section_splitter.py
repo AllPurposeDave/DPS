@@ -1,30 +1,30 @@
 """
-Step 3 of 5: Section Splitter
-================================
+Step 4: Section Splitter
+===========================
 
-RUN THIS THIRD — after heading_style_fixer.py has produced *_fixed.docx files.
+RUN THIS AFTER heading_style_fixer.py has produced *_fixed.docx files.
 
 Splits each _fixed.docx at Heading 1 boundaries into sub-documents,
 each under the character limit (default 36,000). Prepends the document
 preamble (content before first H1) to every sub-document.
 
 Usage (unified pipeline):
-    python run_pipeline.py --step 3
+    python run_pipeline.py --step 4
 
 Usage (standalone):
     python scripts/section_splitter.py
     python scripts/section_splitter.py --config dps_config.yaml
-    python scripts/section_splitter.py ./output/2\ -\ heading_fixes/ ./output/3\ -\ split_documents/
+    python scripts/section_splitter.py ./output/3\ -\ heading_fixes/ ./output/4\ -\ split_documents/
 
 Input:
-    Reads *_fixed.docx files from Step 2's output directory.
+    Reads *_fixed.docx files from Step 3's output directory.
 
 Output:
     Sub-document .docx files named "[OriginalName] - [Heading1Text].docx"
     split_manifest.csv — manifest of all sub-documents created
 
 FAILURE POINT: This script ONLY processes files ending in "_fixed.docx".
-If Step 2 was not run, this script will find nothing.
+If Step 3 was not run, this script will find nothing.
 
 FAILURE POINT: Check split_manifest.csv after running:
   - "Full Document - No Heading 1 found" = heading fixer didn't work for that doc
@@ -301,7 +301,7 @@ def process_document(filepath: str, output_dir: str, max_chars: int, chars_per_p
 
 
 def main():
-    parser = setup_argparse("Step 3: Split _fixed.docx policy documents at Heading 1 boundaries")
+    parser = setup_argparse("Step 4: Split _fixed.docx policy documents at Heading 1 boundaries")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -309,7 +309,7 @@ def main():
     max_chars = thresholds.get("max_characters", 36_000)
     chars_per_page = thresholds.get("chars_per_page", 1800)
 
-    # Input: Step 2's output directory (heading fixes)
+    # Input: Step 3's output directory (heading fixes)
     if args.input_dir:
         input_dir = args.input_dir
     else:
@@ -324,7 +324,7 @@ def main():
 
     if not docx_files:
         print(f"No *_fixed.docx files found in {input_dir}")
-        print("Run heading_style_fixer.py (Step 2) first to generate _fixed.docx files.")
+        print("Run heading_style_fixer.py (Step 3) first to generate _fixed.docx files.")
         return
 
     manifest_file = config.get("output", {}).get("split_documents", {}).get("manifest_file", "split_manifest.csv")
@@ -356,7 +356,7 @@ def main():
         writer.writerows(all_records)
 
     print("\n" + "=" * 60)
-    print("STEP 3 — SECTION SPLITTER SUMMARY")
+    print("STEP 4 — SECTION SPLITTER SUMMARY")
     print("=" * 60)
     print(f"Files processed:        {files_processed}")
     print(f"Files failed:           {files_failed}")

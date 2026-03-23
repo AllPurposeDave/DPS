@@ -6,12 +6,11 @@ Updated to support the unified dps_config.yaml.
 
 REQUIREMENTS:
   pip install python-docx pyyaml
-  Python 3.10 or later (uses X | Y type hint syntax)
-
-FAILURE POINT: If you see "TypeError: unsupported operand type(s) for |"
-on import, your Python version is below 3.10. Upgrade Python.
+  Python 3.8 or later
 """
 # pip install python-docx pyyaml
+
+from __future__ import annotations
 
 import argparse
 import glob
@@ -19,9 +18,10 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import Optional
 
 
-def load_config(config_path: str | None = None) -> dict:
+def load_config(config_path: Optional[str] = None) -> dict:
     """
     Load the unified dps_config.yaml.
 
@@ -64,7 +64,7 @@ def resolve_path(config: dict, relative_path: str) -> str:
     return os.path.normpath(os.path.join(config_dir, relative_path))
 
 
-def get_input_dir(config: dict, cli_override: str | None = None) -> str:
+def get_input_dir(config: dict, cli_override: Optional[str] = None) -> str:
     """
     Get the input directory path, with CLI override taking priority.
 
@@ -76,7 +76,7 @@ def get_input_dir(config: dict, cli_override: str | None = None) -> str:
     return resolve_path(config, input_dir)
 
 
-def get_output_dir(config: dict, step_key: str, cli_override: str | None = None) -> str:
+def get_output_dir(config: dict, step_key: str, cli_override: Optional[str] = None) -> str:
     """
     Get the output directory for a specific pipeline step.
 
@@ -128,7 +128,7 @@ def setup_argparse(description: str) -> argparse.ArgumentParser:
     return parser
 
 
-def iter_docx_files(input_dir: str, config: dict | None = None) -> list[str]:
+def iter_docx_files(input_dir: str, config: Optional[dict] = None) -> list:
     """
     Return sorted list of .docx file paths in input_dir.
     Skips files matching exclude patterns from config.
@@ -188,7 +188,7 @@ def is_heading_style(style) -> bool:
     return bool(re.match(r"^Heading \d$", name))
 
 
-def get_heading_level(style) -> int | None:
+def get_heading_level(style) -> Optional[int]:
     """
     Return the heading level (1-9) if the style is a standard heading, else None.
 
@@ -283,3 +283,146 @@ def ensure_output_dir(output_dir: str) -> None:
     os.makedirs will raise PermissionError. Run from a local drive if possible.
     """
     os.makedirs(output_dir, exist_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Consolidated Excel report utilities
+# ---------------------------------------------------------------------------
+
+def _sanitize_sheet_name(name: str) -> str:
+    """Sanitize a string for use as an Excel sheet name (max 31 chars)."""
+    for ch in "[]:*?/\\":
+        name = name.replace(ch, "-")
+    return name[:31]
+
+
+def add_csv_as_sheet(wb, csv_path: str, sheet_name: str) -> bool:
+    """
+    Read a CSV file and add it as a styled worksheet in an openpyxl Workbook.
+
+    Returns True if the sheet was added, False if the CSV is missing or empty.
+    Light styling: blue header row, freeze pane, autofilter, auto column widths.
+    """
+    import csv as csv_mod
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    csv_path = Path(csv_path)
+    if not csv_path.exists() or csv_path.stat().st_size == 0:
+        return False
+
+    with open(csv_path, "r", encoding="utf-8", newline="") as f:
+        reader = csv_mod.reader(f)
+        rows = list(reader)
+
+    if not rows:
+        return False
+
+    safe_name = _sanitize_sheet_name(sheet_name)
+    ws = wb.create_sheet(title=safe_name)
+
+    # Write all rows
+    for row in rows:
+        ws.append(row)
+
+    # --- Light styling ---
+    header_font = Font(name="Arial", bold=True, size=10, color="FFFFFF")
+    header_fill = PatternFill(start_color="2F5496", end_color="2F5496", fill_type="solid")
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style="thin", color="CCCCCC"),
+        right=Side(style="thin", color="CCCCCC"),
+        top=Side(style="thin", color="CCCCCC"),
+        bottom=Side(style="thin", color="CCCCCC"),
+    )
+
+    # Style header row
+    for cell in ws[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+
+    # Freeze top row and autofilter
+    ws.freeze_panes = "A2"
+    if ws.max_column and ws.max_row:
+        last_col = get_column_letter(ws.max_column)
+        ws.auto_filter.ref = f"A1:{last_col}{ws.max_row}"
+
+    # Auto column widths (scan all rows, cap at 60)
+    for col_idx in range(1, ws.max_column + 1):
+        max_width = 0
+        for row in ws.iter_rows(min_col=col_idx, max_col=col_idx, values_only=True):
+            val = row[0]
+            if val is not None:
+                max_width = max(max_width, len(str(val)))
+        letter = get_column_letter(col_idx)
+        ws.column_dimensions[letter].width = min(max_width + 2, 60)
+
+    return True
+
+
+def build_consolidated_workbook(config: dict, timestamp_str: str) -> Optional[str]:
+    """
+    Build a single Excel workbook with one sheet per pipeline CSV output.
+
+    Args:
+        config: Parsed dps_config.yaml dict.
+        timestamp_str: Timestamp for the filename (e.g. "2026-03-23_143052").
+
+    Returns the saved file path on success, None on failure.
+    """
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        print("  WARNING: openpyxl not installed — skipping consolidated Excel report.")
+        print("  FIX: pip install openpyxl")
+        return None
+
+    output_cfg = config.get("output", {})
+    output_root = output_cfg.get("directory", "./output")
+    config_dir = config.get("_config_dir", os.getcwd())
+    if not os.path.isabs(output_root):
+        output_root = os.path.normpath(os.path.join(config_dir, output_root))
+
+    # Sheet manifest: (sheet_name, config_step_key, filename_config_key)
+    sheet_manifest = [
+        ("0 - Sections",         "profiler",          "sections_file"),
+        ("0 - Tables",           "profiler",          "tables_file"),
+        ("0 - CrossRefs",        "profiler",          "crossrefs_file"),
+        ("1 - Controls",         "controls",          "output_file"),
+        ("2 - Cross References", "cross_references",  "output_file"),
+        ("3 - Heading Changes",  "heading_fixes",     "changes_file"),
+        ("4 - Split Manifest",   "split_documents",   "manifest_file"),
+        ("5 - Metadata",         "metadata",          "manifest_file"),
+    ]
+
+    wb = Workbook()
+    # Remove the default empty sheet (will be re-added if no CSVs found)
+    wb.remove(wb.active)
+
+    sheets_added = 0
+    for sheet_name, step_key, file_key in sheet_manifest:
+        step_cfg = output_cfg.get(step_key, {})
+        step_dir = step_cfg.get("directory", "")
+        csv_filename = step_cfg.get(file_key, "")
+        csv_path = os.path.join(output_root, step_dir, csv_filename)
+
+        if add_csv_as_sheet(wb, csv_path, sheet_name):
+            sheets_added += 1
+
+    if sheets_added == 0:
+        print("  WARNING: No CSV files found — skipping consolidated Excel report.")
+        return None
+
+    report_cfg = output_cfg.get("consolidated_report", {})
+    prefix = report_cfg.get("filename_prefix", "DPS_Report")
+    filename = f"{prefix}_{timestamp_str}.xlsx"
+    save_path = os.path.join(output_root, filename)
+
+    try:
+        wb.save(save_path)
+        return save_path
+    except PermissionError:
+        print(f"  WARNING: Could not save {filename} — file may be open in another app.")
+        return None

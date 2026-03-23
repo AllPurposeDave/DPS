@@ -1,13 +1,21 @@
 """
-Step 4 of 5: Compliance Document Control Extractor
+Step 1: Compliance Document Control Extractor
 =====================================================
 
 Reads .docx compliance/security policy documents, extracts structured
-control data (IDs, descriptions, implementation guidance, and document
-metadata), then writes everything into a consolidated CSV.
+control data (IDs, descriptions, supplemental guidance, and document
+metadata), then writes everything into CSV and/or Excel output.
+
+Features:
+    - Multiple control ID patterns (any pattern triggers a match)
+    - Whitelist/blacklist filtering by exact ID or prefix wildcard
+    - 3-way text classification: description / supplemental guidance / miscellaneous
+    - Configurable section heading detection (5 signal types)
+    - CSV and/or Excel output (configurable)
+    - Checkpointing for resumable batch runs
 
 Usage (unified pipeline):
-    python run_pipeline.py --step 4
+    python run_pipeline.py --step 1
 
 Usage (standalone):
     python scripts/extract_controls.py
@@ -15,12 +23,13 @@ Usage (standalone):
     python scripts/extract_controls.py ./input ./output
 
 Output:
-    controls_output.csv — one row per extracted control
-    checkpoint.json — tracks progress for resumable runs
-    errors.log — error and warning log
+    controls_output.csv  — one row per extracted control (if CSV enabled)
+    controls_output.xlsx — one row per extracted control (if Excel enabled)
+    checkpoint.json      — tracks progress for resumable runs
+    errors.log           — error and warning log
 
 DEPENDENCIES:
-    pip install python-docx pyyaml
+    pip install python-docx pyyaml openpyxl
     Everything else is Python stdlib. No API keys. Fully offline.
 """
 
@@ -50,12 +59,13 @@ from shared_utils import (
 
 @dataclass
 class ControlRow:
-    """Represents a single row in the output CSV."""
+    """Represents a single row in the output."""
     source_file: str = ""
     section_header: str = ""
     control_id: str = ""
     control_description: str = ""
-    implementation_guidelines: str = ""
+    supplemental_guidance: str = ""
+    miscellaneous: str = ""
     purpose: str = ""
     scope: str = ""
     applicability: str = ""
@@ -69,24 +79,68 @@ def build_patterns(config: dict) -> dict:
     """Build all regex patterns from config, with sensible defaults."""
     ctrl_cfg = config.get("control_extraction", {})
 
-    control_id = ctrl_cfg.get("control_id_pattern", r'\b[A-Z]{2,4}[-.]?\d{1,3}[-.]\d{2,4}\b')
+    # Support both legacy single-pattern and new multi-pattern config
+    id_patterns = ctrl_cfg.get("control_id_patterns", None)
+    if id_patterns is None:
+        legacy = ctrl_cfg.get("control_id_pattern", r'\b[A-Z]{2,4}[-.]?\d{1,3}[-.]\d{2,4}\b')
+        id_patterns = [legacy]
+
+    # Build combined regex from all patterns
+    combined_pattern = "|".join(f"({p})" for p in id_patterns)
+    control_id_combined = re.compile(combined_pattern)
+
     impl_trigger = ctrl_cfg.get("implementation_trigger",
-                                r'(?i)(implementation guidance|implementation:|guidelines:|how to implement)')
+                                r'(?i)(implementation guidance|implementation:|guidelines:|how to implement|supplemental guidance)')
+
+    # Build guidance regex from keywords list if available, else use impl_trigger
+    guidance_keywords = ctrl_cfg.get("guidance_keywords", None)
+    if guidance_keywords:
+        escaped_keywords = [re.escape(kw) for kw in guidance_keywords]
+        guidance_pattern = "|".join(escaped_keywords)
+        guidance_regex = re.compile(f"(?i)({guidance_pattern})")
+    else:
+        guidance_regex = re.compile(impl_trigger)
+
+    # Build metadata trigger regexes from config or defaults
+    meta_cfg = ctrl_cfg.get("metadata_triggers", {})
+    metadata_regexes = {}
+    all_metadata_words = []
+    default_meta = {
+        "purpose": ["purpose", "objective", "intent"],
+        "scope": ["scope", "coverage", "boundary"],
+        "applicability": ["applicability", "applies to", "applies for"],
+    }
+    for field_name, default_keywords in default_meta.items():
+        keywords = meta_cfg.get(field_name, default_keywords)
+        escaped = [re.escape(kw) for kw in keywords]
+        pattern = r'\b(' + "|".join(escaped) + r')\b'
+        metadata_regexes[field_name] = re.compile(pattern, re.IGNORECASE)
+        all_metadata_words.extend(keywords)
+
+    # Build metadata label strip regex
+    escaped_all = [re.escape(w) for w in all_metadata_words]
+    strip_pattern = r'(?i)^\s*(' + "|".join(escaped_all) + r')\s*[:\-]?\s*'
+
+    # Build heading detection regexes from config
+    hd_cfg = ctrl_cfg.get("heading_detection", {})
+    section_kw = hd_cfg.get("section_keyword_pattern", r'^[Ss]ection\s+\d{1,2}')
+    numbered_title = hd_cfg.get("numbered_title_pattern", r'^\d{1,2}\.?\d{0,2}\s+[A-Z][a-zA-Z\s]{3,50}$')
 
     return {
-        "control_id": re.compile(control_id),
-        "impl_trigger": re.compile(impl_trigger),
-        "section_keyword": re.compile(r'^[Ss]ection\s+\d{1,2}'),
-        "numbered_title": re.compile(r'^\d{1,2}\.?\d{0,2}\s+[A-Z][a-zA-Z\s]{3,50}$'),
-        "metadata_triggers": {
-            "purpose": re.compile(r'\b(purpose|objective|intent)\b', re.IGNORECASE),
-            "scope": re.compile(r'\b(scope|coverage|boundary)\b', re.IGNORECASE),
-            "applicability": re.compile(r'\b(applicab\w*|applies to|applies for)\b', re.IGNORECASE),
+        "control_id": control_id_combined,
+        "guidance_regex": guidance_regex,
+        "section_keyword": re.compile(section_kw),
+        "numbered_title": re.compile(numbered_title),
+        "heading_detection": {
+            "use_word_heading_style": hd_cfg.get("use_word_heading_style", True),
+            "detect_allcaps": hd_cfg.get("detect_allcaps", True),
+            "allcaps_max_length": hd_cfg.get("allcaps_max_length", 80),
+            "allcaps_min_words": hd_cfg.get("allcaps_min_words", 3),
+            "detect_bold_short": hd_cfg.get("detect_bold_short", True),
+            "bold_max_length": hd_cfg.get("bold_max_length", 60),
         },
-        "metadata_label_strip": re.compile(
-            r'(?i)^\s*(purpose|objective|intent|scope|coverage|boundary'
-            r'|applicability|applies to|applies for)\s*[:\-]?\s*',
-        ),
+        "metadata_triggers": metadata_regexes,
+        "metadata_label_strip": re.compile(strip_pattern),
     }
 
 
@@ -142,26 +196,45 @@ def extract_paragraphs_from_docx(filepath):
 # ============================================================
 
 def is_section_header(paragraph_dict, patterns):
-    """Determine whether a paragraph is a section header."""
+    """Determine whether a paragraph is a section header.
+
+    Checks multiple signals in priority order, each configurable via
+    the heading_detection section in dps_config.yaml.
+    """
     text = paragraph_dict["text"]
     style = paragraph_dict["style"]
     bold = paragraph_dict["bold"]
+    hd = patterns["heading_detection"]
 
+    # Skip empty paragraphs and lines containing a control ID
     if not text or patterns["control_id"].search(text):
         return (False, "")
 
-    if "Heading" in style:
+    # Signal 1: Word heading style
+    if hd["use_word_heading_style"] and "Heading" in style:
         return (True, text)
+
+    # Signal 2: "Section N" keyword
     if patterns["section_keyword"].match(text):
         return (True, text)
+
+    # Signal 3: Numbered title
     if patterns["numbered_title"].match(text):
         return (True, text)
 
-    word_count = len(text.split())
-    if text == text.upper() and len(text) < 80 and not text.endswith(".") and word_count >= 3:
-        return (True, text)
-    if bold and len(text) < 60 and not text.endswith("."):
-        return (True, text)
+    # Signal 4: ALL-CAPS short text
+    if hd["detect_allcaps"]:
+        word_count = len(text.split())
+        if (text == text.upper()
+                and len(text) < hd["allcaps_max_length"]
+                and not text.endswith(".")
+                and word_count >= hd["allcaps_min_words"]):
+            return (True, text)
+
+    # Signal 5: Bold short text
+    if hd["detect_bold_short"]:
+        if bold and len(text) < hd["bold_max_length"] and not text.endswith("."):
+            return (True, text)
 
     return (False, "")
 
@@ -172,7 +245,7 @@ def is_section_header(paragraph_dict, patterns):
 
 def extract_metadata(paragraphs, patterns, config):
     """Scan the first N paragraphs for document-level metadata."""
-    metadata = {"purpose": "", "scope": "", "applicability": ""}
+    metadata = {field: "" for field in patterns["metadata_triggers"]}
     scan_limit_cfg = config.get("control_extraction", {}).get("metadata_scan_paragraphs", 40)
     scan_limit = min(scan_limit_cfg, len(paragraphs))
 
@@ -218,7 +291,12 @@ def extract_metadata(paragraphs, patterns, config):
 # ============================================================
 
 def find_control_blocks(paragraphs, patterns):
-    """Identify and segment individual control blocks from paragraphs."""
+    """Identify and segment individual control blocks from paragraphs.
+
+    Splits each block into description / supplemental_guidance / miscellaneous
+    using guidance keyword boundaries.
+    """
+    control_id_regex = patterns["control_id"]
     blocks = []
     current_section_header = ""
     active_block = None
@@ -236,9 +314,15 @@ def find_control_blocks(paragraphs, patterns):
         if not text:
             continue
 
-        control_id_matches = patterns["control_id"].findall(text)
+        control_id_matches = control_id_regex.findall(text)
 
         if control_id_matches:
+            # Flatten: findall with groups returns tuples — take first non-empty
+            if control_id_matches and isinstance(control_id_matches[0], tuple):
+                control_id_matches = [
+                    next(g for g in m if g) for m in control_id_matches
+                ]
+
             if active_block is not None:
                 blocks.append(active_block)
 
@@ -261,26 +345,75 @@ def find_control_blocks(paragraphs, patterns):
     if active_block is not None:
         blocks.append(active_block)
 
+    # Split each block's raw text into description / guidance / miscellaneous
+    guidance_regex = patterns["guidance_regex"]
     processed_blocks = []
+
     for block in blocks:
         joined_text = "\n".join(block["raw_lines"])
-        split_result = patterns["impl_trigger"].split(joined_text, maxsplit=1)
+        split_result = guidance_regex.split(joined_text, maxsplit=1)
 
         if len(split_result) >= 3:
-            control_description = clean_text(split_result[0])
-            implementation_guidelines = clean_text(split_result[2])
+            description_text = clean_text(split_result[0])
+            guidance_text = clean_text(split_result[2])
+
+            # Check for a second guidance trigger — text after goes to miscellaneous
+            second_split = guidance_regex.split(split_result[2], maxsplit=1)
+            if len(second_split) >= 3:
+                guidance_text = clean_text(second_split[0])
+                miscellaneous_text = clean_text(second_split[2])
+            else:
+                miscellaneous_text = ""
         else:
-            control_description = clean_text(joined_text)
-            implementation_guidelines = ""
+            description_text = clean_text(joined_text)
+            guidance_text = ""
+            miscellaneous_text = ""
 
         processed_blocks.append({
             "control_id": block["control_id"],
-            "control_description": control_description,
-            "implementation_guidelines": implementation_guidelines,
+            "control_description": description_text,
+            "supplemental_guidance": guidance_text,
+            "miscellaneous": miscellaneous_text,
             "section_header": block["section_header"],
         })
 
     return processed_blocks
+
+
+# ============================================================
+# SECTION: WHITELIST / BLACKLIST FILTERING
+# ============================================================
+
+def matches_filter(control_id, filter_list):
+    """Check if a control ID matches any entry in a filter list.
+
+    Supports exact matches and prefix wildcards (e.g., "AC-*").
+    """
+    for pattern in filter_list:
+        if pattern.endswith("*"):
+            if control_id.startswith(pattern[:-1]):
+                return True
+        else:
+            if control_id == pattern:
+                return True
+    return False
+
+
+def apply_filters(control_blocks, config):
+    """Apply whitelist and blacklist filters to control blocks."""
+    ctrl_cfg = config.get("control_extraction", {})
+    whitelist = ctrl_cfg.get("whitelist", [])
+    blacklist = ctrl_cfg.get("blacklist", [])
+
+    filtered = control_blocks
+
+    if whitelist:
+        filtered = [b for b in filtered if matches_filter(b["control_id"], whitelist)]
+
+    if blacklist:
+        filtered = [b for b in filtered if not matches_filter(b["control_id"], blacklist)]
+
+    return filtered
 
 
 # ============================================================
@@ -311,14 +444,20 @@ def process_single_document(filepath, patterns, config):
 
     metadata = extract_metadata(paragraphs, patterns, config)
 
-    purpose_found = "Yes" if metadata["purpose"] else "No"
-    scope_found = "Yes" if metadata["scope"] else "No"
-    applicability_found = "Yes" if metadata["applicability"] else "No"
+    purpose_found = "Yes" if metadata.get("purpose") else "No"
+    scope_found = "Yes" if metadata.get("scope") else "No"
+    applicability_found = "Yes" if metadata.get("applicability") else "No"
     print(f"  Metadata found -- Purpose: {purpose_found} | "
           f"Scope: {scope_found} | Applicability: {applicability_found}")
 
     control_blocks = find_control_blocks(paragraphs, patterns)
     print(f"  Controls extracted: {len(control_blocks)}")
+
+    # Apply whitelist/blacklist filtering
+    control_blocks = apply_filters(control_blocks, config)
+    ctrl_cfg = config.get("control_extraction", {})
+    if ctrl_cfg.get("whitelist") or ctrl_cfg.get("blacklist"):
+        print(f"  Controls after filtering: {len(control_blocks)}")
 
     rows = []
     for block in control_blocks:
@@ -327,10 +466,11 @@ def process_single_document(filepath, patterns, config):
             section_header=block["section_header"],
             control_id=block["control_id"],
             control_description=block["control_description"],
-            implementation_guidelines=block["implementation_guidelines"],
-            purpose=metadata["purpose"],
-            scope=metadata["scope"],
-            applicability=metadata["applicability"],
+            supplemental_guidance=block["supplemental_guidance"],
+            miscellaneous=block["miscellaneous"],
+            purpose=metadata.get("purpose", ""),
+            scope=metadata.get("scope", ""),
+            applicability=metadata.get("applicability", ""),
         )
         rows.append(row)
 
@@ -354,11 +494,56 @@ def save_checkpoint(checkpoint_path, completed_files):
 
 
 # ============================================================
+# SECTION: OUTPUT WRITERS
+# ============================================================
+
+CSV_COLUMNS = [
+    "source_file", "section_header", "control_id",
+    "control_description", "supplemental_guidance", "miscellaneous",
+    "purpose", "scope", "applicability",
+]
+
+
+def write_rows_to_csv(output_path, rows, append=True):
+    """Write control rows to a CSV file."""
+    file_exists = os.path.exists(output_path) and os.path.getsize(output_path) > 0
+    write_mode = "a" if (file_exists and append) else "w"
+
+    with open(output_path, write_mode, newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=CSV_COLUMNS, quoting=csv.QUOTE_ALL)
+        if not file_exists or not append:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow(asdict(row))
+
+
+def write_rows_to_excel(output_path, rows):
+    """Write control rows to an Excel file, creating it if needed."""
+    from openpyxl import Workbook, load_workbook
+
+    output_path = Path(output_path)
+    if output_path.exists() and output_path.stat().st_size > 0:
+        wb = load_workbook(output_path)
+        ws = wb.active
+    else:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Controls"
+        ws.append(CSV_COLUMNS)
+
+    for row in rows:
+        row_dict = asdict(row)
+        ws.append([row_dict[col] for col in CSV_COLUMNS])
+
+    wb.save(output_path)
+
+
+# ============================================================
 # SECTION: MAIN ENTRY POINT
 # ============================================================
 
 def main():
-    parser = setup_argparse("Step 4: Extract controls from compliance .docx documents")
+    parser = setup_argparse("Step 1: Extract controls from compliance .docx documents")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -370,10 +555,15 @@ def main():
     logger = setup_logging(output_dir)
     patterns = build_patterns(config)
 
-    output_file = config.get("output", {}).get("controls", {}).get("output_file", "controls_output.csv")
+    # Determine output format
+    output_format = ctrl_cfg.get("output_format", "both")
+    output_csv_file = config.get("output", {}).get("controls", {}).get("output_file", "controls_output.csv")
+    output_xlsx_file = config.get("output", {}).get("controls", {}).get("output_file_xlsx", "controls_output.xlsx")
     checkpoint_file = config.get("output", {}).get("controls", {}).get("checkpoint_file", "checkpoint.json")
+
     checkpoint_path = os.path.join(output_dir, checkpoint_file)
-    output_csv_path = os.path.join(output_dir, output_file)
+    output_csv_path = os.path.join(output_dir, output_csv_file)
+    output_xlsx_path = os.path.join(output_dir, output_xlsx_file)
 
     docx_files = iter_docx_files(input_dir, config)
     if not docx_files:
@@ -386,12 +576,6 @@ def main():
     files_processed = 0
     files_skipped = 0
     error_count = 0
-
-    csv_columns = [
-        "source_file", "section_header", "control_id",
-        "control_description", "implementation_guidelines",
-        "purpose", "scope", "applicability",
-    ]
 
     for filepath in docx_files:
         filename = os.path.basename(filepath)
@@ -407,15 +591,10 @@ def main():
             rows = process_single_document(filepath, patterns, config)
 
             if rows:
-                file_exists = os.path.exists(output_csv_path) and os.path.getsize(output_csv_path) > 0
-                write_mode = "a" if file_exists else "w"
-
-                with open(output_csv_path, write_mode, newline="", encoding="utf-8") as csv_file:
-                    writer = csv.DictWriter(csv_file, fieldnames=csv_columns, quoting=csv.QUOTE_ALL)
-                    if not file_exists:
-                        writer.writeheader()
-                    for row in rows:
-                        writer.writerow(asdict(row))
+                if output_format in ("csv", "both"):
+                    write_rows_to_csv(output_csv_path, rows)
+                if output_format in ("xlsx", "both"):
+                    write_rows_to_excel(output_xlsx_path, rows)
 
             total_controls += len(rows)
 
@@ -430,14 +609,20 @@ def main():
             print(f"  ERROR processing {filename}: {error}")
 
     print("\n" + "=" * 60)
-    print("STEP 4 — CONTROL EXTRACTION SUMMARY")
+    print("STEP 1 — CONTROL EXTRACTION SUMMARY")
     print("=" * 60)
     print(f"Files processed: {files_processed}")
     print(f"Controls found:  {total_controls}")
     print(f"Errors:          {error_count}")
     if files_skipped:
         print(f"Skipped (checkpoint): {files_skipped}")
-    print(f"\nOutput: {output_csv_path}")
+
+    outputs = []
+    if output_format in ("csv", "both"):
+        outputs.append(output_csv_path)
+    if output_format in ("xlsx", "both"):
+        outputs.append(output_xlsx_path)
+    print(f"\nOutput: {', '.join(outputs)}")
 
 
 if __name__ == "__main__":

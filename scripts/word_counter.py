@@ -1,27 +1,24 @@
 """
-Step 5 of 5: Word Counter
-============================
+Word Counter (standalone utility)
+====================================
 
 Scans a folder for .docx files, counts the words in each document,
 and writes a CSV with per-document and total word counts.
 
-Use this as a QA step — run it on the final split sub-documents
-to verify sizes are reasonable.
+NOTE: Word counts are now included in the profiler (Step 0) output.
+This script remains available as a standalone utility for ad-hoc use.
 
-Usage (unified pipeline):
-    python run_pipeline.py --step 5
-
-Usage (standalone):
+Usage:
     python scripts/word_counter.py
     python scripts/word_counter.py --config dps_config.yaml
-    python scripts/word_counter.py ./output/3\ -\ split_documents/
+    python scripts/word_counter.py ./output/4\ -\ split_documents/
 
 Output:
     word_counts.csv — one row per document + TOTAL row
 
 REQUIREMENTS:
     pip install python-docx
-    Python 3.10 or later
+    Python 3.8 or later
 """
 
 import csv
@@ -60,12 +57,12 @@ def count_words(doc_path: str) -> int:
 
 
 def main():
-    parser = setup_argparse("Step 5: Count words in .docx files")
+    parser = setup_argparse("Count words in .docx files")
     args = parser.parse_args()
 
     config = load_config(args.config)
 
-    # Input: by default, count the split sub-documents from Step 3
+    # Input: by default, count the split sub-documents from Step 4
     if args.input_dir:
         input_dir = args.input_dir
     else:
@@ -108,7 +105,7 @@ def main():
         writer.writerow(["TOTAL", grand_total])
 
     print(f"\n" + "=" * 60)
-    print("STEP 5 — WORD COUNT SUMMARY")
+    print("WORD COUNT SUMMARY")
     print("=" * 60)
     print(f"Documents counted: {len(results)}")
     print(f"Total words:       {grand_total:,}")
