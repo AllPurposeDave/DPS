@@ -214,6 +214,9 @@ class DocumentProfile:
     priority_score: float
     priority_rank: int  # filled after all docs scored
 
+    # Key term search results
+    search_term_hits: dict  # {term: count}
+
     # Errors
     errors: list
 
@@ -424,6 +427,34 @@ def match_standard_section(heading_text: str, config: dict) -> str:
             if pattern.lower() in text_lower or text_lower in pattern.lower():
                 return section_key
     return "none"
+
+
+def search_key_terms(full_text: str, table_text: str, config: dict) -> dict:
+    """
+    Search for configured key terms in the document's full text and table text.
+    Returns a dict mapping each term to its occurrence count.
+    """
+    search_cfg = config.get("search_terms", {})
+    if not search_cfg.get("enabled", False):
+        return {}
+
+    terms = search_cfg.get("terms", [])
+    if not terms:
+        return {}
+
+    match_mode = search_cfg.get("match_mode", "word")
+    combined_text = full_text + "\n" + table_text
+
+    results = {}
+    for term in terms:
+        if match_mode == "word":
+            pattern = r'\b' + re.escape(term) + r'\b'
+            count = len(re.findall(pattern, combined_text, re.IGNORECASE))
+        else:
+            count = len(re.findall(re.escape(term), combined_text, re.IGNORECASE))
+        results[term] = count
+
+    return results
 
 
 def classify_table(table, config: dict) -> tuple:
@@ -885,7 +916,7 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
             cross_ref_patterns={}, has_text_boxes=False, has_tracked_changes=False,
             has_comments=False, has_images=False, has_embedded_objects=False,
             has_password_protection=False, doc_type="E", doc_type_reason="Failed to open",
-            priority_score=0, priority_rank=0,
+            priority_score=0, priority_rank=0, search_term_hits={},
             errors=[f"Cannot open file: {filepath}. Possibly corrupted or password-protected."]
         )
     except Exception as e:
@@ -904,7 +935,8 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
             cross_ref_patterns={}, has_text_boxes=False, has_tracked_changes=False,
             has_comments=False, has_images=False, has_embedded_objects=False,
             has_password_protection=False, doc_type="E", doc_type_reason=f"Error: {str(e)}",
-            priority_score=0, priority_rank=0, errors=[str(e)]
+            priority_score=0, priority_rank=0, search_term_hits={},
+            errors=[str(e)]
         )
 
     # ----- Basic stats -----
@@ -1044,6 +1076,12 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
 
     table_pct = round((total_table_chars / total_chars * 100), 1) if total_chars > 0 else 0
 
+    # ----- Key term search -----
+    table_text = "\n".join(
+        cell.text for table in doc.tables for row in table.rows for cell in row.cells
+    )
+    search_term_hits = search_key_terms(full_text, table_text, config)
+
     # ----- Cross-references -----
     all_crossrefs = []
     crossref_pattern_counts = {}
@@ -1140,6 +1178,7 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
         doc_type_reason=doc_type_reason,
         priority_score=priority,
         priority_rank=0,
+        search_term_hits=search_term_hits,
         errors=errors,
     )
 
@@ -1270,6 +1309,13 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
         ("Errors", 30),
     ]
 
+    # Dynamic search term columns
+    search_cfg = config.get("search_terms", {})
+    search_terms = search_cfg.get("terms", []) if search_cfg.get("enabled", False) else []
+    show_counts = search_cfg.get("show_counts", True)
+    for term in search_terms:
+        columns.append((f"Term: {term}", 10))
+
     # Write headers
     for col_idx, (col_name, width) in enumerate(columns, 1):
         cell = ws.cell(row=1, column=col_idx, value=col_name)
@@ -1325,6 +1371,14 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
             p.doc_type_reason[:80],
             "; ".join(p.errors)[:60] if p.errors else "",
         ]
+        # Append search term results
+        for term in search_terms:
+            count = p.search_term_hits.get(term, 0)
+            if show_counts:
+                row_data.append(count if count > 0 else "")
+            else:
+                row_data.append("YES" if count > 0 else "")
+
         for col_idx, val in enumerate(row_data, 1):
             cell = ws.cell(row=row_idx, column=col_idx, value=val)
             cell.font = Font(name="Arial", size=9)
@@ -1343,6 +1397,14 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
             ws.cell(row=row_idx, column=9).fill = warn_fill
         if p.missing_sections:
             ws.cell(row=row_idx, column=20).fill = warn_fill
+
+        # Highlight search term hits with green fill
+        hit_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+        static_col_count = 31  # number of static columns before search terms
+        for t_idx, term in enumerate(search_terms):
+            count = p.search_term_hits.get(term, 0)
+            if count > 0:
+                ws.cell(row=row_idx, column=static_col_count + t_idx + 1).fill = hit_fill
 
     # Summary sheet
     ws2 = wb.create_sheet("Summary")

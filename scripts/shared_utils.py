@@ -466,6 +466,7 @@ def build_consolidated_workbook(config: dict, timestamp_str: str) -> Optional[st
         ("3 - Heading Changes",    "heading_fixes",     "changes_file"),
         ("4 - Split Manifest",     "split_documents",   "manifest_file"),
         ("5 - Metadata",           "metadata",          "manifest_file"),
+        ("6 - Validation",         "validation",        "output_file"),
     ]
 
     wb = Workbook()

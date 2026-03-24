@@ -112,6 +112,11 @@ output:
     manifest_file: "metadata_manifest.csv"
     # Processed .docx files with metadata blocks are also written here
 
+  # --- Step 6: Validation outputs ---
+  validation:
+    directory: "6 - validation"
+    output_file: "control_validation.csv"
+
   # --- Consolidated Excel Report ---
   # After all steps complete, build a single .xlsx workbook with one tab
   # per step's CSV output. Timestamped filename for versioning.
@@ -242,6 +247,32 @@ headings:
   # Default level when no numbering pattern matches. Change to 1 if your
   # un-numbered bold headings are mostly top-level.
   default_heading_level: 2
+
+
+# ============================================================================
+# SECTION 4B: TEXT DELETION (used by Step 3 — Heading Style Fixer)
+# ============================================================================
+# Remove specific phrases, words, or sentences from documents during
+# heading style fixing (Step 3). Deletions cascade to Steps 4 and 5.
+#
+# IMPORTANT: Matching is case-sensitive by default. Set case_sensitive: false
+# for case-insensitive matching.
+#
+# WARNING: Deletions are permanent in the output files. The original input
+# files are never modified. Review heading_changes.csv after running.
+
+text_deletions:
+  enabled: false    # Set to true to activate deletion
+  case_sensitive: true
+
+  # Phrases to delete (exact match). Leading/trailing whitespace is trimmed.
+  # After deletion, double-spaces are collapsed to single spaces.
+  phrases:
+    # - "Cloud is the BEST"
+    # - "DRAFT - NOT FOR DISTRIBUTION"
+    # - "CONFIDENTIAL"
+    # - "[INSERT DATE]"
+    # - "TBD"
 
 
 # ============================================================================
@@ -489,7 +520,35 @@ priority_scoring:
 
 
 # ============================================================================
-# SECTION 10: CONTROL EXTRACTION (used by Step 1 — Extract Controls)
+# SECTION 10: KEY TERM SEARCH (used by Step 0 — Document Profiler)
+# ============================================================================
+# Search for specific terms across all documents. Results appear as columns
+# in the Document Inventory Excel. Useful for finding which docs mention
+# specific frameworks, technologies, or concepts.
+
+search_terms:
+  enabled: true
+
+  # Each term gets its own column in the Excel output.
+  # Use short, distinct terms. Regex is NOT supported (plain text only).
+  terms:
+    - "AC"
+    - "Cloud"
+    # - "NIST"
+    # - "encryption"
+    # - "incident response"
+
+  # How to match:
+  #   "word"       — whole-word boundary (e.g., "AC" matches "AC-1" but not "ACCESS")
+  #   "substring"  — anywhere in text (e.g., "AC" matches "ACCESS", "PRACTICAL")
+  match_mode: "word"
+
+  # true = show occurrence count, false = show YES/blank
+  show_counts: true
+
+
+# ============================================================================
+# SECTION 11: CONTROL EXTRACTION (used by Step 1 — Extract Controls)
 # ============================================================================
 
 control_extraction:
@@ -594,6 +653,11 @@ pipeline:
       script: "add_metadata.py"
       enabled: true
       description: "Add identity metadata (name, URL, scope, intent, tags) to sub-documents"
+
+    - name: "Step 6 - Control Validator"
+      script: "validate_controls.py"
+      enabled: true
+      description: "Validate all Step 1 controls are present in Step 4 split documents"
 
 
 # ============================================================================

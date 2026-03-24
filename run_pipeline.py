@@ -145,6 +145,14 @@ def get_step_definitions(config: dict, config_path: str) -> list[dict]:
             "args": ["--config", abs_config, out("split_documents"), out("metadata")],
             "enabled": True,
         },
+        {
+            "number": 6,
+            "name": "Step 6 — Control Validator",
+            "description": "Validate all Step 1 controls are present in Step 4 split documents",
+            "script": os.path.join(scripts_dir, "validate_controls.py"),
+            "args": ["--config", abs_config],
+            "enabled": True,
+        },
     ]
 
     # Override enabled status from config
