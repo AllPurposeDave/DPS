@@ -326,6 +326,9 @@ cross_references:
   # Also detect hyperlinks whose display text looks like a section or policy ref?
   detect_hyperlink_crossrefs: true
 
+  # Extract URLs from hyperlinks (external, internal bookmarks) and bare text URLs?
+  detect_urls: true
+
   # External patterns match document names ending in one of these keywords.
   # Add keywords if your org has docs ending in other words (e.g., "Manual").
   document_name_keywords:
@@ -498,7 +501,9 @@ control_extraction:
   #   - '\b[A-Z]{2,4}-\d{1,3}\b'           # Simple: AC-1, IR-3
   #   - '\b[A-Z]{2,4}\.\d{1,3}\.\d{1,3}\b' # Dotted: AC.1.1, IR.3.2
   control_id_patterns:
-    - '\b[A-Z]{2,4}[-.]?\d{1,3}[-.]\d{2,4}\b'
+    - '\b[A-Z]{2,4}[-.]?\d{1,3}[-.]\d{2,4}\b'  # AC-1.001, IR001.002, CFG.1.0042
+    - '\b[A-Z]{2,4}\s+\d{1,3}\.\d{2,4}\b'      # AUP 1.001, ACC 01.001 (with space)
+    - '\b[A-Z]{2,4}\d{2,3}\.\d{2,4}\b'         # ACC01.001 (no separator before digits)
 
   # Filter by control ID. Supports exact IDs ("AC-1.001") and wildcards ("AC-*").
   whitelist: []               # If non-empty, ONLY matching controls are kept

@@ -362,6 +362,76 @@ def add_csv_as_sheet(wb, csv_path: str, sheet_name: str) -> bool:
     return True
 
 
+def add_xlsx_as_sheet(wb, xlsx_path: str, sheet_name: str) -> bool:
+    """
+    Read an Excel file and copy its data as a styled worksheet in an openpyxl Workbook.
+    Copies the first sheet only. Applies the same styling as CSV sheets.
+
+    Returns True if the sheet was added, False if the Excel file is missing or empty.
+    """
+    from openpyxl import load_workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    xlsx_path = Path(xlsx_path)
+    if not xlsx_path.exists():
+        return False
+
+    try:
+        source_wb = load_workbook(xlsx_path)
+        source_ws = source_wb.active
+        if source_ws is None or source_ws.max_row == 0:
+            return False
+    except Exception:
+        return False
+
+    safe_name = _sanitize_sheet_name(sheet_name)
+    ws = wb.create_sheet(title=safe_name)
+
+    # Copy all rows from source sheet
+    for row in source_ws.iter_rows():
+        new_row = []
+        for cell in row:
+            new_row.append(cell.value)
+        ws.append(new_row)
+
+    # --- Light styling ---
+    header_font = Font(name="Arial", bold=True, size=10, color="FFFFFF")
+    header_fill = PatternFill(start_color="2F5496", end_color="2F5496", fill_type="solid")
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style="thin", color="CCCCCC"),
+        right=Side(style="thin", color="CCCCCC"),
+        top=Side(style="thin", color="CCCCCC"),
+        bottom=Side(style="thin", color="CCCCCC"),
+    )
+
+    # Style header row
+    for cell in ws[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+
+    # Freeze top row and autofilter
+    ws.freeze_panes = "A2"
+    if ws.max_column and ws.max_row:
+        last_col = get_column_letter(ws.max_column)
+        ws.auto_filter.ref = f"A1:{last_col}{ws.max_row}"
+
+    # Auto column widths (scan all rows, cap at 60)
+    for col_idx in range(1, ws.max_column + 1):
+        max_width = 0
+        for row in ws.iter_rows(min_col=col_idx, max_col=col_idx, values_only=True):
+            val = row[0]
+            if val is not None:
+                max_width = max(max_width, len(str(val)))
+        letter = get_column_letter(col_idx)
+        ws.column_dimensions[letter].width = min(max_width + 2, 60)
+
+    return True
+
+
 def build_consolidated_workbook(config: dict, timestamp_str: str) -> Optional[str]:
     """
     Build a single Excel workbook with one sheet per pipeline CSV output.
@@ -387,14 +457,15 @@ def build_consolidated_workbook(config: dict, timestamp_str: str) -> Optional[st
 
     # Sheet manifest: (sheet_name, config_step_key, filename_config_key)
     sheet_manifest = [
-        ("0 - Sections",         "profiler",          "sections_file"),
-        ("0 - Tables",           "profiler",          "tables_file"),
-        ("0 - CrossRefs",        "profiler",          "crossrefs_file"),
-        ("1 - Controls",         "controls",          "output_file"),
-        ("2 - Cross References", "cross_references",  "output_file"),
-        ("3 - Heading Changes",  "heading_fixes",     "changes_file"),
-        ("4 - Split Manifest",   "split_documents",   "manifest_file"),
-        ("5 - Metadata",         "metadata",          "manifest_file"),
+        ("0 - Document Inventory", "profiler",          "inventory_file"),
+        ("0 - Sections",           "profiler",          "sections_file"),
+        ("0 - Tables",             "profiler",          "tables_file"),
+        ("0 - CrossRefs",          "profiler",          "crossrefs_file"),
+        ("1 - Controls",           "controls",          "output_file"),
+        ("2 - Cross References",   "cross_references",  "output_file"),
+        ("3 - Heading Changes",    "heading_fixes",     "changes_file"),
+        ("4 - Split Manifest",     "split_documents",   "manifest_file"),
+        ("5 - Metadata",           "metadata",          "manifest_file"),
     ]
 
     wb = Workbook()
@@ -405,11 +476,16 @@ def build_consolidated_workbook(config: dict, timestamp_str: str) -> Optional[st
     for sheet_name, step_key, file_key in sheet_manifest:
         step_cfg = output_cfg.get(step_key, {})
         step_dir = step_cfg.get("directory", "")
-        csv_filename = step_cfg.get(file_key, "")
-        csv_path = os.path.join(output_root, step_dir, csv_filename)
+        filename = step_cfg.get(file_key, "")
+        file_path = os.path.join(output_root, step_dir, filename)
 
-        if add_csv_as_sheet(wb, csv_path, sheet_name):
-            sheets_added += 1
+        # Determine file type and use appropriate function
+        if filename.endswith(".xlsx"):
+            if add_xlsx_as_sheet(wb, file_path, sheet_name):
+                sheets_added += 1
+        elif filename.endswith(".csv"):
+            if add_csv_as_sheet(wb, file_path, sheet_name):
+                sheets_added += 1
 
     if sheets_added == 0:
         print("  WARNING: No CSV files found — skipping consolidated Excel report.")

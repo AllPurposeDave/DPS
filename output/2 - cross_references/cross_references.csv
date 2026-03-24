@@ -1,21 +1,67 @@
-source_doc,source_section,source_paragraph_index,matched_text,reference_type,target_reference,resolution_status
-Acceptable_Use_Policy_POL-AU-2026-006.docx,Scope,7,refer to Section 4.3,internal,4.3,
-Acceptable_Use_Policy_POL-AU-2026-006.docx,Intent,11,As described in the Access Control Policy,external,Access Control Policy,
-Acceptable_Use_Policy_POL-AU-2026-006.docx,General Use Requirements,15,See Section 4.1,internal,4.1,
-Acceptable_Use_Policy_POL-AU-2026-006.docx,General Use Requirements,16,Refer to Section 2.2,internal,2.2,
-Acceptable_Use_Policy_POL-AU-2026-006.docx,Email and Communications,20,As described in the Data Loss Prevention Standard,external,Data Loss Prevention Standard,
-Acceptable_Use_Policy_POL-AU-2026-006.docx,Internet Use,23,refer to Section 3.2,internal,3.2,
-Acceptable_Use_Policy_POL-AU-2026-006.docx,6. Enforcement and Disciplinary Actions,36,Refer to Section 7,internal,7,
-Access_Control_Policy_POL-AC-2026-001.docx,Purpose,7,refer to Section 4,internal,4,
-Access_Control_Policy_POL-AC-2026-001.docx,Intent,10,See Section 5.2,internal,5.2,
-Access_Control_Policy_POL-AC-2026-001.docx,Controls,13,As described in the Risk Management Policy,external,Risk Management Policy,
-Access_Control_Policy_POL-AC-2026-001.docx,4. Enforcement,22,Refer to Section 6,internal,6,
-Access_Control_Policy_POL-AC-2026-001.docx,4. Enforcement,22,as described in the Vendor Management Policy,external,Vendor Management Policy,
-Configuration_Management_Policy_POL-CM-2026-004.docx,(No heading found),7,Refer to Section 4,internal,4,
-Configuration_Management_Policy_POL-CM-2026-004.docx,(No heading found),10,As described in the Risk Management Policy,external,Risk Management Policy,
-Incident_Response_Policy_POL-IR-2026-003.docx,2.0 Scope,10,refer to Section 4,internal,4,
-Incident_Response_Policy_POL-IR-2026-003.docx,2.0 Scope,13,as described in the Federal Incident Notification Guide,external,Federal Incident Notification Guide,
-Incident_Response_Policy_POL-IR-2026-003.docx,4.2 Response Procedures,21,refer to Section 2.3,internal,2.3,
-Incident_Response_Policy_POL-IR-2026-003.docx,4.2 Response Procedures,23,see Section 3.4,internal,3.4,
-Incident_Response_Policy_POL-IR-2026-003.docx,4.2 Response Procedures,25,As described in Section 5,internal,5,
-RMF_Compliance_Mapping_POL-RMF-2026-010.docx,Intent,10,As described in the Continuous Monitoring Policy,external,Continuous Monitoring Policy,
+source_doc,source_section,source_paragraph_index,matched_text,reference_type,target_reference,resolution_status,target_url,url_display_text,url_type
+Acceptable_Use_Policy_POL-AU-2026-006.docx,Scope,7,refer to Section 4.3,internal,4.3,,,,
+Acceptable_Use_Policy_POL-AU-2026-006.docx,General Use Requirements,15,See Section 4.1,internal,4.1,,,,
+Acceptable_Use_Policy_POL-AU-2026-006.docx,General Use Requirements,16,Refer to Section 2.2,internal,2.2,,,,
+Acceptable_Use_Policy_POL-AU-2026-006.docx,Internet Use,23,refer to Section 3.2,internal,3.2,,,,
+Acceptable_Use_Policy_POL-AU-2026-006.docx,6. Enforcement and Disciplinary Actions,36,Refer to Section 7,internal,7,,,,
+Access_Control_Policy_POL-AC-2026-001.docx,Purpose,7,refer to Section 4,internal,4,,,,
+Access_Control_Policy_POL-AC-2026-001.docx,Intent,10,See Section 5.2,internal,5.2,,,,
+Access_Control_Policy_POL-AC-2026-001.docx,4. Enforcement,22,Refer to Section 6,internal,6,,,,
+Access_Control_Policy_POL-AC-2026-001.docx,4. Enforcement,22,as described in the Vendor Management Policy,external,Vendor Management Policy,,,,
+Configuration_Management_Policy_POL-CM-2026-004.docx,(No heading found),7,Refer to Section 4,internal,4,,,,
+Continuous_Monitoring_Policy_POL-MON-2026-005.docx,Purpose,5,,,,,https://www.google.com,CISA Continuous Diagnostics and Mitigation program,external
+Continuous_Monitoring_Policy_POL-MON-2026-005.docx,Enforcement,30,refer to the Incident Response Policy,external,Incident Response Policy,,,,
+Continuous_Monitoring_Policy_POL-MON-2026-005.docx,Enforcement,31,CISA CDM Program resources,external,CISA CDM Program,,,,
+Continuous_Monitoring_Policy_POL-MON-2026-005.docx,Enforcement,31,,,,,https://www.linkedin.com,CISA CDM Program resources,external
+Continuous_Monitoring_Policy_POL-MON-2026-005.docx,References,37,,,,,https://www.google.com,Information Security Continuous Monitoring,external
+Continuous_Monitoring_Policy_POL-MON-2026-005.docx,References,38,,,,,https://www.linkedin.com,Continuous Diagnostics and Mitigation,external
+Continuous_Monitoring_Policy_POL-MON-2026-005.docx,Appendix D - Metrics and Reporting Templates,54,,,,,https://www.google.com,Monitoring Records Library (internal),external
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Purpose,5,,,,,https://www.google.com,NIST SP 800-60 data categorization guidance,external
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Scope,8,,,,,https://www.linkedin.com,NIST CUI Registry,external
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Enforcement,16,refer to the Incident Response Policy,external,Incident Response Policy,,,,
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,References,22,,,,,https://www.google.com,NIST Control Catalog,external
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,References,23,National Archives CUI Program,external,National Archives CUI Program,,,,
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,References,23,,,,,https://www.linkedin.com,National Archives CUI Program,external
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Appendix D - DLP Exception Request Process,34,,,,,https://www.google.com,DLP Exception Request (internal portal),external
+Encryption_Policy_POL-ENC-2026-008.docx,Purpose,5,NIST Cryptographic Standards and Guidelines portal,external,NIST Cryptographic Standards and Guide,,,,
+Encryption_Policy_POL-ENC-2026-008.docx,Purpose,5,,,,,https://www.google.com,NIST Cryptographic Standards and Guidelines portal,external
+Encryption_Policy_POL-ENC-2026-008.docx,Scope,8,NIST Cryptographic Module Validation Program,external,NIST Cryptographic Module Validation Program,,,,
+Encryption_Policy_POL-ENC-2026-008.docx,Scope,8,,,,,https://www.linkedin.com,NIST Cryptographic Module Validation Program,external
+Encryption_Policy_POL-ENC-2026-008.docx,Enforcement,32,,,,,https://www.google.com,NIST CMVP search tool,external
+Encryption_Policy_POL-ENC-2026-008.docx,References,37,,,,,https://www.google.com,Guide to Storage Encryption for End User Devices,external
+Encryption_Policy_POL-ENC-2026-008.docx,References,38,,,,,https://www.linkedin.com,Guidelines for TLS Implementations,external
+Encryption_Policy_POL-ENC-2026-008.docx,References,39,,,,,https://www.google.com,Security Requirements for Cryptographic Modules,external
+Encryption_Policy_POL-ENC-2026-008.docx,Appendix D - Certificate Management Procedures,60,PKI Operations Guide (SharePoint - internal),external,PKI Operations Guide,,,,
+Encryption_Policy_POL-ENC-2026-008.docx,Appendix D - Certificate Management Procedures,60,,,,,https://www.linkedin.com,PKI Operations Guide (SharePoint - internal),external
+Incident_Response_Policy_POL-IR-2026-003.docx,2.0 Scope,10,refer to Section 4,internal,4,,,,
+Incident_Response_Policy_POL-IR-2026-003.docx,2.0 Scope,13,as described in the Federal Incident Notification Guide,external,Federal Incident Notification Guide,,,,
+Incident_Response_Policy_POL-IR-2026-003.docx,4.2 Response Procedures,21,refer to Section 2.3,internal,2.3,,,,
+Incident_Response_Policy_POL-IR-2026-003.docx,4.2 Response Procedures,23,see Section 3.4,internal,3.4,,,,
+Incident_Response_Policy_POL-IR-2026-003.docx,4.2 Response Procedures,25,As described in Section 5,internal,5,,,,
+Incident_Response_example demo-2026-003 copy.docx,Purpose,5,,,,,https://www.google.com,NIST SP 800-61 Rev 3 overview,external
+Incident_Response_example demo-2026-003 copy.docx,Scope,7,,,,,https://www.linkedin.com,Security Awareness Training resources,external
+Incident_Response_example demo-2026-003 copy.docx,Intent,11,,,,,https://www.google.com,CISA incident reporting guidance,external
+Incident_Response_example demo-2026-003 copy.docx,Enforcement,15,per Section 6,internal,6,,,,
+Incident_Response_example demo-2026-003 copy.docx,References,20,Computer Security Incident Handling Guide,external,Computer Security Incident Handling Guide,,,,
+Incident_Response_example demo-2026-003 copy.docx,References,20,,,,,https://www.google.com,Computer Security Incident Handling Guide,external
+Incident_Response_example demo-2026-003 copy.docx,References,21,,,,,https://www.linkedin.com,CISA Guidance Portal,external
+Incident_Response_example demo-2026-003 copy.docx,Appendix B - Escalation Contact List,28,,,,,https://www.linkedin.com,IR Team SharePoint (internal),external
+Incident_Response_example demo-2026-003 copy.docx,Appendix D - Chain of Custody Form,32,,,,,https://www.google.com,Forensics Team resources,external
+Incident_Response_example demo-2026-003 copy.docx,Appendix F - Tabletop Exercise Log,37,,,,,https://www.linkedin.com,Tabletop Exercise Log (SharePoint),external
+Privacy_PII_Handling_Policy_POL-PII-2026-012.docx,Purpose,5,,,,,https://www.google.com,NIST SP 800-122 Guide to Protecting PII,external
+Privacy_PII_Handling_Policy_POL-PII-2026-012.docx,Purpose,5,,,,,https://www.linkedin.com,OMB Circular A-130 Managing Federal Information Resources,external
+Privacy_PII_Handling_Policy_POL-PII-2026-012.docx,Enforcement,32,,,,,https://www.google.com,IAPP federal privacy resources,external
+Privacy_PII_Handling_Policy_POL-PII-2026-012.docx,References,38,,,,,https://www.google.com,Full text and agency guidance,external
+Privacy_PII_Handling_Policy_POL-PII-2026-012.docx,References,39,,,,,https://www.linkedin.com,OMB memorandum,external
+Privacy_PII_Handling_Policy_POL-PII-2026-012.docx,References,40,,,,,https://www.google.com,Guide to Protecting the Confidentiality of PII,external
+Privacy_PII_Handling_Policy_POL-PII-2026-012.docx,Appendix D - PII Disclosure Log and Data Sharing Agreement Template,57,Privacy Program Document Library (internal - CUI//PRVCY),external,Privacy Program,,,,
+Privacy_PII_Handling_Policy_POL-PII-2026-012.docx,Appendix D - PII Disclosure Log and Data Sharing Agreement Template,57,,,,,https://www.linkedin.com,Privacy Program Document Library (internal - CUI//PRVCY),external
+Privacy_PII_Handling_Policy_POL-PII-2026-012.docx,Appendix E - PII Breach Notification Templates,59,,,,,https://www.google.com,OMB M-17-12 Breach Resources,external
+Risk_Management_Policy_POL-RM-2026-009.docx,Purpose,5,NIST RMF Quick Start Guide,external,NIST RMF Quick Start Guide,,,,
+Risk_Management_Policy_POL-RM-2026-009.docx,Purpose,5,,,,,https://www.google.com,NIST RMF Quick Start Guide,external
+Risk_Management_Policy_POL-RM-2026-009.docx,Scope,8,refer to the Cloud Security Policy,external,Cloud Security Policy,,,,
+Risk_Management_Policy_POL-RM-2026-009.docx,Scope,8,,,,,https://www.linkedin.com,FedRAMP Risk Management documentation,external
+Risk_Management_Policy_POL-RM-2026-009.docx,References,20,,,,,https://www.google.com,NIST RMF Overview,external
+Risk_Management_Policy_POL-RM-2026-009.docx,References,21,,,,,https://www.linkedin.com,Supply Chain Risk Management,external
+Risk_Management_Policy_POL-RM-2026-009.docx,Appendix C - Risk Register Template,29,,,,,https://www.linkedin.com,Risk Register (internal - CUI),external
+Risk_Management_Policy_POL-RM-2026-009.docx,Appendix F - Third-Party Risk Assessment Criteria,35,,,,,https://www.google.com,FedRAMP Marketplace,external

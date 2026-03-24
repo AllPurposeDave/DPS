@@ -261,22 +261,22 @@
     "cross_refs": [
       {
         "text": "Refer to Section",
-        "pattern_matched": "refer to\\s+(section|the)",
+        "pattern_matched": "Refer to clause/section",
         "paragraph_index": 7,
         "parent_section": "Policy Scope",
         "is_hyperlink": false
       },
       {
         "text": "As described in the",
-        "pattern_matched": "as described in\\s+(the|section)",
+        "pattern_matched": "As described in reference",
         "paragraph_index": 10,
         "parent_section": "Risk Context and Intent",
         "is_hyperlink": false
       }
     ],
     "cross_ref_patterns": {
-      "refer to\\s+(section|the)": 1,
-      "as described in\\s+(the|section)": 1
+      "Refer to clause/section": 1,
+      "As described in reference": 1
     },
     "has_text_boxes": false,
     "has_tracked_changes": false,
@@ -309,8 +309,8 @@
     "fake_heading_count": 4,
     "heading_styles_used": [
       "",
-      "Heading 1",
-      "Heading 2"
+      "Heading 2",
+      "Heading 1"
     ],
     "sections": [
       {
@@ -524,52 +524,52 @@
     "cross_refs": [
       {
         "text": "in accordance with the",
-        "pattern_matched": "in accordance with\\s+(the|section)",
+        "pattern_matched": "In accordance with",
         "paragraph_index": 4,
         "parent_section": "Purpose",
         "is_hyperlink": false
       },
       {
         "text": "refer to Section",
-        "pattern_matched": "refer to\\s+(section|the)",
+        "pattern_matched": "Refer to clause/section",
         "paragraph_index": 7,
         "parent_section": "Scope",
         "is_hyperlink": false
       },
       {
         "text": "See Section 5.2",
-        "pattern_matched": "see section\\s+[\\d\\.]+[a-z]?",
+        "pattern_matched": "See section reference",
         "paragraph_index": 10,
         "parent_section": "Intent",
         "is_hyperlink": false
       },
       {
         "text": "As described in the",
-        "pattern_matched": "as described in\\s+(the|section)",
+        "pattern_matched": "As described in reference",
         "paragraph_index": 13,
         "parent_section": "Controls",
         "is_hyperlink": false
       },
       {
         "text": "Refer to Section",
-        "pattern_matched": "refer to\\s+(section|the)",
+        "pattern_matched": "Refer to clause/section",
         "paragraph_index": 22,
         "parent_section": "4. Enforcement",
         "is_hyperlink": false
       },
       {
         "text": "as described in the",
-        "pattern_matched": "as described in\\s+(the|section)",
+        "pattern_matched": "As described in reference",
         "paragraph_index": 22,
         "parent_section": "4. Enforcement",
         "is_hyperlink": false
       }
     ],
     "cross_ref_patterns": {
-      "in accordance with\\s+(the|section)": 1,
-      "refer to\\s+(section|the)": 2,
-      "see section\\s+[\\d\\.]+[a-z]?": 1,
-      "as described in\\s+(the|section)": 2
+      "In accordance with": 1,
+      "Refer to clause/section": 2,
+      "See section reference": 1,
+      "As described in reference": 2
     },
     "has_text_boxes": false,
     "has_tracked_changes": false,
@@ -602,8 +602,8 @@
     "fake_heading_count": 3,
     "heading_styles_used": [
       "",
-      "Heading 1",
-      "Heading 2"
+      "Heading 2",
+      "Heading 1"
     ],
     "sections": [
       {
@@ -860,22 +860,22 @@
     "cross_refs": [
       {
         "text": "refer to the",
-        "pattern_matched": "refer to\\s+(section|the)",
+        "pattern_matched": "Refer to clause/section",
         "paragraph_index": 7,
         "parent_section": "Scope",
         "is_hyperlink": false
       },
       {
         "text": "As described in the",
-        "pattern_matched": "as described in\\s+(the|section)",
+        "pattern_matched": "As described in reference",
         "paragraph_index": 10,
         "parent_section": "Scope",
         "is_hyperlink": false
       }
     ],
     "cross_ref_patterns": {
-      "refer to\\s+(section|the)": 1,
-      "as described in\\s+(the|section)": 1
+      "Refer to clause/section": 1,
+      "As described in reference": 1
     },
     "has_text_boxes": false,
     "has_tracked_changes": false,
@@ -908,8 +908,8 @@
     "fake_heading_count": 4,
     "heading_styles_used": [
       "",
-      "Heading 1",
-      "Heading 2"
+      "Heading 2",
+      "Heading 1"
     ],
     "sections": [
       {
@@ -1110,44 +1110,44 @@
     "cross_refs": [
       {
         "text": "refer to Section",
-        "pattern_matched": "refer to\\s+(section|the)",
+        "pattern_matched": "Refer to clause/section",
         "paragraph_index": 10,
         "parent_section": "2.0 Scope",
         "is_hyperlink": false
       },
       {
         "text": "as described in the",
-        "pattern_matched": "as described in\\s+(the|section)",
+        "pattern_matched": "As described in reference",
         "paragraph_index": 13,
         "parent_section": "3.0 Intent",
         "is_hyperlink": false
       },
       {
         "text": "refer to Section",
-        "pattern_matched": "refer to\\s+(section|the)",
+        "pattern_matched": "Refer to clause/section",
         "paragraph_index": 21,
         "parent_section": "4.0 Controls and Procedures",
         "is_hyperlink": false
       },
       {
         "text": "see Section 3.4",
-        "pattern_matched": "see section\\s+[\\d\\.]+[a-z]?",
+        "pattern_matched": "See section reference",
         "paragraph_index": 23,
         "parent_section": "4.0 Controls and Procedures",
         "is_hyperlink": false
       },
       {
         "text": "As described in Section",
-        "pattern_matched": "as described in\\s+(the|section)",
+        "pattern_matched": "As described in reference",
         "paragraph_index": 25,
         "parent_section": "4.0 Controls and Procedures",
         "is_hyperlink": false
       }
     ],
     "cross_ref_patterns": {
-      "refer to\\s+(section|the)": 2,
-      "as described in\\s+(the|section)": 2,
-      "see section\\s+[\\d\\.]+[a-z]?": 1
+      "Refer to clause/section": 2,
+      "As described in reference": 2,
+      "See section reference": 1
     },
     "has_text_boxes": false,
     "has_tracked_changes": false,
@@ -1180,8 +1180,8 @@
     "fake_heading_count": 1,
     "heading_styles_used": [
       "",
-      "Heading 1",
-      "Heading 2"
+      "Heading 2",
+      "Heading 1"
     ],
     "sections": [
       {
@@ -1345,58 +1345,58 @@
     "cross_refs": [
       {
         "text": "refer to Section",
-        "pattern_matched": "refer to\\s+(section|the)",
+        "pattern_matched": "Refer to clause/section",
         "paragraph_index": 7,
         "parent_section": "Scope",
         "is_hyperlink": false
       },
       {
         "text": "As described in the",
-        "pattern_matched": "as described in\\s+(the|section)",
+        "pattern_matched": "As described in reference",
         "paragraph_index": 11,
         "parent_section": "Intent",
         "is_hyperlink": false
       },
       {
         "text": "See Section 4.1",
-        "pattern_matched": "see section\\s+[\\d\\.]+[a-z]?",
+        "pattern_matched": "See section reference",
         "paragraph_index": 15,
         "parent_section": "General Use Requirements",
         "is_hyperlink": false
       },
       {
         "text": "Refer to Section",
-        "pattern_matched": "refer to\\s+(section|the)",
+        "pattern_matched": "Refer to clause/section",
         "paragraph_index": 16,
         "parent_section": "General Use Requirements",
         "is_hyperlink": false
       },
       {
         "text": "As described in the",
-        "pattern_matched": "as described in\\s+(the|section)",
+        "pattern_matched": "As described in reference",
         "paragraph_index": 20,
         "parent_section": "Email and Communications",
         "is_hyperlink": false
       },
       {
         "text": "refer to Section",
-        "pattern_matched": "refer to\\s+(section|the)",
+        "pattern_matched": "Refer to clause/section",
         "paragraph_index": 23,
         "parent_section": "Email and Communications",
         "is_hyperlink": false
       },
       {
         "text": "Refer to Section",
-        "pattern_matched": "refer to\\s+(section|the)",
+        "pattern_matched": "Refer to clause/section",
         "paragraph_index": 36,
         "parent_section": "6. Enforcement and Disciplinary Actions",
         "is_hyperlink": false
       }
     ],
     "cross_ref_patterns": {
-      "refer to\\s+(section|the)": 4,
-      "as described in\\s+(the|section)": 2,
-      "see section\\s+[\\d\\.]+[a-z]?": 1
+      "Refer to clause/section": 4,
+      "As described in reference": 2,
+      "See section reference": 1
     },
     "has_text_boxes": false,
     "has_tracked_changes": false,
@@ -1408,6 +1408,1756 @@
     "doc_type_reason": "Hybrid: low table content (6.6%) but 2 procedure keywords detected",
     "priority_score": 14.25,
     "priority_rank": 5,
+    "errors": []
+  },
+  {
+    "filename": "Incident_Response_example demo-2026-003 copy.docx",
+    "filepath": "/Users/entrana/Documents/VSCodeFiles/DPS - Document Processing System/input/Incident_Response_example demo-2026-003 copy.docx",
+    "file_size_bytes": 13900,
+    "total_char_count": 4225,
+    "total_word_count": 909,
+    "total_paragraphs": 39,
+    "approx_pages": 1.3,
+    "over_size_limit": false,
+    "heading_count": 14,
+    "h1_count": 13,
+    "h2_count": 0,
+    "h3_count": 0,
+    "h4_count": 0,
+    "builtin_heading_count": 13,
+    "custom_heading_count": 0,
+    "fake_heading_count": 1,
+    "heading_styles_used": [
+      "",
+      "Heading 1"
+    ],
+    "sections": [
+      {
+        "heading_text": "Incident Response Policy",
+        "heading_level": 1,
+        "heading_style": "",
+        "is_builtin_style": false,
+        "is_fake_heading": true,
+        "char_count": 131,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 0,
+        "standard_section": "none",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Purpose",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 391,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 3,
+        "standard_section": "purpose",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Scope",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 506,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 6,
+        "standard_section": "scope",
+        "cross_ref_count": 1
+      },
+      {
+        "heading_text": "Intent",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 499,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 9,
+        "standard_section": "intent",
+        "cross_ref_count": 1
+      },
+      {
+        "heading_text": "Controls",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 190,
+        "table_count": 0,
+        "paragraph_count": 2,
+        "start_para_index": 12,
+        "standard_section": "controls",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Enforcement",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 312,
+        "table_count": 0,
+        "paragraph_count": 2,
+        "start_para_index": 14,
+        "standard_section": "none",
+        "cross_ref_count": 1
+      },
+      {
+        "heading_text": "References",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 266,
+        "table_count": 0,
+        "paragraph_count": 7,
+        "start_para_index": 16,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix A - Incident Response Plan Template",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 539,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 23,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix B - Escalation Contact List",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 309,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 26,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix C - Severity Classification Matrix",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 43,
+        "table_count": 0,
+        "paragraph_count": 1,
+        "start_para_index": 29,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix D - Chain of Custody Form",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 392,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 30,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix E - US-CERT Notification Templates",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 286,
+        "table_count": 0,
+        "paragraph_count": 2,
+        "start_para_index": 33,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix F - Tabletop Exercise Log",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 357,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 35,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix G - Revision History",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 29,
+        "table_count": 0,
+        "paragraph_count": 1,
+        "start_para_index": 38,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      }
+    ],
+    "has_purpose": true,
+    "has_scope": true,
+    "has_intent": true,
+    "has_controls": true,
+    "has_appendix": true,
+    "missing_sections": [],
+    "section_count": 14,
+    "largest_section_name": "Appendix A - Incident Response Plan Template",
+    "largest_section_chars": 539,
+    "largest_section_pct": 12.8,
+    "controls_section_chars": 190,
+    "controls_section_pct": 4.5,
+    "appendix_section_chars": 2221,
+    "appendix_section_pct": 52.6,
+    "table_count": 3,
+    "tables": [
+      {
+        "index": 0,
+        "rows": 9,
+        "cols": 6,
+        "header_row": [
+          "Control ID",
+          "Title",
+          "Requirement",
+          "NIST",
+          "Status",
+          "Owner"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "control_matrix",
+        "parent_section": "",
+        "char_count": 1502
+      },
+      {
+        "index": 1,
+        "rows": 5,
+        "cols": 5,
+        "header_row": [
+          "Level",
+          "Name",
+          "Definition",
+          "Notification SLA",
+          "Response SLA"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "applicability_table",
+        "parent_section": "",
+        "char_count": 412
+      },
+      {
+        "index": 2,
+        "rows": 4,
+        "cols": 4,
+        "header_row": [
+          "Version",
+          "Date",
+          "Author",
+          "Changes"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "unclassified",
+        "parent_section": "",
+        "char_count": 227
+      }
+    ],
+    "total_table_chars": 2141,
+    "table_content_pct": 50.7,
+    "tables_with_merged_cells": 0,
+    "nested_table_count": 0,
+    "table_types": {
+      "control_matrix": 1,
+      "applicability_table": 1,
+      "unclassified": 1
+    },
+    "cross_ref_count": 3,
+    "cross_refs": [
+      {
+        "text": "refer to the",
+        "pattern_matched": "Refer to clause/section",
+        "paragraph_index": 7,
+        "parent_section": "Scope",
+        "is_hyperlink": false
+      },
+      {
+        "text": "As described in the",
+        "pattern_matched": "As described in reference",
+        "paragraph_index": 10,
+        "parent_section": "Intent",
+        "is_hyperlink": false
+      },
+      {
+        "text": "per Section 6",
+        "pattern_matched": "Per section reference",
+        "paragraph_index": 15,
+        "parent_section": "Enforcement",
+        "is_hyperlink": false
+      }
+    ],
+    "cross_ref_patterns": {
+      "Refer to clause/section": 1,
+      "As described in reference": 1,
+      "Per section reference": 1
+    },
+    "has_text_boxes": false,
+    "has_tracked_changes": false,
+    "has_comments": false,
+    "has_images": false,
+    "has_embedded_objects": false,
+    "has_password_protection": false,
+    "doc_type": "A",
+    "doc_type_reason": "Table-heavy: 50.7% table content (threshold: 40%)",
+    "priority_score": 12.15,
+    "priority_rank": 6,
+    "errors": []
+  },
+  {
+    "filename": "Continuous_Monitoring_Policy_POL-MON-2026-005.docx",
+    "filepath": "/Users/entrana/Documents/VSCodeFiles/DPS - Document Processing System/input/Continuous_Monitoring_Policy_POL-MON-2026-005.docx",
+    "file_size_bytes": 15333,
+    "total_char_count": 7232,
+    "total_word_count": 1412,
+    "total_paragraphs": 56,
+    "approx_pages": 1.9,
+    "over_size_limit": false,
+    "heading_count": 19,
+    "h1_count": 9,
+    "h2_count": 5,
+    "h3_count": 4,
+    "h4_count": 0,
+    "builtin_heading_count": 18,
+    "custom_heading_count": 0,
+    "fake_heading_count": 1,
+    "heading_styles_used": [
+      "",
+      "Heading 2",
+      "Heading 3",
+      "Heading 1"
+    ],
+    "sections": [
+      {
+        "heading_text": "Continuous Monitoring Policy",
+        "heading_level": 1,
+        "heading_style": "",
+        "is_builtin_style": false,
+        "is_fake_heading": true,
+        "char_count": 138,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 0,
+        "standard_section": "none",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Purpose",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 658,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 3,
+        "standard_section": "purpose",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Scope",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 392,
+        "table_count": 0,
+        "paragraph_count": 2,
+        "start_para_index": 6,
+        "standard_section": "scope",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Intent",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 599,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 8,
+        "standard_section": "intent",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Section 3 - Vulnerability Management Controls",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 1500,
+        "table_count": 0,
+        "paragraph_count": 8,
+        "start_para_index": 11,
+        "standard_section": "controls",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Section 4 - Log Management Controls",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 1514,
+        "table_count": 0,
+        "paragraph_count": 8,
+        "start_para_index": 19,
+        "standard_section": "controls",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Section 5 - Security Metrics and Reporting Controls",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 280,
+        "table_count": 0,
+        "paragraph_count": 2,
+        "start_para_index": 27,
+        "standard_section": "controls",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Enforcement",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 465,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 29,
+        "standard_section": "none",
+        "cross_ref_count": 1
+      },
+      {
+        "heading_text": "References",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 303,
+        "table_count": 0,
+        "paragraph_count": 8,
+        "start_para_index": 32,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix A - Vulnerability Severity Matrix and Remediation Guidance",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 1429,
+        "table_count": 0,
+        "paragraph_count": 16,
+        "start_para_index": 40,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      }
+    ],
+    "has_purpose": true,
+    "has_scope": true,
+    "has_intent": true,
+    "has_controls": true,
+    "has_appendix": true,
+    "missing_sections": [],
+    "section_count": 10,
+    "largest_section_name": "Section 4 - Log Management Controls",
+    "largest_section_chars": 1514,
+    "largest_section_pct": 20.9,
+    "controls_section_chars": 3294,
+    "controls_section_pct": 45.5,
+    "appendix_section_chars": 1732,
+    "appendix_section_pct": 23.9,
+    "table_count": 4,
+    "tables": [
+      {
+        "index": 0,
+        "rows": 5,
+        "cols": 6,
+        "header_row": [
+          "Control ID",
+          "Title",
+          "Requirement",
+          "NIST",
+          "Status",
+          "Owner"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "control_matrix",
+        "parent_section": "",
+        "char_count": 1429
+      },
+      {
+        "index": 1,
+        "rows": 3,
+        "cols": 6,
+        "header_row": [
+          "Control ID",
+          "Title",
+          "Requirement",
+          "NIST",
+          "Status",
+          "Owner"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "control_matrix",
+        "parent_section": "",
+        "char_count": 815
+      },
+      {
+        "index": 2,
+        "rows": 5,
+        "cols": 4,
+        "header_row": [
+          "Tool",
+          "Coverage",
+          "Scan Type",
+          "Owner"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "control_matrix",
+        "parent_section": "",
+        "char_count": 411
+      },
+      {
+        "index": 3,
+        "rows": 5,
+        "cols": 4,
+        "header_row": [
+          "Version",
+          "Date",
+          "Author",
+          "Changes"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "unclassified",
+        "parent_section": "",
+        "char_count": 386
+      }
+    ],
+    "total_table_chars": 3041,
+    "table_content_pct": 42.0,
+    "tables_with_merged_cells": 0,
+    "nested_table_count": 0,
+    "table_types": {
+      "control_matrix": 3,
+      "unclassified": 1
+    },
+    "cross_ref_count": 1,
+    "cross_refs": [
+      {
+        "text": "refer to the",
+        "pattern_matched": "Refer to clause/section",
+        "paragraph_index": 30,
+        "parent_section": "Enforcement",
+        "is_hyperlink": false
+      }
+    ],
+    "cross_ref_patterns": {
+      "Refer to clause/section": 1
+    },
+    "has_text_boxes": false,
+    "has_tracked_changes": false,
+    "has_comments": false,
+    "has_images": false,
+    "has_embedded_objects": false,
+    "has_password_protection": false,
+    "doc_type": "A",
+    "doc_type_reason": "Table-heavy: 42.0% table content (threshold: 40%)",
+    "priority_score": 11.45,
+    "priority_rank": 7,
+    "errors": []
+  },
+  {
+    "filename": "Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx",
+    "filepath": "/Users/entrana/Documents/VSCodeFiles/DPS - Document Processing System/input/Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx",
+    "file_size_bytes": 14118,
+    "total_char_count": 4287,
+    "total_word_count": 996,
+    "total_paragraphs": 40,
+    "approx_pages": 1.3,
+    "over_size_limit": false,
+    "heading_count": 14,
+    "h1_count": 13,
+    "h2_count": 0,
+    "h3_count": 0,
+    "h4_count": 0,
+    "builtin_heading_count": 13,
+    "custom_heading_count": 0,
+    "fake_heading_count": 1,
+    "heading_styles_used": [
+      "",
+      "Heading 1"
+    ],
+    "sections": [
+      {
+        "heading_text": "Data Loss Prevention Standard",
+        "heading_level": 1,
+        "heading_style": "",
+        "is_builtin_style": false,
+        "is_fake_heading": true,
+        "char_count": 135,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 0,
+        "standard_section": "none",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Purpose",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 439,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 3,
+        "standard_section": "purpose",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Scope",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 458,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 6,
+        "standard_section": "scope",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Intent",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 447,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 9,
+        "standard_section": "intent",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Controls",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 162,
+        "table_count": 0,
+        "paragraph_count": 2,
+        "start_para_index": 12,
+        "standard_section": "controls",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Enforcement",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 448,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 14,
+        "standard_section": "none",
+        "cross_ref_count": 1
+      },
+      {
+        "heading_text": "References",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 304,
+        "table_count": 0,
+        "paragraph_count": 8,
+        "start_para_index": 17,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix A - Approved DLP Tool Inventory",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 174,
+        "table_count": 0,
+        "paragraph_count": 2,
+        "start_para_index": 25,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix B - Email Content Inspection Rules",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 466,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 27,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix C - Sensitivity Label Taxonomy",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 161,
+        "table_count": 0,
+        "paragraph_count": 2,
+        "start_para_index": 30,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix D - DLP Exception Request Process",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 361,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 32,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix E - DLP Alert Triage Procedures",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 397,
+        "table_count": 0,
+        "paragraph_count": 2,
+        "start_para_index": 35,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix F - Secure Fax Authorization",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 332,
+        "table_count": 0,
+        "paragraph_count": 2,
+        "start_para_index": 37,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix G - Revision History",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 29,
+        "table_count": 0,
+        "paragraph_count": 1,
+        "start_para_index": 39,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      }
+    ],
+    "has_purpose": true,
+    "has_scope": true,
+    "has_intent": true,
+    "has_controls": true,
+    "has_appendix": true,
+    "missing_sections": [],
+    "section_count": 14,
+    "largest_section_name": "Appendix B - Email Content Inspection Rules",
+    "largest_section_chars": 466,
+    "largest_section_pct": 10.9,
+    "controls_section_chars": 162,
+    "controls_section_pct": 3.8,
+    "appendix_section_chars": 2224,
+    "appendix_section_pct": 51.9,
+    "table_count": 4,
+    "tables": [
+      {
+        "index": 0,
+        "rows": 9,
+        "cols": 6,
+        "header_row": [
+          "Control ID",
+          "Title",
+          "Requirement",
+          "NIST",
+          "Status",
+          "Owner"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "control_matrix",
+        "parent_section": "",
+        "char_count": 1731
+      },
+      {
+        "index": 1,
+        "rows": 4,
+        "cols": 4,
+        "header_row": [
+          "Tool",
+          "Coverage",
+          "Owner",
+          "Review Date"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "control_matrix",
+        "parent_section": "",
+        "char_count": 251
+      },
+      {
+        "index": 2,
+        "rows": 5,
+        "cols": 3,
+        "header_row": [
+          "Label",
+          "Category",
+          "Handling Requirement"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "control_matrix",
+        "parent_section": "",
+        "char_count": 361
+      },
+      {
+        "index": 3,
+        "rows": 5,
+        "cols": 4,
+        "header_row": [
+          "Version",
+          "Date",
+          "Author",
+          "Changes"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "unclassified",
+        "parent_section": "",
+        "char_count": 300
+      }
+    ],
+    "total_table_chars": 2643,
+    "table_content_pct": 61.7,
+    "tables_with_merged_cells": 0,
+    "nested_table_count": 0,
+    "table_types": {
+      "control_matrix": 3,
+      "unclassified": 1
+    },
+    "cross_ref_count": 1,
+    "cross_refs": [
+      {
+        "text": "refer to the",
+        "pattern_matched": "Refer to clause/section",
+        "paragraph_index": 16,
+        "parent_section": "Enforcement",
+        "is_hyperlink": false
+      }
+    ],
+    "cross_ref_patterns": {
+      "Refer to clause/section": 1
+    },
+    "has_text_boxes": false,
+    "has_tracked_changes": false,
+    "has_comments": false,
+    "has_images": false,
+    "has_embedded_objects": false,
+    "has_password_protection": false,
+    "doc_type": "A",
+    "doc_type_reason": "Table-heavy: 61.7% table content (threshold: 40%)",
+    "priority_score": 11.15,
+    "priority_rank": 8,
+    "errors": []
+  },
+  {
+    "filename": "Risk_Management_Policy_POL-RM-2026-009.docx",
+    "filepath": "/Users/entrana/Documents/VSCodeFiles/DPS - Document Processing System/input/Risk_Management_Policy_POL-RM-2026-009.docx",
+    "file_size_bytes": 14399,
+    "total_char_count": 4199,
+    "total_word_count": 993,
+    "total_paragraphs": 37,
+    "approx_pages": 1.2,
+    "over_size_limit": false,
+    "heading_count": 14,
+    "h1_count": 13,
+    "h2_count": 0,
+    "h3_count": 0,
+    "h4_count": 0,
+    "builtin_heading_count": 13,
+    "custom_heading_count": 0,
+    "fake_heading_count": 1,
+    "heading_styles_used": [
+      "",
+      "Heading 1"
+    ],
+    "sections": [
+      {
+        "heading_text": "Risk Management Policy",
+        "heading_level": 1,
+        "heading_style": "",
+        "is_builtin_style": false,
+        "is_fake_heading": true,
+        "char_count": 130,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 0,
+        "standard_section": "none",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Purpose",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 413,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 3,
+        "standard_section": "purpose",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Scope",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 443,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 6,
+        "standard_section": "scope",
+        "cross_ref_count": 1
+      },
+      {
+        "heading_text": "Intent",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 519,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 9,
+        "standard_section": "intent",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Controls",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 160,
+        "table_count": 0,
+        "paragraph_count": 2,
+        "start_para_index": 12,
+        "standard_section": "controls",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Enforcement",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 288,
+        "table_count": 0,
+        "paragraph_count": 2,
+        "start_para_index": 14,
+        "standard_section": "none",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "References",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 270,
+        "table_count": 0,
+        "paragraph_count": 7,
+        "start_para_index": 16,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix A - Risk Assessment Methodology",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 490,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 23,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix B - Approved Threat Intelligence Sources",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 49,
+        "table_count": 0,
+        "paragraph_count": 1,
+        "start_para_index": 26,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix C - Risk Register Template",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 478,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 27,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix D - Risk Acceptance Documentation Requirements",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 389,
+        "table_count": 0,
+        "paragraph_count": 2,
+        "start_para_index": 30,
+        "standard_section": "controls",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix E - POA&M Tracking Template",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 36,
+        "table_count": 0,
+        "paragraph_count": 1,
+        "start_para_index": 32,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix F - Third-Party Risk Assessment Criteria",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 528,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 33,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix G - Revision History",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 29,
+        "table_count": 0,
+        "paragraph_count": 1,
+        "start_para_index": 36,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      }
+    ],
+    "has_purpose": true,
+    "has_scope": true,
+    "has_intent": true,
+    "has_controls": true,
+    "has_appendix": true,
+    "missing_sections": [],
+    "section_count": 14,
+    "largest_section_name": "Appendix F - Third-Party Risk Assessment Criteria",
+    "largest_section_chars": 528,
+    "largest_section_pct": 12.6,
+    "controls_section_chars": 549,
+    "controls_section_pct": 13.1,
+    "appendix_section_chars": 1880,
+    "appendix_section_pct": 44.8,
+    "table_count": 4,
+    "tables": [
+      {
+        "index": 0,
+        "rows": 9,
+        "cols": 6,
+        "header_row": [
+          "Control ID",
+          "Title",
+          "Requirement",
+          "NIST",
+          "Status",
+          "Owner"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "control_matrix",
+        "parent_section": "",
+        "char_count": 1886
+      },
+      {
+        "index": 1,
+        "rows": 5,
+        "cols": 3,
+        "header_row": [
+          "Source",
+          "Type",
+          "Integration"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "unclassified",
+        "parent_section": "",
+        "char_count": 324
+      },
+      {
+        "index": 2,
+        "rows": 4,
+        "cols": 6,
+        "header_row": [
+          "POA&M ID",
+          "Finding Source",
+          "Weakness",
+          "Milestone",
+          "Due Date",
+          "Status"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "control_matrix",
+        "parent_section": "",
+        "char_count": 390
+      },
+      {
+        "index": 3,
+        "rows": 5,
+        "cols": 4,
+        "header_row": [
+          "Version",
+          "Date",
+          "Author",
+          "Changes"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "unclassified",
+        "parent_section": "",
+        "char_count": 318
+      }
+    ],
+    "total_table_chars": 2918,
+    "table_content_pct": 69.5,
+    "tables_with_merged_cells": 0,
+    "nested_table_count": 0,
+    "table_types": {
+      "control_matrix": 2,
+      "unclassified": 2
+    },
+    "cross_ref_count": 1,
+    "cross_refs": [
+      {
+        "text": "refer to the",
+        "pattern_matched": "Refer to clause/section",
+        "paragraph_index": 8,
+        "parent_section": "Scope",
+        "is_hyperlink": false
+      }
+    ],
+    "cross_ref_patterns": {
+      "Refer to clause/section": 1
+    },
+    "has_text_boxes": false,
+    "has_tracked_changes": false,
+    "has_comments": false,
+    "has_images": false,
+    "has_embedded_objects": false,
+    "has_password_protection": false,
+    "doc_type": "A",
+    "doc_type_reason": "Table-heavy: 69.5% table content (threshold: 40%)",
+    "priority_score": 11.1,
+    "priority_rank": 9,
+    "errors": []
+  },
+  {
+    "filename": "Encryption_Policy_POL-ENC-2026-008.docx",
+    "filepath": "/Users/entrana/Documents/VSCodeFiles/DPS - Document Processing System/input/Encryption_Policy_POL-ENC-2026-008.docx",
+    "file_size_bytes": 15456,
+    "total_char_count": 8628,
+    "total_word_count": 1518,
+    "total_paragraphs": 62,
+    "approx_pages": 2.1,
+    "over_size_limit": false,
+    "heading_count": 21,
+    "h1_count": 9,
+    "h2_count": 5,
+    "h3_count": 6,
+    "h4_count": 0,
+    "builtin_heading_count": 20,
+    "custom_heading_count": 0,
+    "fake_heading_count": 1,
+    "heading_styles_used": [
+      "",
+      "Heading 2",
+      "Heading 3",
+      "Heading 1"
+    ],
+    "sections": [
+      {
+        "heading_text": "Encryption Policy",
+        "heading_level": 1,
+        "heading_style": "",
+        "is_builtin_style": false,
+        "is_fake_heading": true,
+        "char_count": 126,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 0,
+        "standard_section": "none",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Purpose",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 487,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 3,
+        "standard_section": "purpose",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Scope",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 620,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 6,
+        "standard_section": "scope",
+        "cross_ref_count": 1
+      },
+      {
+        "heading_text": "Intent",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 595,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 9,
+        "standard_section": "intent",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Section 3 - Data-at-Rest Encryption Controls",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 1523,
+        "table_count": 0,
+        "paragraph_count": 8,
+        "start_para_index": 12,
+        "standard_section": "controls",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Section 4 - Data-in-Transit Encryption Controls",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 1538,
+        "table_count": 0,
+        "paragraph_count": 8,
+        "start_para_index": 20,
+        "standard_section": "controls",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Section 5 - Key Management and PKI Controls",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 303,
+        "table_count": 0,
+        "paragraph_count": 2,
+        "start_para_index": 28,
+        "standard_section": "controls",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Enforcement",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 498,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 30,
+        "standard_section": "none",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "References",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 337,
+        "table_count": 0,
+        "paragraph_count": 8,
+        "start_para_index": 33,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix A - Key Lifecycle Management Procedures",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 2653,
+        "table_count": 0,
+        "paragraph_count": 21,
+        "start_para_index": 41,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      }
+    ],
+    "has_purpose": true,
+    "has_scope": true,
+    "has_intent": true,
+    "has_controls": true,
+    "has_appendix": true,
+    "missing_sections": [],
+    "section_count": 10,
+    "largest_section_name": "Appendix A - Key Lifecycle Management Procedures",
+    "largest_section_chars": 2653,
+    "largest_section_pct": 30.7,
+    "controls_section_chars": 3364,
+    "controls_section_pct": 39.0,
+    "appendix_section_chars": 2990,
+    "appendix_section_pct": 34.7,
+    "table_count": 3,
+    "tables": [
+      {
+        "index": 0,
+        "rows": 5,
+        "cols": 6,
+        "header_row": [
+          "Control ID",
+          "Title",
+          "Requirement",
+          "NIST",
+          "Status",
+          "Owner"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "control_matrix",
+        "parent_section": "",
+        "char_count": 1363
+      },
+      {
+        "index": 1,
+        "rows": 6,
+        "cols": 4,
+        "header_row": [
+          "Protocol",
+          "Version",
+          "Use Case",
+          "Notes"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "applicability_table",
+        "parent_section": "",
+        "char_count": 362
+      },
+      {
+        "index": 2,
+        "rows": 4,
+        "cols": 4,
+        "header_row": [
+          "Version",
+          "Date",
+          "Author",
+          "Changes"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "unclassified",
+        "parent_section": "",
+        "char_count": 323
+      }
+    ],
+    "total_table_chars": 2048,
+    "table_content_pct": 23.7,
+    "tables_with_merged_cells": 0,
+    "nested_table_count": 0,
+    "table_types": {
+      "control_matrix": 1,
+      "applicability_table": 1,
+      "unclassified": 1
+    },
+    "cross_ref_count": 1,
+    "cross_refs": [
+      {
+        "text": "refer to the",
+        "pattern_matched": "Refer to clause/section",
+        "paragraph_index": 8,
+        "parent_section": "Scope",
+        "is_hyperlink": false
+      }
+    ],
+    "cross_ref_patterns": {
+      "Refer to clause/section": 1
+    },
+    "has_text_boxes": false,
+    "has_tracked_changes": false,
+    "has_comments": false,
+    "has_images": false,
+    "has_embedded_objects": false,
+    "has_password_protection": false,
+    "doc_type": "C",
+    "doc_type_reason": "Hybrid: 23.7% table content, 2 procedure keywords detected",
+    "priority_score": 9.55,
+    "priority_rank": 10,
+    "errors": []
+  },
+  {
+    "filename": "Privacy_PII_Handling_Policy_POL-PII-2026-012.docx",
+    "filepath": "/Users/entrana/Documents/VSCodeFiles/DPS - Document Processing System/input/Privacy_PII_Handling_Policy_POL-PII-2026-012.docx",
+    "file_size_bytes": 15976,
+    "total_char_count": 10046,
+    "total_word_count": 1806,
+    "total_paragraphs": 61,
+    "approx_pages": 2.0,
+    "over_size_limit": false,
+    "heading_count": 22,
+    "h1_count": 9,
+    "h2_count": 6,
+    "h3_count": 6,
+    "h4_count": 0,
+    "builtin_heading_count": 21,
+    "custom_heading_count": 0,
+    "fake_heading_count": 1,
+    "heading_styles_used": [
+      "",
+      "Heading 2",
+      "Heading 3",
+      "Heading 1"
+    ],
+    "sections": [
+      {
+        "heading_text": "Privacy and PII Handling Policy",
+        "heading_level": 1,
+        "heading_style": "",
+        "is_builtin_style": false,
+        "is_fake_heading": true,
+        "char_count": 144,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 0,
+        "standard_section": "none",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Purpose",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 574,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 3,
+        "standard_section": "purpose",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Scope",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 682,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 6,
+        "standard_section": "scope",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Intent",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 758,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 9,
+        "standard_section": "intent",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Section 3 - PII Collection and Minimization Controls",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 1742,
+        "table_count": 0,
+        "paragraph_count": 8,
+        "start_para_index": 12,
+        "standard_section": "controls",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Section 4 - PII Transmission and Storage Controls",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 1729,
+        "table_count": 0,
+        "paragraph_count": 8,
+        "start_para_index": 20,
+        "standard_section": "controls",
+        "cross_ref_count": 1
+      },
+      {
+        "heading_text": "Section 5 - Breach Notification and Incident Response Controls",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 360,
+        "table_count": 0,
+        "paragraph_count": 2,
+        "start_para_index": 28,
+        "standard_section": "controls",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Enforcement",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 555,
+        "table_count": 0,
+        "paragraph_count": 3,
+        "start_para_index": 30,
+        "standard_section": "none",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "References",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 385,
+        "table_count": 0,
+        "paragraph_count": 9,
+        "start_para_index": 33,
+        "standard_section": "appendix",
+        "cross_ref_count": 0
+      },
+      {
+        "heading_text": "Appendix A - Privacy Impact Assessment Requirements and Template",
+        "heading_level": 1,
+        "heading_style": "Heading 1",
+        "is_builtin_style": true,
+        "is_fake_heading": false,
+        "char_count": 3168,
+        "table_count": 0,
+        "paragraph_count": 19,
+        "start_para_index": 42,
+        "standard_section": "controls",
+        "cross_ref_count": 0
+      }
+    ],
+    "has_purpose": true,
+    "has_scope": true,
+    "has_intent": true,
+    "has_controls": true,
+    "has_appendix": true,
+    "missing_sections": [],
+    "section_count": 10,
+    "largest_section_name": "Appendix A - Privacy Impact Assessment Requirements and Template",
+    "largest_section_chars": 3168,
+    "largest_section_pct": 31.5,
+    "controls_section_chars": 6999,
+    "controls_section_pct": 69.7,
+    "appendix_section_chars": 385,
+    "appendix_section_pct": 3.8,
+    "table_count": 3,
+    "tables": [
+      {
+        "index": 0,
+        "rows": 5,
+        "cols": 6,
+        "header_row": [
+          "Control ID",
+          "Title",
+          "Requirement",
+          "NIST",
+          "Status",
+          "Owner"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "control_matrix",
+        "parent_section": "",
+        "char_count": 1881
+      },
+      {
+        "index": 1,
+        "rows": 4,
+        "cols": 4,
+        "header_row": [
+          "SORN ID",
+          "System Name",
+          "PII Categories",
+          "Last Published"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "applicability_table",
+        "parent_section": "",
+        "char_count": 332
+      },
+      {
+        "index": 2,
+        "rows": 3,
+        "cols": 4,
+        "header_row": [
+          "Version",
+          "Date",
+          "Author",
+          "Changes"
+        ],
+        "has_merged_cells": false,
+        "is_nested": false,
+        "classification": "unclassified",
+        "parent_section": "",
+        "char_count": 274
+      }
+    ],
+    "total_table_chars": 2487,
+    "table_content_pct": 24.8,
+    "tables_with_merged_cells": 0,
+    "nested_table_count": 0,
+    "table_types": {
+      "control_matrix": 1,
+      "applicability_table": 1,
+      "unclassified": 1
+    },
+    "cross_ref_count": 1,
+    "cross_refs": [
+      {
+        "text": "in accordance with the",
+        "pattern_matched": "In accordance with",
+        "paragraph_index": 23,
+        "parent_section": "Section 4 - PII Transmission and Storage Controls",
+        "is_hyperlink": false
+      }
+    ],
+    "cross_ref_patterns": {
+      "In accordance with": 1
+    },
+    "has_text_boxes": false,
+    "has_tracked_changes": false,
+    "has_comments": false,
+    "has_images": false,
+    "has_embedded_objects": false,
+    "has_password_protection": false,
+    "doc_type": "C",
+    "doc_type_reason": "Hybrid: 24.8% table content, 2 procedure keywords detected",
+    "priority_score": 9.5,
+    "priority_rank": 11,
     "errors": []
   }
 ]

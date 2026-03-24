@@ -517,12 +517,31 @@ def classify_table(table, config: dict) -> tuple:
     return (best_match, header_row, has_merged, char_count)
 
 
+def pattern_to_readable_label(pattern: str) -> str:
+    """Convert a regex pattern to a human-readable label for output."""
+    # Map common patterns to readable names
+    pattern_map = {
+        r'see section\s+[\d\.]+[a-z]?': 'See section reference',
+        r'refer to\s+(section|the)': 'Refer to clause/section',
+        r'as described in\s+(the|section)': 'As described in reference',
+        r'per section\s+[\d\.]+': 'Per section reference',
+        r'in accordance with\s+(the|section)': 'In accordance with',
+        r'as defined in\s+(the|section)': 'As defined in reference',
+        r'as outlined in\s+(the|section)': 'As outlined in reference',
+        r'per the organization\'?s\s+\w+': 'Per organization document',
+        r'see the\s+\w+\s+policy': 'See policy reference',
+        r'as specified in\s+(the|section)': 'As specified in reference',
+    }
+    return pattern_map.get(pattern, f'Pattern: {pattern}')
+
+
 def detect_cross_references(text: str, config: dict) -> list:
     """Find all cross-reference patterns in a text string. Returns list of (match_text, pattern_name)."""
     results = []
     for pattern in config['cross_references']['profiler_patterns']:
         for match in re.finditer(pattern, text, re.IGNORECASE):
-            results.append((match.group(), pattern))
+            readable_label = pattern_to_readable_label(pattern)
+            results.append((match.group(), readable_label))
     return results
 
 

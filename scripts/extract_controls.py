@@ -66,6 +66,7 @@ class ControlRow:
     control_description: str = ""
     supplemental_guidance: str = ""
     miscellaneous: str = ""
+    extraction_source: str = ""
     purpose: str = ""
     scope: str = ""
     applicability: str = ""
@@ -186,7 +187,16 @@ def extract_paragraphs_from_docx(filepath):
         if paragraph.runs:
             first_run_bold = bool(paragraph.runs[0].bold)
         style_name = paragraph.style.name if paragraph.style else ""
-        paragraphs.append({"text": text, "bold": first_run_bold, "style": style_name})
+        paragraphs.append({"text": text, "bold": first_run_bold, "style": style_name, "source": "Text"})
+
+    # Also extract from table cells
+    for table in document.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                text = cell.text.strip()
+                if text:
+                    # For table cells, treat as non-bold (tables rarely have style info)
+                    paragraphs.append({"text": text, "bold": False, "style": "", "source": "Table"})
 
     return paragraphs
 
@@ -303,6 +313,7 @@ def find_control_blocks(paragraphs, patterns):
 
     for paragraph_dict in paragraphs:
         text = paragraph_dict["text"]
+        source = paragraph_dict.get("source", "Text")
         is_header, header_text = is_section_header(paragraph_dict, patterns)
         if is_header:
             if active_block is not None:
@@ -332,12 +343,14 @@ def find_control_blocks(paragraphs, patterns):
                         "control_id": control_id,
                         "raw_lines": [text],
                         "section_header": current_section_header,
+                        "source": source,
                     }
                 else:
                     blocks.append({
                         "control_id": control_id,
                         "raw_lines": [text],
                         "section_header": current_section_header,
+                        "source": source,
                     })
         elif active_block is not None:
             active_block["raw_lines"].append(text)
@@ -375,6 +388,7 @@ def find_control_blocks(paragraphs, patterns):
             "supplemental_guidance": guidance_text,
             "miscellaneous": miscellaneous_text,
             "section_header": block["section_header"],
+            "source": block["source"],
         })
 
     return processed_blocks
@@ -468,6 +482,7 @@ def process_single_document(filepath, patterns, config):
             control_description=block["control_description"],
             supplemental_guidance=block["supplemental_guidance"],
             miscellaneous=block["miscellaneous"],
+            extraction_source=block.get("source", "Text"),
             purpose=metadata.get("purpose", ""),
             scope=metadata.get("scope", ""),
             applicability=metadata.get("applicability", ""),
@@ -500,7 +515,7 @@ def save_checkpoint(checkpoint_path, completed_files):
 CSV_COLUMNS = [
     "source_file", "section_header", "control_id",
     "control_description", "supplemental_guidance", "miscellaneous",
-    "purpose", "scope", "applicability",
+    "extraction_source", "purpose", "scope", "applicability",
 ]
 
 

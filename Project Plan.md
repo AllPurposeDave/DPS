@@ -1,13 +1,13 @@
 ---
 name: docx-to-copilot
-description: "Optimize IT/InfoSec policy DOCX files for Microsoft Copilot RAG retrieval in GCC/GCC-High environments. Use this skill whenever the user mentions: optimizing documents for Copilot, RAG retrieval optimization, policy document restructuring for AI agents, Copilot Studio knowledge base preparation, SharePoint document optimization for semantic search, table flattening for chunking, GCC Copilot agent setup, chunk-friendly document restructuring, or M365 semantic index optimization. Also trigger when the user has DOCX policy files and wants to make them retrievable by a Copilot agent, asks about ingestion paths (SharePoint vs Dataverse vs uploaded files), needs scripts to profile or transform policy documents, or references the notebook workflow for document processing. Trigger even if the user just says 'optimize my docs for Copilot' or 'prepare policies for RAG.' Do NOT trigger for general DOCX editing, PDF creation, or non-Copilot document tasks."
+description: "Optimize IT/InfoSec policy DOCX files for Microsoft Copilot RAG retrieval. Use this skill whenever the user mentions: optimizing documents for Copilot, RAG retrieval optimization, policy document restructuring for AI agents, Copilot Studio knowledge base preparation, SharePoint document optimization for semantic search, table flattening for chunking, Copilot agent setup, chunk-friendly document restructuring, or M365 semantic index optimization. Also trigger when the user has DOCX policy files and wants to make them retrievable by a Copilot agent, asks about ingestion paths (SharePoint vs Dataverse vs uploaded files), needs scripts to profile or transform policy documents, or references the notebook workflow for document processing. Trigger even if the user just says 'optimize my docs for Copilot' or 'prepare policies for RAG.' 
 ---
 
 # DOCX to Copilot: Policy Document RAG Optimization
 
 ## What This Skill Does
 
-Guides the use of the DPS (Document Processing System) pipeline and notebook workflow to transform IT/InfoSec policy DOCX files into chunk-friendly documents optimized for Microsoft Copilot RAG retrieval. Designed for GCC/GCC-High environments running GPT-4o.
+Guides the use of the DPS (Document Processing System) pipeline and notebook workflow to transform IT/InfoSec policy DOCX files into chunk-friendly documents optimized for Microsoft Copilot RAG retrieval. Designed for running GPT-4o.
 
 The pipeline automates profiling (including word counts), control extraction, cross-reference extraction, heading fixes, splitting, and metadata injection. Notebook work handles transformation and semantic validation. Misc scripts handle supplemental audits.
 
@@ -423,7 +423,7 @@ Templates for notebook instructions and agent configuration. Some are stored in 
 | Agent template | When generating Copilot Studio agent config | Agent system instruction template and test query framework | Managed separately |
 | Validation plan | When generating validation scripts or retrieval tests | Script validation plan, single-variable testing protocol, compound testing | Managed separately |
 
-## Execution Timeline (Solo Operator)
+## Execution Timeline
 
 | Week | Phase | Key Actions |
 |------|-------|-------------|
@@ -450,23 +450,12 @@ Templates for notebook instructions and agent configuration. Some are stored in 
 
 ### Missing from the Pipeline
 
-1. **Sub-Document Titling Strategy:** Output files named `[OriginalName] - [Heading1Text].docx` produce generic names like `*- Controls.docx` across 80 source docs. Needs a convention encoding source policy name + specific topic.
+1. **Sub-Document Titling Strategy:** Output files named `[OriginalName] - [Heading1Text].docx` produce generic names like `*- Controls.docx` across many source docs. Needs a convention encoding source policy name + specific topic.
 2. **Duplicate/Overlap Detection:** No mechanism detects when two sub-docs from different source policies cover the same topic. Copilot retrieves both and may give contradictory answers.
 3. **Chunk Identity Metadata:** ~~Beyond preamble, nothing marks *where in the original doc* a chunk came from.~~ **Addressed by Step 5 (`add_metadata.py`).** Each sub-doc now gets a metadata block with document name, URL, scope, intent, and tags. Effective date and parent heading chain are not yet included — add as custom fields in `metadata.fields` config if needed.
 4. **Version/Staleness Tracking:** When a source doc is revised, no mechanism identifies which sub-docs need regeneration. `split_manifest.csv` needs a hash or timestamp per sub-doc.
 5. **Round-Trip Validation:** No check confirms the union of all sub-doc content equals the original (minus formatting). Missing or duplicated paragraphs from XML deep-copy edge cases go unnoticed.
 6. **Table Handling at Split Boundaries:** Tables attributed to the section where they start. A table spanning an H1 boundary goes entirely into the first section's sub-doc even if it semantically belongs to the next.
 7. **Max Doc Count Guardrail:** No check enforces the 400-doc SharePoint/Copilot source limit. The splitter should track cumulative sub-doc count and warn before exceeding the ceiling.
-
-### Scale Estimate: 80 → 400
-
-| Source Doc Type | Avg H1 Sections | Avg Sub-Docs After Split | Count | Total Sub-Docs |
-|---|---|---|---|---|
-| Type A (Table-Heavy) | 6 | 7 (H2 fallback likely) | ~20 | ~140 |
-| Type B (Prose-Heavy) | 5 | 5 | ~25 | ~125 |
-| Type C (Hybrid) | 5 | 6 | ~20 | ~120 |
-| Type D (Appendix-Dominant) | 3 | 4 | ~10 | ~40 |
-| Type E (Unclassified) | 4 | 5 | ~5 | ~25 |
-| **Total** | | | **80** | **~450 (over budget)** |
 
 Options to stay under 400: merge small adjacent sections before splitting, consolidate Type D appendix docs into shared reference docs, or exclude boilerplate sections (Document History, Approval Signatures) from output.

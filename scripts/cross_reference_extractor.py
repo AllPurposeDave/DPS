@@ -152,6 +152,60 @@ def extract_hyperlink_refs(paragraph, doc_rels, config: dict) -> list[dict]:
     return refs
 
 
+def extract_url_records(paragraph, doc_rels, config: dict) -> list[dict]:
+    """
+    Extract URLs from hyperlinks and bare text in a paragraph.
+    Returns records for external URLs, internal bookmark links, and bare text URLs.
+    """
+    if not config.get("cross_references", {}).get("detect_urls", True):
+        return []
+
+    urls = []
+    try:
+        from docx.oxml.ns import qn
+
+        # Extract URLs from hyperlinks
+        for hyperlink in paragraph._element.findall(qn("w:hyperlink")):
+            display_text = ""
+            for run_elem in hyperlink.findall(qn("w:r")):
+                for text_elem in run_elem.findall(qn("w:t")):
+                    if text_elem.text:
+                        display_text += text_elem.text
+
+            # Check for external hyperlink (r:id attribute)
+            r_id = hyperlink.get(qn("r:id"))
+            if r_id and r_id in doc_rels:
+                target_url = doc_rels[r_id].target_ref
+                urls.append({
+                    "target_url": target_url,
+                    "url_display_text": display_text.strip() if display_text.strip() else "",
+                    "url_type": "external",
+                })
+
+            # Check for internal bookmark link (w:anchor attribute)
+            anchor = hyperlink.get(qn("w:anchor"))
+            if anchor:
+                urls.append({
+                    "target_url": anchor,
+                    "url_display_text": display_text.strip() if display_text.strip() else "",
+                    "url_type": "internal",
+                })
+
+        # Extract bare text URLs from paragraph
+        bare_url_pattern = re.compile(r"https?://[^\s<>\"]+|www\.[^\s<>\"]+")
+        for match in bare_url_pattern.finditer(paragraph.text):
+            urls.append({
+                "target_url": match.group(0),
+                "url_display_text": "",
+                "url_type": "bare_text",
+            })
+
+    except Exception:
+        pass
+
+    return urls
+
+
 def process_document(filepath: str, patterns: list[tuple], config: dict) -> list[dict]:
     """Process a single .docx file and return a list of cross-reference records."""
     doc = Document(filepath)
@@ -176,6 +230,9 @@ def process_document(filepath: str, patterns: list[tuple], config: dict) -> list
                     "reference_type": ref_type,
                     "target_reference": target,
                     "resolution_status": "",
+                    "target_url": "",
+                    "url_display_text": "",
+                    "url_type": "",
                 })
 
         # Check hyperlinks
@@ -189,6 +246,25 @@ def process_document(filepath: str, patterns: list[tuple], config: dict) -> list
                 "reference_type": href["reference_type"],
                 "target_reference": href["target_reference"],
                 "resolution_status": "",
+                "target_url": "",
+                "url_display_text": "",
+                "url_type": "",
+            })
+
+        # Check for URLs
+        url_records = extract_url_records(para, doc.part.rels, config)
+        for url_record in url_records:
+            records.append({
+                "source_doc": filename,
+                "source_section": find_parent_heading(paragraphs, idx),
+                "source_paragraph_index": idx,
+                "matched_text": "",
+                "reference_type": "",
+                "target_reference": "",
+                "resolution_status": "",
+                "target_url": url_record["target_url"],
+                "url_display_text": url_record["url_display_text"],
+                "url_type": url_record["url_type"],
             })
 
     return records
@@ -215,6 +291,7 @@ def main():
     fieldnames = [
         "source_doc", "source_section", "source_paragraph_index",
         "matched_text", "reference_type", "target_reference", "resolution_status",
+        "target_url", "url_display_text", "url_type",
     ]
 
     all_records = []
