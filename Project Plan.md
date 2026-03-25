@@ -1,13 +1,8 @@
----
-name: docx-to-copilot
-description: "Optimize IT/InfoSec policy DOCX files for Microsoft Copilot RAG retrieval. Use this skill whenever the user mentions: optimizing documents for Copilot, RAG retrieval optimization, policy document restructuring for AI agents, Copilot Studio knowledge base preparation, SharePoint document optimization for semantic search, table flattening for chunking, Copilot agent setup, chunk-friendly document restructuring, or M365 semantic index optimization. Also trigger when the user has DOCX policy files and wants to make them retrievable by a Copilot agent, asks about ingestion paths (SharePoint vs Dataverse vs uploaded files), needs scripts to profile or transform policy documents, or references the notebook workflow for document processing. Trigger even if the user just says 'optimize my docs for Copilot' or 'prepare policies for RAG.' 
----
+# DPS: Policy Document Processing Pipeline
 
-# DOCX to Copilot: Policy Document RAG Optimization
+## Overview
 
-## What This Skill Does
-
-Guides the use of the DPS (Document Processing System) pipeline and notebook workflow to transform IT/InfoSec policy DOCX files into chunk-friendly documents optimized for Microsoft Copilot RAG retrieval. Designed for running GPT-4o.
+The DPS (Document Processing System) pipeline and notebook workflow transform IT/InfoSec policy DOCX files into chunk-friendly documents optimized for Microsoft Copilot RAG retrieval.
 
 The pipeline automates profiling (including word counts), control extraction, cross-reference extraction, heading fixes, splitting, and metadata injection. Notebook work handles transformation and semantic validation. Misc scripts handle supplemental audits.
 
@@ -31,7 +26,7 @@ python run_pipeline.py --list       # Show all steps and status
 | 1 | `extract_controls.py` | Pull structured control data with whitelist/blacklist filtering, multi-pattern ID matching, and CSV + Excel output | `output/1 - controls/` |
 | 2 | `cross_reference_extractor.py` | Capture all cross-refs BEFORE any structural changes | `output/2 - cross_references/` |
 | 3 | `heading_style_fixer.py` | Convert fake bold headings to real Word Heading styles | `output/3 - heading_fixes/` |
-| 4 | `section_splitter.py` | Split fixed docs at H1 boundaries into sub-documents | `output/4 - split_documents/` |
+| 4 | `section_splitter.py` | Split fixed docs at H1 boundaries into RAG-sized sub-documents (greedy H2 fill to `max_characters`) | `output/4 - split_documents/` |
 | 5 | `add_metadata.py` | Stamp sub-docs with identity metadata (name, URL, scope, intent, tags) | `output/5 - metadata/` |
 
 **Always run Step 0 first.** Step 4 reads from Step 3's output. Step 5 reads from Step 4's output. Steps 1, 2 read from `input/` directly.
@@ -164,7 +159,7 @@ Review the Step 0 inventory for type assignments before proceeding. Override any
 
 ## Phase 3: Document Transformation
 
-Automated pre-processing (Steps 2-4) runs first, then Copilot Notebook 2 handles the remaining transformation. Claude does NOT transform the documents directly. Claude generates the instructions the user pastes into their Copilot Notebooks.
+Automated pre-processing (Steps 2-4) runs first, then Copilot Notebook 2 handles the remaining transformation using the instruction templates in `references/`.
 
 ### Automated Pre-Processing (Steps 2-4)
 
@@ -176,7 +171,7 @@ python run_pipeline.py --step 2-4
 
 - **Step 2** snapshots all cross-references before any edits (reference for inline restatements in notebook work)
 - **Step 3** converts fake bold headings to real Word Heading styles (splitter requires real styles)
-- **Step 4** splits fixed docs at H1 boundaries into sub-documents under the character limit
+- **Step 4** splits fixed docs at H1 boundaries into RAG-sized sub-documents; H2 sub-sections are accumulated greedily up to `max_characters` (default 36,000 chars), then split at the next H2 boundary — never mid-section
 
 ### Notebook Architecture (3 Notebooks)
 
@@ -223,7 +218,7 @@ Copilot Notebooks truncate long outputs. Do not ask the notebook to transform an
 
 Notebook outputs are markdown. SharePoint needs DOCX with real Word heading styles (heading styles are chunking signals for the M365 semantic index).
 
-**Assembly Script Requirements (generate via Notebook 1 or Claude):**
+**Assembly Script Requirements:**
 
 1. Read all numbered `.md` files for a policy in order
 2. Convert markdown headings to real Word Heading 1/2/3 styles (not bold text)
@@ -443,7 +438,7 @@ Templates for notebook instructions and agent configuration. Some are stored in 
 |---|---|---|
 | **Heading Style Fixer** | Medium | A fake heading misclassified as H1 creates a false split boundary — orphaning context that belonged with the previous section. A real H1 missed means two distinct topics merge into one chunk, diluting both. |
 | **Section Splitter (H1 → sub-docs)** | High | Splitting at H1 severs the narrative arc. A "Purpose" section may state intent that qualifies every control beneath it. Once split, downstream chunks lose that qualifying language. The preamble helps, but preamble ≠ full Purpose section. |
-| **Section Splitter (H2 fallback)** | High | When an H1 section exceeds 36k chars and gets sub-split at H2, tightly coupled subsections (e.g., "Scope" + "Applicability") land in separate docs. Each chunk reads as standalone policy when it was written as conditional on its sibling. |
+| **Section Splitter (H2 fallback)** | Medium | When an H1 section exceeds `max_characters`, H2 sub-sections are accumulated greedily until the limit is crossed, then split at the next H2 boundary. Tightly coupled subsections that together exceed the limit (e.g., a large "Scope" + "Applicability") will still land in separate docs — but the greedy approach keeps them together whenever they fit. Tune `max_characters` in `dps_config.yaml` if coupled sections are being separated. |
 | **Preamble Prepend** | Low-Medium | The preamble is content before the first H1. If a doc puts its actual intent/scope *after* H1 (common in appendix-dominant Type D docs), every sub-doc gets a hollow preamble — title and version but no policy context. |
 | **Table Flattening (Notebook 2)** | High | Control matrices encode relationships via row/column position. Flattening to prose requires interpreting those relationships. A "Yes" cell under "Encryption Required" next to "PII at Rest" becomes a sentence — and the sentence's wording *is* the policy now. |
 | **Cross-Reference Inlining (Notebook 2)** | Medium | Replacing "See Section 4.3" with the actual text of 4.3 can change meaning if 4.3 is paraphrased or truncated. Over-inlining bloats chunks; under-inlining leaves dangling pointers. |

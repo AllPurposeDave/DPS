@@ -210,6 +210,17 @@ class DocumentProfile:
     doc_type: str  # A, B, C, D, E
     doc_type_reason: str
 
+    # Profiling flags
+    control_id_count: int
+    control_density: float  # control IDs per approx page
+    control_dense: bool
+    level_skips: int  # heading level jumps > 1 (e.g., H1→H3)
+    heading_variance: bool
+    heading_variance_reason: str
+    unique_sections: list  # H1 headings not matching standard section terms
+    unique_section_count: int
+    table_dense: bool
+
     # Priority scoring
     priority_score: float
     priority_rank: int  # filled after all docs scored
@@ -1106,6 +1117,52 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
     # ----- Formatting anomalies -----
     anomalies = detect_formatting_anomalies(filepath, doc)
 
+    # ----- Profiling flags -----
+    flags_cfg = config.get('profiling_flags', {})
+
+    # 1. ControlDense: count control IDs in full text using Step 1 patterns
+    ctrl_patterns = config.get('control_extraction', {}).get('control_id_patterns', [])
+    control_id_count = 0
+    for pat in ctrl_patterns:
+        try:
+            control_id_count += len(re.findall(pat, full_text))
+        except re.error:
+            pass
+    control_density = round(control_id_count / approx_pages, 1) if approx_pages > 0 else 0
+    ctrl_cfg = flags_cfg.get('control_dense', {})
+    control_dense = control_density >= ctrl_cfg.get('min_controls_per_page', 5.0)
+
+    # 2. HeadingVariance: detect structural issues in heading hierarchy
+    hv_cfg = flags_cfg.get('heading_variance', {})
+    level_skips = 0
+    sorted_headings = sorted(heading_data, key=lambda h: h[0])  # sort by paragraph index
+    for i in range(1, len(sorted_headings)):
+        prev_level = sorted_headings[i - 1][1]
+        curr_level = sorted_headings[i][1]
+        if curr_level > prev_level + 1:
+            level_skips += 1
+    total_heading_count = len(heading_data)
+    fake_ratio = len(fakes) / total_heading_count if total_heading_count > 0 else 0
+    h1_only_flat = len(h1s) > 0 and len(h2s) == 0
+
+    hv_reasons = []
+    if level_skips >= hv_cfg.get('max_level_skips', 2):
+        hv_reasons.append(f"{level_skips} level skips")
+    if fake_ratio >= hv_cfg.get('max_fake_ratio', 0.5) and total_heading_count > 0:
+        hv_reasons.append(f"{fake_ratio:.0%} fake headings")
+    if h1_only_flat:
+        hv_reasons.append("flat H1-only structure")
+    heading_variance = len(hv_reasons) > 0
+    heading_variance_reason = "; ".join(hv_reasons) if hv_reasons else ""
+
+    # 3. UniqueSections: H1 headings not matching any standard section
+    unique_secs = [s.heading_text for s in sections_info if s.standard_section == "none"]
+    unique_section_count = len(unique_secs)
+
+    # 4. TableDense: lower-threshold table content warning
+    td_cfg = flags_cfg.get('table_dense', {})
+    table_dense = table_pct >= td_cfg.get('min_table_content_pct', 30)
+
     # ----- Build intermediate dict for classification -----
     profile_dict = {
         'table_content_pct': table_pct,
@@ -1176,6 +1233,15 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
         has_password_protection=anomalies['has_password_protection'],
         doc_type=doc_type,
         doc_type_reason=doc_type_reason,
+        control_id_count=control_id_count,
+        control_density=control_density,
+        control_dense=control_dense,
+        level_skips=level_skips,
+        heading_variance=heading_variance,
+        heading_variance_reason=heading_variance_reason,
+        unique_sections=unique_secs,
+        unique_section_count=unique_section_count,
+        table_dense=table_dense,
         priority_score=priority,
         priority_rank=0,
         search_term_hits=search_term_hits,
@@ -1305,6 +1371,13 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
         ("Comments", 8),
         ("Images", 8),
         ("Text Boxes", 8),
+        ("Control IDs", 8),
+        ("Ctrls/Page", 8),
+        ("Control Dense", 8),
+        ("Heading Variance", 8),
+        ("Level Skips", 7),
+        ("Unique Sections", 30),
+        ("Table Dense", 8),
         ("Type Reason", 45),
         ("Errors", 30),
     ]
@@ -1368,6 +1441,13 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
             bool_to_str(p.has_comments),
             bool_to_str(p.has_images),
             bool_to_str(p.has_text_boxes),
+            p.control_id_count,
+            p.control_density,
+            bool_to_str(p.control_dense),
+            bool_to_str(p.heading_variance),
+            p.level_skips,
+            ", ".join(p.unique_sections)[:60] if p.unique_sections else "",
+            bool_to_str(p.table_dense),
             p.doc_type_reason[:80],
             "; ".join(p.errors)[:60] if p.errors else "",
         ]
@@ -1398,9 +1478,17 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
         if p.missing_sections:
             ws.cell(row=row_idx, column=20).fill = warn_fill
 
+        # Profiling flag highlights (yellow for flagged)
+        if p.control_dense:
+            ws.cell(row=row_idx, column=33).fill = warn_fill
+        if p.heading_variance:
+            ws.cell(row=row_idx, column=34).fill = warn_fill
+        if p.table_dense:
+            ws.cell(row=row_idx, column=37).fill = warn_fill
+
         # Highlight search term hits with green fill
         hit_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-        static_col_count = 31  # number of static columns before search terms
+        static_col_count = 38  # number of static columns before search terms
         for t_idx, term in enumerate(search_terms):
             count = p.search_term_hits.get(term, 0)
             if count > 0:
@@ -1427,6 +1515,12 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
         ("Has Tracked Changes", len([p for p in profiles if p.has_tracked_changes])),
         ("Has Comments", len([p for p in profiles if p.has_comments])),
         ("Missing 1+ Standard Sections", len([p for p in profiles if p.missing_sections])),
+        ("", ""),
+        ("Control Dense Docs", len([p for p in profiles if p.control_dense])),
+        ("Heading Variance Docs", len([p for p in profiles if p.heading_variance])),
+        ("Table Dense Docs", len([p for p in profiles if p.table_dense])),
+        ("Docs with Unique Sections", len([p for p in profiles if p.unique_section_count > 0])),
+        ("Avg Controls/Page", round(sum(p.control_density for p in profiles) / len(profiles), 1) if profiles else 0),
         ("", ""),
         ("Avg Characters", round(sum(p.total_char_count for p in profiles) / len(profiles)) if profiles else 0),
         ("Avg Words", round(sum(p.total_word_count for p in profiles) / len(profiles)) if profiles else 0),

@@ -6,8 +6,10 @@
 # ============================================================
 
 # --- INPUT / OUTPUT ---
-input_folder: "./policy_docs"          # Folder containing your .docx files
-output_file: "./acronym_audit.xlsx"    # Where the Excel report goes
+# These are fallbacks only. If dps_config.yaml is found in a parent directory,
+# input_folder is automatically read from input.directory there.
+input_folder: "../../input"            # Relative to this config file's location
+output_file: "../../output/acronym_audit.xlsx"    # Where the Excel report goes
 
 # --- SEARCH SETTINGS ---
 search:

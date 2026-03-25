@@ -286,8 +286,25 @@
     "has_password_protection": false,
     "doc_type": "A",
     "doc_type_reason": "Table-heavy: 254.0% table content (threshold: 40%)",
+    "control_id_count": 0,
+    "control_density": 0.0,
+    "control_dense": false,
+    "level_skips": 0,
+    "heading_variance": true,
+    "heading_variance_reason": "100% fake headings",
+    "unique_sections": [
+      "Configuration Management Policy",
+      "Section 3: Roles and Responsibilities",
+      "Section 4: Change Impact Analysis Template"
+    ],
+    "unique_section_count": 3,
+    "table_dense": true,
     "priority_score": 23.4,
     "priority_rank": 1,
+    "search_term_hits": {
+      "AC": 0,
+      "Cloud": 1
+    },
     "errors": []
   },
   {
@@ -579,8 +596,24 @@
     "has_password_protection": false,
     "doc_type": "A",
     "doc_type_reason": "Table-heavy: 129.0% table content (threshold: 40%)",
+    "control_id_count": 0,
+    "control_density": 0.0,
+    "control_dense": false,
+    "level_skips": 0,
+    "heading_variance": false,
+    "heading_variance_reason": "",
+    "unique_sections": [
+      "Access Control Policy",
+      "4. Enforcement"
+    ],
+    "unique_section_count": 2,
+    "table_dense": true,
     "priority_score": 21.45,
     "priority_rank": 2,
+    "search_term_hits": {
+      "AC": 10,
+      "Cloud": 0
+    },
     "errors": []
   },
   {
@@ -885,8 +918,24 @@
     "has_password_protection": false,
     "doc_type": "A",
     "doc_type_reason": "Table-heavy: 252.5% table content (threshold: 40%)",
+    "control_id_count": 0,
+    "control_density": 0.0,
+    "control_dense": false,
+    "level_skips": 0,
+    "heading_variance": false,
+    "heading_variance_reason": "",
+    "unique_sections": [
+      "Risk Management Framework Compliance Mapping",
+      "Revision History"
+    ],
+    "unique_section_count": 2,
+    "table_dense": true,
     "priority_score": 21.45,
     "priority_rank": 3,
+    "search_term_hits": {
+      "AC": 17,
+      "Cloud": 3
+    },
     "errors": []
   },
   {
@@ -1157,8 +1206,26 @@
     "has_password_protection": false,
     "doc_type": "A",
     "doc_type_reason": "Table-heavy: 50.2% table content (threshold: 40%)",
+    "control_id_count": 0,
+    "control_density": 0.0,
+    "control_dense": false,
+    "level_skips": 0,
+    "heading_variance": false,
+    "heading_variance_reason": "",
+    "unique_sections": [
+      "Incident Response Policy",
+      "1.1 Policy Rationale",
+      "4.3 Escalation Matrix",
+      "5. Documentation and Retention"
+    ],
+    "unique_section_count": 4,
+    "table_dense": true,
     "priority_score": 18.15,
     "priority_rank": 4,
+    "search_term_hits": {
+      "AC": 0,
+      "Cloud": 1
+    },
     "errors": []
   },
   {
@@ -1179,8 +1246,8 @@
     "custom_heading_count": 0,
     "fake_heading_count": 1,
     "heading_styles_used": [
-      "",
       "Heading 2",
+      "",
       "Heading 1"
     ],
     "sections": [
@@ -1406,8 +1473,25 @@
     "has_password_protection": false,
     "doc_type": "C",
     "doc_type_reason": "Hybrid: low table content (6.6%) but 2 procedure keywords detected",
+    "control_id_count": 4,
+    "control_density": 2.7,
+    "control_dense": false,
+    "level_skips": 0,
+    "heading_variance": false,
+    "heading_variance_reason": "",
+    "unique_sections": [
+      "Acceptable Use Policy",
+      "Email and Communications",
+      "6. Enforcement and Disciplinary Actions"
+    ],
+    "unique_section_count": 3,
+    "table_dense": false,
     "priority_score": 14.25,
     "priority_rank": 5,
+    "search_term_hits": {
+      "AC": 2,
+      "Cloud": 1
+    },
     "errors": []
   },
   {
@@ -1729,8 +1813,24 @@
     "has_password_protection": false,
     "doc_type": "A",
     "doc_type_reason": "Table-heavy: 50.7% table content (threshold: 40%)",
+    "control_id_count": 2,
+    "control_density": 1.5,
+    "control_dense": false,
+    "level_skips": 0,
+    "heading_variance": true,
+    "heading_variance_reason": "flat H1-only structure",
+    "unique_sections": [
+      "Incident Response Policy",
+      "Enforcement"
+    ],
+    "unique_section_count": 2,
+    "table_dense": true,
     "priority_score": 12.15,
     "priority_rank": 6,
+    "search_term_hits": {
+      "AC": 1,
+      "Cloud": 4
+    },
     "errors": []
   },
   {
@@ -2002,8 +2102,24 @@
     "has_password_protection": false,
     "doc_type": "A",
     "doc_type_reason": "Table-heavy: 42.0% table content (threshold: 40%)",
+    "control_id_count": 22,
+    "control_density": 11.6,
+    "control_dense": true,
+    "level_skips": 2,
+    "heading_variance": true,
+    "heading_variance_reason": "2 level skips",
+    "unique_sections": [
+      "Continuous Monitoring Policy",
+      "Enforcement"
+    ],
+    "unique_section_count": 2,
+    "table_dense": true,
     "priority_score": 11.45,
     "priority_rank": 7,
+    "search_term_hits": {
+      "AC": 0,
+      "Cloud": 3
+    },
     "errors": []
   },
   {
@@ -2322,8 +2438,24 @@
     "has_password_protection": false,
     "doc_type": "A",
     "doc_type_reason": "Table-heavy: 61.7% table content (threshold: 40%)",
+    "control_id_count": 10,
+    "control_density": 7.7,
+    "control_dense": true,
+    "level_skips": 0,
+    "heading_variance": true,
+    "heading_variance_reason": "flat H1-only structure",
+    "unique_sections": [
+      "Data Loss Prevention Standard",
+      "Enforcement"
+    ],
+    "unique_section_count": 2,
+    "table_dense": true,
     "priority_score": 11.15,
     "priority_rank": 8,
+    "search_term_hits": {
+      "AC": 1,
+      "Cloud": 7
+    },
     "errors": []
   },
   {
@@ -2644,8 +2776,24 @@
     "has_password_protection": false,
     "doc_type": "A",
     "doc_type_reason": "Table-heavy: 69.5% table content (threshold: 40%)",
+    "control_id_count": 4,
+    "control_density": 3.3,
+    "control_dense": false,
+    "level_skips": 0,
+    "heading_variance": true,
+    "heading_variance_reason": "flat H1-only structure",
+    "unique_sections": [
+      "Risk Management Policy",
+      "Enforcement"
+    ],
+    "unique_section_count": 2,
+    "table_dense": true,
     "priority_score": 11.1,
     "priority_rank": 9,
+    "search_term_hits": {
+      "AC": 0,
+      "Cloud": 2
+    },
     "errors": []
   },
   {
@@ -2900,8 +3048,24 @@
     "has_password_protection": false,
     "doc_type": "C",
     "doc_type_reason": "Hybrid: 23.7% table content, 2 procedure keywords detected",
+    "control_id_count": 30,
+    "control_density": 14.3,
+    "control_dense": true,
+    "level_skips": 2,
+    "heading_variance": true,
+    "heading_variance_reason": "2 level skips",
+    "unique_sections": [
+      "Encryption Policy",
+      "Enforcement"
+    ],
+    "unique_section_count": 2,
+    "table_dense": false,
     "priority_score": 9.55,
     "priority_rank": 10,
+    "search_term_hits": {
+      "AC": 0,
+      "Cloud": 3
+    },
     "errors": []
   },
   {
@@ -3156,8 +3320,24 @@
     "has_password_protection": false,
     "doc_type": "C",
     "doc_type_reason": "Hybrid: 24.8% table content, 2 procedure keywords detected",
+    "control_id_count": 24,
+    "control_density": 12.0,
+    "control_dense": true,
+    "level_skips": 2,
+    "heading_variance": true,
+    "heading_variance_reason": "2 level skips",
+    "unique_sections": [
+      "Privacy and PII Handling Policy",
+      "Enforcement"
+    ],
+    "unique_section_count": 2,
+    "table_dense": false,
     "priority_score": 9.5,
     "priority_rank": 11,
+    "search_term_hits": {
+      "AC": 0,
+      "Cloud": 0
+    },
     "errors": []
   }
 ]

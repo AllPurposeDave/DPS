@@ -26,7 +26,7 @@ The pipeline runs 7 sequential steps:
 | 1 | `extract_controls.py` | Extract structured control data | Read-only |
 | 2 | `cross_reference_extractor.py` | Capture cross-references | Read-only |
 | 3 | `heading_style_fixer.py` | Fix fake headings to real Word styles | Transformative |
-| 4 | `section_splitter.py` | Split documents at H1 boundaries | Transformative |
+| 4 | `section_splitter.py` | Split documents at H1 boundaries into RAG-sized sub-documents | Transformative |
 | 5 | `add_metadata.py` | Stamp sub-documents with identity metadata | Transformative |
 | 6 | `validate_controls.py` | Validate controls exist in split output | Read-only |
 
@@ -257,13 +257,15 @@ Standardizes heading styles so Step 4 (splitter) can find section boundaries:
 
 > **This step creates new sub-documents.** Each input document is split into multiple smaller `.docx` files. Step 4 reads from Step 3's output, not from `input/`.
 
-Splits documents at Heading 1 boundaries to fit within AI context windows:
+Splits documents at Heading 1 boundaries to produce RAG-optimized sub-documents. Each chunk is self-contained and sized to maximize retrieval precision:
 
-- Each sub-document is named `[OriginalName] - [Heading1Text].docx`
-- Sub-documents are capped at `max_characters` (default: 36,000 characters)
+- Each sub-document is named `[OriginalName] - [Heading1Text].docx` (or `[Name] - [H1] - [H2].docx` if further split)
+- Sub-documents are capped at `max_characters` (default: 36,000 chars — see tuning note below)
 - Content before the first H1 (preamble) is prepended to every sub-document
-- If a section exceeds the character limit, it is further split at Heading 2 boundaries
+- **Greedy H2 accumulation:** If an H1 section exceeds the limit, its H2 sub-sections are grouped together until adding the next one would cross the limit — then the split happens at that H2 boundary. Each chunk is as large as possible without exceeding the limit. This avoids unnecessary fragmentation from splitting at every H2.
 - Preserves paragraph formatting via XML deep copy
+
+> **Why `max_characters` matters for RAG:** RAG retrieval sends matching chunks to the LLM as context. Each chunk is retrieved as a unit — a 36k chunk where only 2k is relevant wastes 34k tokens of context budget every query. Smaller, focused chunks improve retrieval precision. Tune `max_characters` in `dps_config.yaml` for your use case: use 18,000 for dense control-heavy docs, keep 36,000 for balanced policies, raise to 72,000 only for very sparse docs.
 
 **Key config section:** `thresholds` (`max_characters`, `chars_per_page`)
 
@@ -332,6 +334,8 @@ Validates that every control extracted in Step 1 is present in the split documen
 ## Configuration Reference
 
 All settings live in a single file: **`dps_config.yaml`**. The pipeline works with defaults — only change what you need.
+
+
 
 ### Section 1: Input
 
@@ -729,6 +733,43 @@ Custom field examples:
 #### URL Resolution
 
 Resolution order: Excel lookup → fallback template → "(URL not configured)"
+
+**Excel lookup file format**
+
+Create an Excel file (`.xlsx`) with at least two columns — one for document names and one for URLs. Column headers must match what you configure in `dps_config.yaml` (defaults: `Document Name` and `SharePoint URL`):
+
+| Document Name | SharePoint URL |
+|---|---|
+| Access Control Policy | https://contoso.sharepoint.com/.../Access_Control_Policy.docx |
+| Incident Response Policy | https://contoso.sharepoint.com/.../Incident_Response_Policy.docx |
+
+- Extra columns are fine — they are ignored unless referenced as custom fields.
+- The file can be on any sheet; set `metadata.url.sheet` to the sheet name or index (0 = first).
+- Rows with a blank name or URL are skipped.
+
+**How matching works**
+
+Matching is **case-insensitive substring**: the Excel name is checked against the document name derived from the filename (underscores converted to spaces, extension stripped). A match occurs if either string contains the other. For example, `"Access Control"` in Excel will match a file named `Access_Control_Policy_v2.docx`.
+
+Because matching is bidirectional, shorter entries match more broadly — `"Policy"` alone would match every document with "Policy" in its name. Use enough of the document name to be unique.
+
+**Setup steps**
+
+1. Save your Excel file somewhere in the project (e.g., `Misc/url_lookup.xlsx`).
+2. In `dps_config.yaml`, set the `metadata.url` block:
+
+```yaml
+metadata:
+  url:
+    lookup_file: "Misc/url_lookup.xlsx"
+    name_column: "Document Name"    # must match your Excel column header exactly
+    url_column: "SharePoint URL"    # must match your Excel column header exactly
+    sheet: 0                        # 0 = first sheet, or use the sheet name as a string
+```
+
+3. Run Step 5. The console will report how many mappings loaded and how many were resolved from Excel vs. fallback.
+
+**If matching fails**, Step 5 will print a warning listing the column headers it actually found in your file — use that to spot header typos.
 
 | Key | Default | Description |
 |-----|---------|-------------|

@@ -30,7 +30,7 @@ Output:
 
 DEPENDENCIES:
     pip install python-docx pyyaml openpyxl
-    Everything else is Python stdlib. No API keys. Fully offline.
+    Everything else is Python stdlib.
 """
 
 import re
@@ -63,6 +63,8 @@ class ControlRow:
     source_file: str = ""
     section_header: str = ""
     control_id: str = ""
+    control_name: str = ""
+    baseline: str = ""
     control_description: str = ""
     supplemental_guidance: str = ""
     miscellaneous: str = ""
@@ -300,6 +302,78 @@ def extract_metadata(paragraphs, patterns, config):
 # SECTION: CONTROL BLOCK SEGMENTATION
 # ============================================================
 
+# Regex to capture baseline indicators like (L), (L, M), (L, M, H), (H), etc.
+# Matches all permutations of L, M, H (comma-separated, inside parentheses).
+_BASELINE_RE = re.compile(
+    r'\s*\(\s*([LMH](?:\s*,\s*[LMH])*)\s*\)'
+)
+
+# After baseline, an optional " - Control Name" or " – Control Name"
+_CONTROL_NAME_RE = re.compile(
+    r'\s*[-\u2013\u2014]\s*(.+)'
+)
+
+
+def parse_baseline_and_name(text, control_id):
+    """Extract baseline indicators and control name from the text following a control ID.
+
+    Looks for patterns like:
+        AC-1.001 (L, M, H) - Access Control Policy
+        AC-1.001 (L, M, H)
+        AC-1.001 - Access Control Policy
+
+    Returns (baseline, control_name) — both empty strings if not found.
+    """
+    # Find where the control ID ends in the text
+    id_pos = text.find(control_id)
+    if id_pos == -1:
+        return ("", "")
+
+    after_id = text[id_pos + len(control_id):]
+
+    baseline = ""
+    control_name = ""
+
+    # Try to match baseline first
+    bl_match = _BASELINE_RE.match(after_id)
+    if bl_match:
+        baseline = bl_match.group(1).replace(" ", "")  # normalize to "L,M,H"
+        after_id = after_id[bl_match.end():]
+
+    # Try to match control name (after baseline or directly after ID)
+    name_match = _CONTROL_NAME_RE.match(after_id)
+    if name_match:
+        control_name = name_match.group(1).strip()
+
+    return (baseline, control_name)
+
+
+def _strip_control_prefix(text, control_id):
+    """Remove the control ID, baseline, and control name from the start of a line.
+
+    Given text like "AC-1.001 (L, M, H) - Access Control Policy The organization shall...",
+    returns "The organization shall...".
+    """
+    id_pos = text.find(control_id)
+    if id_pos == -1:
+        return text
+
+    # Start after the control ID
+    after = text[id_pos + len(control_id):]
+
+    # Strip baseline like "(L, M, H)"
+    bl_match = _BASELINE_RE.match(after)
+    if bl_match:
+        after = after[bl_match.end():]
+
+    # Strip control name separator and name like "- Access Control Policy"
+    name_match = _CONTROL_NAME_RE.match(after)
+    if name_match:
+        after = after[name_match.end():]
+
+    return after.strip()
+
+
 def find_control_blocks(paragraphs, patterns):
     """Identify and segment individual control blocks from paragraphs.
 
@@ -338,17 +412,23 @@ def find_control_blocks(paragraphs, patterns):
                 blocks.append(active_block)
 
             for match_index, control_id in enumerate(control_id_matches):
+                baseline, control_name = parse_baseline_and_name(text, control_id)
+                first_line = _strip_control_prefix(text, control_id)
                 if match_index == 0:
                     active_block = {
                         "control_id": control_id,
-                        "raw_lines": [text],
+                        "control_name": control_name,
+                        "baseline": baseline,
+                        "raw_lines": [first_line] if first_line else [],
                         "section_header": current_section_header,
                         "source": source,
                     }
                 else:
                     blocks.append({
                         "control_id": control_id,
-                        "raw_lines": [text],
+                        "control_name": control_name,
+                        "baseline": baseline,
+                        "raw_lines": [first_line] if first_line else [],
                         "section_header": current_section_header,
                         "source": source,
                     })
@@ -384,6 +464,8 @@ def find_control_blocks(paragraphs, patterns):
 
         processed_blocks.append({
             "control_id": block["control_id"],
+            "control_name": block.get("control_name", ""),
+            "baseline": block.get("baseline", ""),
             "control_description": description_text,
             "supplemental_guidance": guidance_text,
             "miscellaneous": miscellaneous_text,
@@ -479,6 +561,8 @@ def process_single_document(filepath, patterns, config):
             source_file=source_file,
             section_header=block["section_header"],
             control_id=block["control_id"],
+            control_name=block.get("control_name", ""),
+            baseline=block.get("baseline", ""),
             control_description=block["control_description"],
             supplemental_guidance=block["supplemental_guidance"],
             miscellaneous=block["miscellaneous"],
@@ -513,9 +597,9 @@ def save_checkpoint(checkpoint_path, completed_files):
 # ============================================================
 
 CSV_COLUMNS = [
-    "source_file", "section_header", "control_id",
-    "control_description", "supplemental_guidance", "miscellaneous",
-    "extraction_source", "purpose", "scope", "applicability",
+    "control_id", "control_name", "baseline",
+    "control_description", "supplemental_guidance", "purpose", "scope", "applicability",
+    "miscellaneous", "section_header", "source_file", "extraction_source",
 ]
 
 

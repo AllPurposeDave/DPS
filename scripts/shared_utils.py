@@ -349,7 +349,9 @@ def add_csv_as_sheet(wb, csv_path: str, sheet_name: str) -> bool:
         last_col = get_column_letter(ws.max_column)
         ws.auto_filter.ref = f"A1:{last_col}{ws.max_row}"
 
-    # Auto column widths (scan all rows, cap at 60)
+    # Auto column widths; wrap text in columns whose content exceeds the threshold
+    WRAP_THRESHOLD = 50
+    wrap_col_indices = set()
     for col_idx in range(1, ws.max_column + 1):
         max_width = 0
         for row in ws.iter_rows(min_col=col_idx, max_col=col_idx, values_only=True):
@@ -357,7 +359,18 @@ def add_csv_as_sheet(wb, csv_path: str, sheet_name: str) -> bool:
             if val is not None:
                 max_width = max(max_width, len(str(val)))
         letter = get_column_letter(col_idx)
-        ws.column_dimensions[letter].width = min(max_width + 2, 60)
+        if max_width > WRAP_THRESHOLD:
+            ws.column_dimensions[letter].width = 60
+            wrap_col_indices.add(col_idx)
+        else:
+            ws.column_dimensions[letter].width = min(max_width + 2, 60)
+
+    if wrap_col_indices:
+        wrap_align = Alignment(vertical="top", wrap_text=True)
+        for data_row in ws.iter_rows(min_row=2):
+            for cell in data_row:
+                if cell.column in wrap_col_indices:
+                    cell.alignment = wrap_align
 
     return True
 
@@ -419,7 +432,9 @@ def add_xlsx_as_sheet(wb, xlsx_path: str, sheet_name: str) -> bool:
         last_col = get_column_letter(ws.max_column)
         ws.auto_filter.ref = f"A1:{last_col}{ws.max_row}"
 
-    # Auto column widths (scan all rows, cap at 60)
+    # Auto column widths; wrap text in columns whose content exceeds the threshold
+    WRAP_THRESHOLD = 50
+    wrap_col_indices = set()
     for col_idx in range(1, ws.max_column + 1):
         max_width = 0
         for row in ws.iter_rows(min_col=col_idx, max_col=col_idx, values_only=True):
@@ -427,7 +442,18 @@ def add_xlsx_as_sheet(wb, xlsx_path: str, sheet_name: str) -> bool:
             if val is not None:
                 max_width = max(max_width, len(str(val)))
         letter = get_column_letter(col_idx)
-        ws.column_dimensions[letter].width = min(max_width + 2, 60)
+        if max_width > WRAP_THRESHOLD:
+            ws.column_dimensions[letter].width = 60
+            wrap_col_indices.add(col_idx)
+        else:
+            ws.column_dimensions[letter].width = min(max_width + 2, 60)
+
+    if wrap_col_indices:
+        wrap_align = Alignment(vertical="top", wrap_text=True)
+        for data_row in ws.iter_rows(min_row=2):
+            for cell in data_row:
+                if cell.column in wrap_col_indices:
+                    cell.alignment = wrap_align
 
     return True
 

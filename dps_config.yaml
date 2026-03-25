@@ -464,6 +464,32 @@ classification:
 
 
 # ============================================================================
+# SECTION 7b: PROFILING FLAGS (used by Step 0)
+# ============================================================================
+# Per-document flags that surface additional profiling dimensions beyond
+# the A-E type classification. These appear as columns in document_inventory.xlsx.
+
+profiling_flags:
+
+  # ControlDense — flags docs with a high ratio of control IDs per page.
+  # Uses the same control_id_patterns from Section 11 (control_extraction).
+  control_dense:
+    min_controls_per_page: 5.0    # Flag if >= this many control IDs per approx page
+
+  # HeadingVariance — flags docs with structural heading issues:
+  #   level skips (H1→H3 with no H2), flat structure (H1 only, no H2),
+  #   or high ratio of fake headings vs real heading styles.
+  heading_variance:
+    max_level_skips: 2            # Flag if >= this many heading level jumps (e.g., H1→H3)
+    max_fake_ratio: 0.5           # Flag if >= 50% of headings are fake (bold-not-styled)
+
+  # TableDense — flags docs where >= 30% of content lives in tables.
+  # Lower threshold than Type A (40%). Acts as an early warning.
+  table_dense:
+    min_table_content_pct: 30     # Flag if >= 30% table content
+
+
+# ============================================================================
 # SECTION 8: SIZE & OPTIMIZATION THRESHOLDS
 # ============================================================================
 
@@ -471,9 +497,27 @@ thresholds:
 
   # ~~~ Key setting — YOU MAY WANT TO CHANGE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-  # Max characters per sub-document for AI retrieval.
-  # 36,000 ≈ 20 pages ≈ fits Copilot Studio / GPT-4o context window.
-  # Increase for larger context windows; decrease (try 18,000) for tighter splits.
+  # ─── RAG CHUNK SIZE ───────────────────────────────────────────────────────
+  # max_characters controls the maximum size of each split sub-document.
+  #
+  # WHY THIS MATTERS FOR RAG:
+  #   RAG retrieval sends the top-N matching chunks to the LLM as context.
+  #   Smaller, focused chunks = higher retrieval precision (fewer irrelevant
+  #   tokens competing with the answer) + more candidates fit in the context
+  #   window. One 36k chunk is retrieved as a unit — if only 2k is relevant,
+  #   you're burning 34k tokens of context budget on noise every query.
+  #
+  # HOW STEP 4 SPLITS (greedy accumulation):
+  #   H2 sub-sections are grouped together until adding the next one would
+  #   push the chunk over this limit. The split then happens at THAT H2
+  #   heading boundary — never mid-section. Each sub-document is as large
+  #   as possible without exceeding the limit.
+  #
+  # TUNING GUIDE:
+  #   36,000  → ~20 pages — fits Copilot Studio / GPT-4o (default)
+  #   18,000  → ~10 pages — tighter chunks, better precision for dense docs
+  #   72,000  → ~40 pages — fewer files; use only for very sparse policy docs
+  #   Lower value = more sub-documents, better RAG precision, more SharePoint items
   max_characters: 36000
   max_pages: 20              # Approximate page equivalent (reporting only)
 
@@ -758,3 +802,92 @@ metadata:
 
     # Static tags added to ALL documents (e.g., ["InfoSec", "GCC-High"])
     static_tags: []
+
+
+# ============================================================================
+# SECTION 13: DOCX TO MARKDOWN (standalone — Misc/DPS_docx2md/)
+# ============================================================================
+# Standalone tool for converting .docx files to clean markdown optimised for
+# RAG pipelines. Not part of the main pipeline — run separately.
+#
+# USAGE:
+#   cd "Misc/DPS_docx2md"
+#   python DPS_docx2md.py --config ../../dps_config.yaml
+#   python DPS_docx2md.py --config ../../dps_config.yaml ../../input ../../output/markdown
+#
+# Input: Uses the main pipeline's input.directory setting (Section 1) by default.
+# Output: Writes to output/markdown/ (configurable below).
+
+docx2md:
+  # Where converted .md files are written (relative to config file location)
+  output_directory: "./output/markdown"
+
+  # --- Image handling ---
+  # "extract"     → save images to disk + insert markdown references
+  # "placeholder" → insert [Image: description] text only
+  # "skip"        → ignore images entirely
+  image_handling: "extract"
+  image_subfolder: "images"          # subfolder name under each doc's image dir
+
+  # --- Table conversion strategy ---
+  # "auto"     → simple tables as markdown pipe tables, merged cells as HTML (recommended)
+  # "markdown" → force pipe tables for everything (merged cells flattened)
+  # "html"     → use HTML <table> for all tables
+  table_strategy: "auto"
+
+  # --- Heading cleanup ---
+  # Shift heading levels so the document starts at H1
+  heading_normalization: true
+
+  # --- Text cleanup ---
+  max_consecutive_blank_lines: 2     # collapse runs of blank lines
+  clean_smart_quotes: true           # convert smart quotes to standard ASCII
+  strip_zero_width_chars: true       # remove zero-width spaces, BOM, etc.
+  extract_text_boxes: true           # extract floating text box content inline
+
+  # --- Logging ---
+  log_file_prefix: "docx2md_log"    # produces docx2md_log_2026-03-24_143052.xlsx
+
+  # --- Metadata frontmatter ---
+  # Controls which fields appear in the YAML frontmatter block at the top of
+  # each .md file. Add, remove, or reorder entries to customise.
+  #
+  # Each field has:
+  #   name:     field name in the YAML output
+  #   source:   where to pull the value from:
+  #              "core:<property>"         → doc.core_properties
+  #                  (title, author, created, modified, subject, keywords, revision)
+  #              "filename"                → source .docx filename (always available)
+  #              "filename_regex:<pattern>" → extract via regex capture group from filename
+  #              "static:<value>"          → hardcoded value (e.g. organisation name)
+  #              "converted_date"          → timestamp of conversion run
+  #   default:  fallback if source is empty (optional)
+  include_metadata_frontmatter: true
+
+  metadata_fields:
+    - name: "title"
+      source: "core:title"
+      default: ""
+    - name: "source_file"
+      source: "filename"
+    - name: "author"
+      source: "core:author"
+      default: "Unknown"
+    - name: "created"
+      source: "core:created"
+      default: ""
+    - name: "modified"
+      source: "core:modified"
+      default: ""
+    - name: "doc_id"
+      source: "filename_regex:([A-Z]+-[A-Z]+-\\d{4}-\\d+)"
+      default: ""
+    - name: "converted"
+      source: "converted_date"
+    # --- Add your own fields below this line ---
+    # - name: "organization"
+    #   source: "static:Acme Corp"
+    # - name: "classification"
+    #   source: "core:subject"
+    # - name: "keywords"
+    #   source: "core:keywords"

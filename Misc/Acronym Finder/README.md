@@ -16,7 +16,7 @@ Yellow-highlighted cells = acronyms with no definition found. Pink cells = high-
 
 ## Why This Matters for Your Copilot KB
 
-Undefined acronyms in your policy docs are a retrieval problem. When the chunker splits a paragraph that says "MFA is required per AC-2.1" and neither MFA nor AC-2.1 is expanded anywhere in that chunk, the model has to guess. In GCC with GPT-4o, that guess is wrong more often than you'd like. This script tells you exactly where the gaps are so you can fix them before restructuring.
+Undefined acronyms in your policy docs are a retrieval problem. When the chunker splits a paragraph that says "MFA is required per AC-2.1" and neither MFA nor AC-2.1 is expanded anywhere in that chunk, the model has to guess.
 
 ## Setup
 

@@ -22,11 +22,48 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 
+def find_dps_config(start_dir):
+    """Walk up from start_dir looking for dps_config.yaml. Returns path or None."""
+    current = Path(start_dir).resolve()
+    for _ in range(6):  # limit search depth
+        candidate = current / 'dps_config.yaml'
+        if candidate.is_file():
+            return str(candidate)
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return None
+
+
 def load_config(config_path):
+    config_dir = Path(config_path).resolve().parent
+
     with open(config_path, 'r') as f:
         cfg = yaml.safe_load(f)
-    cfg.setdefault('input_folder', './policy_docs')
-    cfg.setdefault('output_file', './acronym_audit.xlsx')
+
+    # --- Resolve input_folder ---
+    # Prefer dps_config.yaml from parent directories (single source of truth).
+    dps_path = find_dps_config(config_dir)
+    if dps_path:
+        with open(dps_path, 'r') as f:
+            dps = yaml.safe_load(f) or {}
+        dps_dir = Path(dps_path).resolve().parent
+        raw_input = dps.get('input', {}).get('directory', './input')
+        cfg['input_folder'] = str((dps_dir / raw_input).resolve())
+        cfg['_exclude_patterns'] = dps.get('input', {}).get('exclude_patterns', ['~$'])
+        cfg['_dps_config'] = dps_path
+    else:
+        # Fall back to acronym_config.yaml value, resolved relative to config file
+        raw_input = cfg.get('input_folder', '../../input')
+        cfg['input_folder'] = str((config_dir / raw_input).resolve())
+        cfg.setdefault('_exclude_patterns', ['~$'])
+
+    # --- Resolve output_file relative to config file if not absolute ---
+    raw_output = cfg.get('output_file', '../../output/acronym_audit.xlsx')
+    if not os.path.isabs(raw_output):
+        cfg['output_file'] = str((config_dir / raw_output).resolve())
+
     cfg.setdefault('search', {})
     s = cfg['search']
     s.setdefault('min_length', 2)
@@ -153,13 +190,20 @@ def find_acronyms(text_sources, acronym_re, paren_re, ignore_set, cfg):
 def process_all_docs(cfg):
     folder = cfg['input_folder']
     pattern = os.path.join(folder, '**', '*.docx')
-    files = [f for f in glob.glob(pattern, recursive=True) if not os.path.basename(f).startswith('~$')]
+    exclude_patterns = cfg.get('_exclude_patterns', ['~$'])
+
+    def is_excluded(filepath):
+        name = os.path.basename(filepath).lower()
+        return any(pat.lower() in name for pat in exclude_patterns)
+
+    files = [f for f in glob.glob(pattern, recursive=True) if not is_excluded(f)]
 
     if not files:
         print(f"ERROR: No .docx files found in '{folder}'")
         sys.exit(1)
 
-    print(f"Found {len(files)} .docx files in '{folder}'")
+    dps_note = f" (input from {cfg['_dps_config']})" if cfg.get('_dps_config') else ''
+    print(f"Found {len(files)} .docx files in '{folder}'{dps_note}")
 
     ignore_set = {item.upper() for item in cfg.get('ignore_list', [])}
     acronym_re, paren_re = build_regex(cfg)
@@ -373,6 +417,7 @@ def write_excel(all_doc_results, global_acronyms, files, cfg):
     style_header(ws5, 1, 2)
     config_rows = [
         ("Input Folder", cfg['input_folder']),
+        ("Input Source", cfg.get('_dps_config', 'acronym_config.yaml (fallback)')),
         ("Output File", cfg['output_file']),
         ("Min Acronym Length", cfg['search']['min_length']),
         ("Max Acronym Length", cfg['search']['max_length']),

@@ -4,9 +4,20 @@ Step 4: Section Splitter
 
 RUN THIS AFTER heading_style_fixer.py has produced *_fixed.docx files.
 
-Splits each _fixed.docx at Heading 1 boundaries into sub-documents,
-each under the character limit (default 36,000). Prepends the document
-preamble (content before first H1) to every sub-document.
+Splits each _fixed.docx at Heading 1 boundaries into sub-documents for
+RAG (Retrieval-Augmented Generation) ingestion. Each sub-document is kept
+under the character limit (default 36,000 chars, set via max_characters in
+dps_config.yaml). Preamble (content before first H1) is prepended to every
+sub-document so each chunk is self-contained.
+
+SPLIT STRATEGY — GREEDY H2 ACCUMULATION:
+  When an H1 section exceeds max_characters, H2 sub-sections are accumulated
+  greedily: content is grouped until the next H2 would push the chunk over
+  the limit, then a split is made at that H2 boundary. This ensures each
+  sub-document is as large as possible without exceeding the limit, avoiding
+  fragmentation from splitting at every H2 regardless of size.
+  WHY: Smaller, focused RAG chunks improve retrieval precision — each chunk
+  is retrieved as a unit, so tightly-grouped content returns better answers.
 
 Usage (unified pipeline):
     python run_pipeline.py --step 4
@@ -160,16 +171,25 @@ def split_at_heading2(
     preamble_elements: list, section_elements: list,
     base_name: str, heading1_text: str, output_dir: str,
     sub_counter: int, chars_per_page: int,
+    max_chars: int, preamble_chars: int,
 ) -> list[dict]:
-    """Further split a section at Heading 2 boundaries when it exceeds the limit."""
+    """
+    Further split a section at Heading 2 boundaries when it exceeds the limit.
+
+    GREEDY ACCUMULATION: H2 sub-sections are grouped together until adding
+    the next H2 group would push the chunk (preamble + accumulated) over
+    max_chars. The split happens at THAT H2 boundary, not at every H2.
+    Result: fewest possible sub-documents, each as large as allowed.
+    """
     records = []
 
-    h2_indices = []
-    for i, (elem_type, elem_obj, _) in enumerate(section_elements):
-        if elem_type == "paragraph" and get_heading_level(elem_obj.style) == 2:
-            h2_indices.append(i)
+    has_h2 = any(
+        elem_type == "paragraph" and get_heading_level(elem_obj.style) == 2
+        for elem_type, elem_obj, _ in section_elements
+    )
 
-    if not h2_indices:
+    if not has_h2:
+        # No H2s — write the whole oversized section as one sub-doc with a warning.
         safe_heading = sanitize_filename(heading1_text)
         out_name = f"{base_name} - {safe_heading}.docx"
         out_path = os.path.join(output_dir, out_name)
@@ -183,26 +203,28 @@ def split_at_heading2(
         })
         return records
 
-    split_points = h2_indices + [len(section_elements)]
-    chunk_start = 0
-
-    for sp_idx, sp_end in enumerate(split_points):
-        chunk_elements = section_elements[chunk_start:sp_end]
-        if not chunk_elements:
-            chunk_start = sp_end
-            continue
-
-        first_elem = chunk_elements[0]
-        if first_elem[0] == "paragraph" and get_heading_level(first_elem[1].style) in (1, 2):
+    def _flush_chunk(chunk: list) -> None:
+        """Save chunk as a sub-document and append a manifest record."""
+        if not chunk:
+            return
+        first_elem = chunk[0]
+        heading_level = (
+            get_heading_level(first_elem[1].style)
+            if first_elem[0] == "paragraph" else None
+        )
+        if heading_level in (1, 2):
             sub_heading = first_elem[1].text.strip()
         else:
             sub_heading = heading1_text
 
-        safe_heading = sanitize_filename(f"{heading1_text} - {sub_heading}")
+        if heading_level == 2:
+            safe_heading = sanitize_filename(f"{heading1_text} - {sub_heading}")
+        else:
+            safe_heading = sanitize_filename(heading1_text)
+
         out_name = f"{base_name} - {safe_heading}.docx"
         out_path = os.path.join(output_dir, out_name)
-
-        char_count = create_sub_document(preamble_elements, chunk_elements, out_path)
+        char_count = create_sub_document(preamble_elements, chunk, out_path)
         records.append({
             "original_doc": f"{base_name}_fixed.docx",
             "sub_doc_filename": out_name,
@@ -210,8 +232,29 @@ def split_at_heading2(
             "character_count": char_count,
             "page_estimate": round(char_count / chars_per_page, 1),
         })
-        chunk_start = sp_end
 
+    current_chunk: list = []
+    current_chars: int = 0
+
+    for elem_type, elem_obj, para_idx in section_elements:
+        is_h2 = elem_type == "paragraph" and get_heading_level(elem_obj.style) == 2
+
+        # When we hit an H2 AND the current chunk already exceeds the limit,
+        # flush before starting a new chunk at this heading boundary.
+        if is_h2 and current_chunk and (preamble_chars + current_chars) > max_chars:
+            _flush_chunk(current_chunk)
+            current_chunk = []
+            current_chars = 0
+
+        current_chunk.append((elem_type, elem_obj, para_idx))
+        if elem_type == "paragraph":
+            current_chars += len(elem_obj.text)
+        elif elem_type == "table":
+            for row in elem_obj.rows:
+                for cell in row.cells:
+                    current_chars += len(cell.text)
+
+    _flush_chunk(current_chunk)
     return records
 
 
@@ -282,6 +325,7 @@ def process_document(filepath: str, output_dir: str, max_chars: int, chars_per_p
             sub_records = split_at_heading2(
                 preamble_elements, section_elements, base_name,
                 heading1_text, output_dir, sec_idx, chars_per_page,
+                max_chars, preamble_chars,
             )
             records.extend(sub_records)
         else:
