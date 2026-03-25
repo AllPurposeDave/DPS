@@ -344,6 +344,18 @@ def parse_baseline_and_name(text, control_id):
     name_match = _CONTROL_NAME_RE.match(after_id)
     if name_match:
         control_name = name_match.group(1).strip()
+        # Handle "Control Name (L, M, H)" — baseline at end of name instead of after ID
+        if not baseline:
+            trailing_bl = _BASELINE_RE.search(control_name)
+            if trailing_bl:
+                baseline = trailing_bl.group(1).replace(" ", "")
+                control_name = control_name[:trailing_bl.start()].strip()
+
+    # Handle name BEFORE the ID: "Access Control Policy ACC10.111 - (L, M, H)"
+    if not control_name and id_pos > 0:
+        before_id = re.sub(r'[\s\-\u2013\u2014]+$', '', text[:id_pos]).strip()
+        if before_id:
+            control_name = before_id
 
     return (baseline, control_name)
 
