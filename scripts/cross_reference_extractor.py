@@ -43,6 +43,7 @@ from shared_utils import (
     get_output_dir,
     iter_docx_files,
     load_config,
+    log_pipeline_issue,
     setup_argparse,
 )
 
@@ -311,6 +312,7 @@ def main():
             files_failed += 1
             print(f"  ERROR processing {filename}: {e}")
             traceback.print_exc()
+            log_pipeline_issue(os.path.dirname(output_dir), "Step 2 - Cross References", filename, "ERROR", str(e))
 
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

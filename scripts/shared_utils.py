@@ -289,6 +289,47 @@ def ensure_output_dir(output_dir: str) -> None:
 # Consolidated Excel report utilities
 # ---------------------------------------------------------------------------
 
+def log_pipeline_issue(
+    output_root: str,
+    step_name: str,
+    filename: str,
+    issue_type: str,
+    message: str,
+) -> None:
+    """
+    Append one row to pipeline_issues.csv in the output root directory.
+
+    This file accumulates issues from all pipeline steps and is included as
+    the "Pipeline Issues" sheet in the consolidated DPS report.
+
+    Args:
+        output_root: The root output directory (e.g. "./output").
+        step_name:   Name of the pipeline step (e.g. "Step 1 - Controls").
+        filename:    The source .docx filename that had the issue (basename only).
+        issue_type:  Short category: "ERROR", "WARNING", or "PASSWORD_PROTECTED".
+        message:     Human-readable description of the issue.
+    """
+    import csv as csv_mod
+    from datetime import datetime
+
+    os.makedirs(output_root, exist_ok=True)
+    csv_path = os.path.join(output_root, "pipeline_issues.csv")
+    fieldnames = ["timestamp", "step", "filename", "issue_type", "message"]
+    file_exists = os.path.isfile(csv_path) and os.path.getsize(csv_path) > 0
+
+    with open(csv_path, "a", newline="", encoding="utf-8") as f:
+        writer = csv_mod.DictWriter(f, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow({
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "step": step_name,
+            "filename": filename,
+            "issue_type": issue_type,
+            "message": message,
+        })
+
+
 def _sanitize_sheet_name(name: str) -> str:
     """Sanitize a string for use as an Excel sheet name (max 31 chars)."""
     for ch in "[]:*?/\\":
@@ -375,10 +416,11 @@ def add_csv_as_sheet(wb, csv_path: str, sheet_name: str) -> bool:
     return True
 
 
-def add_xlsx_as_sheet(wb, xlsx_path: str, sheet_name: str) -> bool:
+def add_xlsx_as_sheet(wb, xlsx_path: str, sheet_name: str, source_sheet_name: Optional[str] = None) -> bool:
     """
     Read an Excel file and copy its data as a styled worksheet in an openpyxl Workbook.
-    Copies the first sheet only. Applies the same styling as CSV sheets.
+    Copies the first sheet by default, or a named sheet if source_sheet_name is given.
+    Applies the same styling as CSV sheets.
 
     Returns True if the sheet was added, False if the Excel file is missing or empty.
     """
@@ -392,7 +434,10 @@ def add_xlsx_as_sheet(wb, xlsx_path: str, sheet_name: str) -> bool:
 
     try:
         source_wb = load_workbook(xlsx_path)
-        source_ws = source_wb.active
+        if source_sheet_name and source_sheet_name in source_wb.sheetnames:
+            source_ws = source_wb[source_sheet_name]
+        else:
+            source_ws = source_wb.active
         if source_ws is None or source_ws.max_row == 0:
             return False
     except Exception:
@@ -481,18 +526,22 @@ def build_consolidated_workbook(config: dict, timestamp_str: str) -> Optional[st
     if not os.path.isabs(output_root):
         output_root = os.path.normpath(os.path.join(config_dir, output_root))
 
-    # Sheet manifest: (sheet_name, config_step_key, filename_config_key)
+    # Sheet manifest: (sheet_name, config_step_key, filename_config_key, source_sheet_name)
+    # source_sheet_name is optional — used when pulling a specific sheet from a
+    # multi-sheet .xlsx (e.g. the validation review workbook).
     sheet_manifest = [
-        ("0 - Document Inventory", "profiler",          "inventory_file"),
-        ("0 - Sections",           "profiler",          "sections_file"),
-        ("0 - Tables",             "profiler",          "tables_file"),
-        ("0 - CrossRefs",          "profiler",          "crossrefs_file"),
-        ("1 - Controls",           "controls",          "output_file"),
-        ("2 - Cross References",   "cross_references",  "output_file"),
-        ("3 - Heading Changes",    "heading_fixes",     "changes_file"),
-        ("4 - Split Manifest",     "split_documents",   "manifest_file"),
-        ("5 - Metadata",           "metadata",          "manifest_file"),
-        ("6 - Validation",         "validation",        "output_file"),
+        ("0 - Document Inventory", "profiler",          "inventory_file",  None),
+        ("0 - Sections",           "profiler",          "sections_file",   None),
+        ("0 - Tables",             "profiler",          "tables_file",     None),
+        ("0 - CrossRefs",          "profiler",          "crossrefs_file",  None),
+        ("1 - Controls",           "controls",          "output_file",     None),
+        ("2 - Cross References",   "cross_references",  "output_file",     None),
+        ("3 - Heading Changes",    "heading_fixes",     "changes_file",    None),
+        ("4 - Split Manifest",     "split_documents",   "manifest_file",   None),
+        ("5 - Metadata",           "metadata",          "manifest_file",   None),
+        ("6 - Validation",         "validation",        "output_file",     None),
+        ("6 - Validation Review",  "validation",        "review_file",     "Validation Review"),
+        ("6 - Validation Summary", "validation",        "review_file",     "Summary"),
     ]
 
     wb = Workbook()
@@ -500,7 +549,13 @@ def build_consolidated_workbook(config: dict, timestamp_str: str) -> Optional[st
     wb.remove(wb.active)
 
     sheets_added = 0
-    for sheet_name, step_key, file_key in sheet_manifest:
+
+    # Pipeline Issues sheet — always first so problems are immediately visible
+    issues_path = os.path.join(output_root, "pipeline_issues.csv")
+    if add_csv_as_sheet(wb, issues_path, "⚠ Pipeline Issues"):
+        sheets_added += 1
+
+    for sheet_name, step_key, file_key, source_sheet in sheet_manifest:
         step_cfg = output_cfg.get(step_key, {})
         step_dir = step_cfg.get("directory", "")
         filename = step_cfg.get(file_key, "")
@@ -508,7 +563,7 @@ def build_consolidated_workbook(config: dict, timestamp_str: str) -> Optional[st
 
         # Determine file type and use appropriate function
         if filename.endswith(".xlsx"):
-            if add_xlsx_as_sheet(wb, file_path, sheet_name):
+            if add_xlsx_as_sheet(wb, file_path, sheet_name, source_sheet):
                 sheets_added += 1
         elif filename.endswith(".csv"):
             if add_csv_as_sheet(wb, file_path, sheet_name):

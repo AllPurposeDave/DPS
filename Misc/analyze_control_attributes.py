@@ -13,9 +13,9 @@ Features:
     - Tracks paragraph position and surrounding context
 
 Usage:
-    python scripts/analyze_control_attributes.py
-    python scripts/analyze_control_attributes.py --config dps_config.yaml
-    python scripts/analyze_control_attributes.py ./input ./output
+    python Misc/analyze_control_attributes.py
+    python Misc/analyze_control_attributes.py --config dps_config.yaml
+    python Misc/analyze_control_attributes.py ./input ./output
 
 Output:
     control_attributes_analysis.csv — one row per control match with attributes

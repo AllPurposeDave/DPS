@@ -23,7 +23,7 @@ python run_pipeline.py --list       # Show all steps and status
 | Step | Script | What It Does | Output |
 |------|--------|-------------|--------|
 | 0 | `policy_profiler.py` | Scan all docs, extract metadata, classify types (A/B/C/D/E), score priority, count words | `output/0 - profiler/` |
-| 1 | `extract_controls.py` | Pull structured control data with whitelist/blacklist filtering, multi-pattern ID matching, and CSV + Excel output | `output/1 - controls/` |
+| 1 | `extract_controls.py` | Pull structured control data with whitelist/blacklist filtering, multi-pattern ID matching, Published URL lookup, and CSV + Excel output | `output/1 - controls/` |
 | 2 | `cross_reference_extractor.py` | Capture all cross-refs BEFORE any structural changes | `output/2 - cross_references/` |
 | 3 | `heading_style_fixer.py` | Convert fake bold headings to real Word Heading styles | `output/3 - heading_fixes/` |
 | 4 | `section_splitter.py` | Split fixed docs at H1 boundaries into RAG-sized sub-documents (greedy H2 fill to `max_characters`) | `output/4 - split_documents/` |
@@ -447,7 +447,7 @@ Templates for notebook instructions and agent configuration. Some are stored in 
 
 1. **Sub-Document Titling Strategy:** Output files named `[OriginalName] - [Heading1Text].docx` produce generic names like `*- Controls.docx` across many source docs. Needs a convention encoding source policy name + specific topic.
 2. **Duplicate/Overlap Detection:** No mechanism detects when two sub-docs from different source policies cover the same topic. Copilot retrieves both and may give contradictory answers.
-3. **Chunk Identity Metadata:** ~~Beyond preamble, nothing marks *where in the original doc* a chunk came from.~~ **Addressed by Step 5 (`add_metadata.py`).** Each sub-doc now gets a metadata block with document name, URL, scope, intent, and tags. Effective date and parent heading chain are not yet included — add as custom fields in `metadata.fields` config if needed.
+3. **Chunk Identity Metadata:** ~~Beyond preamble, nothing marks *where in the original doc* a chunk came from.~~ **Addressed by Step 5 (`add_metadata.py`).** Each sub-doc now gets a metadata block with document name, URL, scope, intent, and tags. URLs are sourced from `input/Doc_URL.xlsx` — one file shared by both Step 1 (Published URL column in controls export) and Step 5 (metadata injection). Effective date and parent heading chain are not yet included — add as custom fields in `metadata.fields` config if needed.
 4. **Version/Staleness Tracking:** When a source doc is revised, no mechanism identifies which sub-docs need regeneration. `split_manifest.csv` needs a hash or timestamp per sub-doc.
 5. **Round-Trip Validation:** No check confirms the union of all sub-doc content equals the original (minus formatting). Missing or duplicated paragraphs from XML deep-copy edge cases go unnoticed.
 6. **Table Handling at Split Boundaries:** Tables attributed to the section where they start. A table spanning an H1 boundary goes entirely into the first section's sub-doc even if it semantically belongs to the next.

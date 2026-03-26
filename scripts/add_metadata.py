@@ -194,7 +194,8 @@ def load_url_mapping(config: dict) -> dict[str, str]:
         name_val = row[name_idx] if name_idx < len(row) else None
         url_val = row[url_idx] if url_idx < len(row) else None
         if name_val and url_val:
-            mapping[str(name_val).strip().lower()] = str(url_val).strip()
+            # Store original name (will be normalized in resolve_url for comparison)
+            mapping[str(name_val).strip()] = str(url_val).strip()
 
     wb.close()
     print(f"  Loaded {len(mapping)} URL mappings from {os.path.basename(lookup_path)}")
@@ -450,15 +451,19 @@ def resolve_url(
 
     WHAT IT DOES:
         1. Checks if any key in the URL Excel mapping is a substring of the
-           document name (case-insensitive).
+           document name (case-insensitive). Both are normalized (underscores
+           converted to spaces) before comparison.
         2. Falls back to the URL template with {filename} substitution.
         3. Returns "(URL not configured)" if neither works.
     """
-    doc_name_lower = doc_name.lower()
+    # Normalize doc_name: convert underscores to spaces, lowercase
+    doc_name_normalized = doc_name.replace("_", " ").lower()
 
     # 1. Excel lookup — substring match
     for excel_name, url in url_mapping.items():
-        if excel_name in doc_name_lower or doc_name_lower in excel_name:
+        # Normalize excel_name the same way for comparison
+        excel_name_normalized = excel_name.replace("_", " ").lower()
+        if excel_name_normalized in doc_name_normalized or doc_name_normalized in excel_name_normalized:
             return url, "excel"
 
     # 2. Fallback template

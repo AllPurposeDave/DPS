@@ -49,6 +49,8 @@ from shared_utils import (
     get_output_dir,
     iter_docx_files,
     load_config,
+    log_pipeline_issue,
+    resolve_path,
     setup_argparse,
 )
 
@@ -72,6 +74,8 @@ class ControlRow:
     purpose: str = ""
     scope: str = ""
     applicability: str = ""
+    compliance_date: str = ""
+    published_url: str = ""
 
 
 # ============================================================
@@ -120,9 +124,12 @@ def build_patterns(config: dict) -> dict:
         metadata_regexes[field_name] = re.compile(pattern, re.IGNORECASE)
         all_metadata_words.extend(keywords)
 
-    # Build metadata label strip regex
+    # Build metadata label strip regex.
+    # Handles compound headings like "Applicability and Scope" — after stripping
+    # the first keyword, also strip "and <keyword>" if it immediately follows.
     escaped_all = [re.escape(w) for w in all_metadata_words]
-    strip_pattern = r'(?i)^\s*(' + "|".join(escaped_all) + r')\s*[:\-]?\s*'
+    kw_group = "|".join(escaped_all)
+    strip_pattern = r'(?i)^\s*(' + kw_group + r')(\s+and\s+(' + kw_group + r'))?\s*[:\-]?\s*'
 
     # Build heading detection regexes from config
     hd_cfg = ctrl_cfg.get("heading_detection", {})
@@ -244,8 +251,10 @@ def is_section_header(paragraph_dict, patterns):
             return (True, text)
 
     # Signal 5: Bold short text
+    # Exclude lines ending with ":" — those are in-control labels (e.g. "Implementation:",
+    # "Description:") that would incorrectly close an active control block if treated as headers.
     if hd["detect_bold_short"]:
-        if bold and len(text) < hd["bold_max_length"] and not text.endswith("."):
+        if bold and len(text) < hd["bold_max_length"] and not text.endswith(".") and not text.endswith(":"):
             return (True, text)
 
     return (False, "")
@@ -296,6 +305,51 @@ def extract_metadata(paragraphs, patterns, config):
         metadata[field_name] = clean_text(cleaned)
 
     return metadata
+
+
+# ============================================================
+# SECTION: COMPLIANCE DATE EXTRACTION
+# ============================================================
+
+# Matches "as of Month D, YYYY" or "as of Month DD, YYYY" (comma optional)
+_COMPLIANCE_DATE_RE = re.compile(
+    r'(?i)\bas\s+of\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})'
+)
+
+def extract_compliance_date(paragraphs):
+    """Scan paragraphs for a 'Compliance Date' header, then extract the date.
+
+    Looks for a heading whose text matches 'Compliance Date' (case-insensitive),
+    then scans subsequent paragraphs for the pattern '...as of Month ##, ####.'
+    Returns the extracted date string (e.g. 'December 31, 2025'), or '' if not found.
+    """
+    header_re = re.compile(r'(?i)^\s*compliance\s+date\s*$')
+
+    def _parse_date(text):
+        match = _COMPLIANCE_DATE_RE.search(text)
+        if not match:
+            return ""
+        date_str = re.sub(r'\s+', ' ', match.group(1)).strip()
+        # Ensure comma after day number: "December 31 2025" -> "December 31, 2025"
+        date_str = re.sub(r'(\d{1,2})\s+(\d{4})$', r'\1, \2', date_str)
+        return date_str
+
+    # First pass: find the header, then search nearby paragraphs
+    for i, para in enumerate(paragraphs):
+        if header_re.match(para["text"]):
+            for j in range(i + 1, min(i + 11, len(paragraphs))):
+                date_str = _parse_date(paragraphs[j]["text"])
+                if date_str:
+                    return date_str
+            break  # header found but no date nearby — stop
+
+    # Fallback: scan the entire document for the "as of" pattern
+    for para in paragraphs:
+        date_str = _parse_date(para["text"])
+        if date_str:
+            return date_str
+
+    return ""
 
 
 # ============================================================
@@ -537,10 +591,102 @@ def clean_text(text):
 
 
 # ============================================================
+# SECTION: URL LOOKUP
+# ============================================================
+
+def load_url_mapping(config: dict) -> dict:
+    """Load document-name-to-URL mapping from the Doc_URL Excel file.
+
+    Reads the same file used by Step 5 (metadata injection), configured at
+    metadata.url.lookup_file. Returns a dict of {lowercase_name: url}.
+    Empty dict if no file is configured or found.
+    """
+    from openpyxl import load_workbook
+
+    meta_cfg = config.get("metadata", {})
+    url_cfg = meta_cfg.get("url", {})
+    lookup_file = url_cfg.get("lookup_file", "")
+
+    if not lookup_file:
+        return {}
+
+    lookup_path = resolve_path(config, lookup_file)
+
+    if not os.path.isfile(lookup_path):
+        print(f"  NOTE: URL lookup file not found: {lookup_path}")
+        print("  Published URL column will be empty. Create input/Doc_URL.xlsx to populate.")
+        return {}
+
+    name_col = url_cfg.get("name_column", "Document_Name").lower()
+    url_col = url_cfg.get("url_column", "URL").lower()
+    sheet_ref = url_cfg.get("sheet", 0)
+
+    try:
+        wb = load_workbook(lookup_path, read_only=True, data_only=True)
+        if isinstance(sheet_ref, int):
+            ws = wb.worksheets[sheet_ref]
+        else:
+            ws = wb[sheet_ref]
+    except Exception as e:
+        print(f"  WARNING: Could not read URL lookup file: {e}")
+        return {}
+
+    # Find column indices from header row
+    headers = {}
+    for col_idx, cell in enumerate(next(ws.iter_rows(min_row=1, max_row=1, values_only=False))):
+        if cell.value:
+            headers[str(cell.value).strip().lower()] = col_idx
+
+    name_idx = headers.get(name_col)
+    url_idx = headers.get(url_col)
+
+    if name_idx is None or url_idx is None:
+        print(f"  WARNING: Could not find columns '{name_col}' and/or '{url_col}' in {lookup_path}")
+        print(f"  Found columns: {list(headers.keys())}")
+        return {}
+
+    mapping = {}
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        name_val = row[name_idx] if name_idx < len(row) else None
+        url_val = row[url_idx] if url_idx < len(row) else None
+        if name_val and url_val:
+            # Store original name (will be normalized in resolve_url for comparison)
+            mapping[str(name_val).strip()] = str(url_val).strip()
+
+    wb.close()
+    if mapping:
+        print(f"  Loaded {len(mapping)} URL mappings from {os.path.basename(lookup_path)}")
+    return mapping
+
+
+def resolve_url(filename: str, url_mapping: dict) -> str:
+    """Resolve the URL for a document using substring matching.
+
+    Same matching logic as Step 5: the Excel name is checked as a substring
+    of the document name (case-insensitive), and vice versa. Both are normalized
+    (underscores converted to spaces) before comparison.
+    """
+    if not url_mapping:
+        return ""
+
+    # Derive a clean document name from the filename
+    # Normalize: remove extension, convert underscores to spaces, lowercase
+    doc_name = os.path.splitext(filename)[0].replace("_", " ").lower()
+
+    for excel_name_orig, url in url_mapping.items():
+        # Normalize Excel name the same way for comparison
+        excel_name_normalized = excel_name_orig.replace("_", " ").lower()
+        if excel_name_normalized in doc_name or doc_name in excel_name_normalized:
+            return url
+
+    return ""
+
+
+# ============================================================
 # SECTION: SINGLE DOCUMENT PROCESSING
 # ============================================================
 
-def process_single_document(filepath, patterns, config):
+def process_single_document(filepath, patterns, config, url_mapping=None):
     """Run the full extraction pipeline on a single .docx file."""
     filepath = Path(filepath)
     source_file = filepath.name
@@ -551,6 +697,7 @@ def process_single_document(filepath, patterns, config):
         return []
 
     metadata = extract_metadata(paragraphs, patterns, config)
+    compliance_date = extract_compliance_date(paragraphs)
 
     purpose_found = "Yes" if metadata.get("purpose") else "No"
     scope_found = "Yes" if metadata.get("scope") else "No"
@@ -567,6 +714,8 @@ def process_single_document(filepath, patterns, config):
     if ctrl_cfg.get("whitelist") or ctrl_cfg.get("blacklist"):
         print(f"  Controls after filtering: {len(control_blocks)}")
 
+    published_url = resolve_url(source_file, url_mapping or {})
+
     rows = []
     for block in control_blocks:
         row = ControlRow(
@@ -582,6 +731,8 @@ def process_single_document(filepath, patterns, config):
             purpose=metadata.get("purpose", ""),
             scope=metadata.get("scope", ""),
             applicability=metadata.get("applicability", ""),
+            compliance_date=compliance_date,
+            published_url=published_url,
         )
         rows.append(row)
 
@@ -612,6 +763,7 @@ CSV_COLUMNS = [
     "control_id", "control_name", "baseline",
     "control_description", "supplemental_guidance", "purpose", "scope", "applicability",
     "miscellaneous", "section_header", "source_file", "extraction_source",
+    "compliance_date", "published_url",
 ]
 
 
@@ -676,6 +828,8 @@ def main():
     output_csv_path = os.path.join(output_dir, output_csv_file)
     output_xlsx_path = os.path.join(output_dir, output_xlsx_file)
 
+    url_mapping = load_url_mapping(config)
+
     docx_files = iter_docx_files(input_dir, config)
     if not docx_files:
         print(f"No .docx files found in {input_dir}")
@@ -699,7 +853,7 @@ def main():
         print(f"  Processing: {filename}")
 
         try:
-            rows = process_single_document(filepath, patterns, config)
+            rows = process_single_document(filepath, patterns, config, url_mapping)
 
             if rows:
                 if output_format in ("csv", "both"):
@@ -718,6 +872,7 @@ def main():
             error_count += 1
             logger.error("Failed to process %s: %s", filename, error, exc_info=True)
             print(f"  ERROR processing {filename}: {error}")
+            log_pipeline_issue(os.path.dirname(output_dir), "Step 1 - Controls", filename, "ERROR", str(error))
 
     print("\n" + "=" * 60)
     print("STEP 1 — CONTROL EXTRACTION SUMMARY")

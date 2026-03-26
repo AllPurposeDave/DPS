@@ -58,6 +58,7 @@ from shared_utils import (
     get_heading_level,
     iter_docx_files,
     load_config,
+    log_pipeline_issue,
     sanitize_filename,
     setup_argparse,
 )
@@ -362,9 +363,9 @@ def main():
     output_dir = get_output_dir(config, "split_documents", args.output_dir)
     ensure_output_dir(output_dir)
 
-    # Only process _fixed.docx files
-    all_files = iter_docx_files(input_dir, config)
-    docx_files = [f for f in all_files if os.path.basename(f).endswith("_fixed.docx")]
+    # Only process _fixed.docx files — glob directly to avoid exclude_patterns filtering them out
+    import glob as _glob
+    docx_files = sorted(_glob.glob(os.path.join(input_dir, "*_fixed.docx")))
 
     if not docx_files:
         print(f"No *_fixed.docx files found in {input_dir}")
@@ -393,6 +394,7 @@ def main():
             files_failed += 1
             print(f"  ERROR processing {filename}: {e}")
             traceback.print_exc()
+            log_pipeline_issue(os.path.dirname(output_dir), "Step 4 - Section Splitter", filename, "ERROR", str(e))
 
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

@@ -191,7 +191,9 @@ Extracts structured control data from compliance documents:
 | `checkpoint.json` | Progress tracker for resumable runs |
 | `errors.log` | Extraction errors and warnings |
 
-**Output columns:** `source_file`, `section_header`, `control_id`, `control_description`, `supplemental_guidance`, `miscellaneous`, `extraction_source`, `purpose`, `scope`, `applicability`
+**Output columns:** `source_file`, `section_header`, `control_id`, `control_name`, `baseline`, `control_description`, `supplemental_guidance`, `miscellaneous`, `extraction_source`, `purpose`, `scope`, `applicability`, `compliance_date`, `published_url`
+
+> **Published URL:** If `input/Doc_URL.xlsx` is populated with document names and URLs, Step 1 includes the matching URL in every control row. This is the same file used by Step 5 for metadata injection — one input file serves both steps. See [URL Resolution](#url-resolution) for setup details.
 
 ---
 
@@ -312,22 +314,41 @@ Metadata placement options: top of document, top and bottom, or Word header on e
 ### Step 6 — Control Validator (Read-only)
 
 **Script:** `scripts/validate_controls.py`
-**Input:** `output/1 - controls/controls_output.csv` + `output/4 - split_documents/`
+**Input:** `output/1 - controls/controls_output.csv` + `output/4 - split_documents/` + `input/*.docx`
 **Output:** `output/6 - validation/`
 
-Validates that every control extracted in Step 1 is present in the split documents from Step 4:
+**Prerequisites:** Steps 1, 3, and 4 must have run first.
+
+Validates that every control extracted in Step 1 is present in the split documents from Step 4, and generates a human-review workbook to triage extraction quality.
+
+**Validation statuses:**
 
 - **PASS** — Control found in split docs from the same parent document
 - **MISSING** — Control not found in any split document
 - **RELOCATED** — Control found but in a different parent document
+
+**Confidence scoring (validation_review.xlsx):**
+
+Each control is scored 0–100 based on extraction quality signals. Reviewers work through red rows first:
+
+| Band | Score | Meaning |
+|------|-------|---------|
+| Red | 0–30 | Review first — likely extraction error |
+| Yellow | 31–60 | Suspicious — worth spot-checking |
+| Green | 61–100 | Likely correct |
+
+Flags that reduce confidence: `EMPTY_DESCRIPTION`, `SHORT_DESCRIPTION`, `LONG_DESCRIPTION`, `SUSPECT_SECTION`, `APPENDIX_SECTION`, `DUPLICATE_ID_SAME_DOC`, `DUPLICATE_ID_CROSS_DOC`, `TABLE_HEADERS_IN_DESC`, `GUIDANCE_IN_DESC`, `TABLE_SOURCE`, `EMPTY_BASELINE`, `EMPTY_NAME`, `MULTI_CONTROL_PARAGRAPH`
 
 **Output files:**
 
 | File | Contents |
 |------|----------|
 | `control_validation.csv` | One row per control with validation status |
+| `validation_review.xlsx` | Two-sheet workbook: confidence-scored controls for human review + summary statistics |
 
-**Output columns:** `control_id`, `source_file`, `source_section`, `found_in_split_docs`, `split_doc_filenames`, `parent_doc_match`, `status`
+**Output columns (control_validation.csv):** `control_id`, `source_file`, `source_section`, `found_in_split_docs`, `split_doc_filenames`, `parent_doc_match`, `status`
+
+**Validation Review workbook columns:** `Row #`, `Confidence`, `Flags`, `Control ID`, `Source File`, `Section Header`, `Extraction Source`, `Source Context`, `Extracted Description`, `Extracted Guidance`, `Baseline`, `Control Name`, `Validation Status` (dropdown), `Reviewer Notes`
 
 ---
 
@@ -383,6 +404,7 @@ Controls where results are written and filenames for each step's output.
 | `output.metadata.manifest_file` | `"metadata_manifest.csv"` | Metadata manifest filename. |
 | `output.validation.directory` | `"6 - validation"` | Sub-folder for Step 6 outputs. |
 | `output.validation.output_file` | `"control_validation.csv"` | Validation results filename. |
+| `output.validation.review_file` | `"validation_review.xlsx"` | Validation review workbook filename. |
 | `output.consolidated_report.enabled` | `true` | Generate a single `.xlsx` workbook with all CSVs after the pipeline completes. |
 | `output.consolidated_report.filename_prefix` | `"DPS_Report"` | Prefix for the timestamped report file (e.g., `DPS_Report_2026-03-23_143052.xlsx`). |
 
@@ -732,13 +754,16 @@ Custom field examples:
 
 #### URL Resolution
 
-Resolution order: Excel lookup → fallback template → "(URL not configured)"
+**One file, two steps:** The `input/Doc_URL.xlsx` file provides document URLs to both Step 1 (Published URL column in controls output) and Step 5 (URL field in metadata blocks). You only need to maintain one URL mapping file.
+
+Resolution order (Step 5): Excel lookup → fallback template → "(URL not configured)"
+Resolution order (Step 1): Excel lookup → empty string
 
 **Excel lookup file format**
 
-Create an Excel file (`.xlsx`) with at least two columns — one for document names and one for URLs. Column headers must match what you configure in `dps_config.yaml` (defaults: `Document Name` and `SharePoint URL`):
+A template `Doc_URL.xlsx` is included in the `input/` folder with two columns:
 
-| Document Name | SharePoint URL |
+| Document_Name | URL |
 |---|---|
 | Access Control Policy | https://contoso.sharepoint.com/.../Access_Control_Policy.docx |
 | Incident Response Policy | https://contoso.sharepoint.com/.../Incident_Response_Policy.docx |
@@ -747,37 +772,40 @@ Create an Excel file (`.xlsx`) with at least two columns — one for document na
 - The file can be on any sheet; set `metadata.url.sheet` to the sheet name or index (0 = first).
 - Rows with a blank name or URL are skipped.
 
+**Recommended workflow:**
+
+1. Run Step 0 or Step 1 first to discover the exact document names in your input folder.
+2. Open `input/Doc_URL.xlsx` and enter each document name in the `Document_Name` column with its corresponding published URL.
+3. Re-run Step 1 to populate the `published_url` column in controls output, or run Step 5 to stamp URLs into metadata blocks.
+
 **How matching works**
 
 Matching is **case-insensitive substring**: the Excel name is checked against the document name derived from the filename (underscores converted to spaces, extension stripped). A match occurs if either string contains the other. For example, `"Access Control"` in Excel will match a file named `Access_Control_Policy_v2.docx`.
 
 Because matching is bidirectional, shorter entries match more broadly — `"Policy"` alone would match every document with "Policy" in its name. Use enough of the document name to be unique.
 
-**Setup steps**
+**Configuration**
 
-1. Save your Excel file somewhere in the project (e.g., `Misc/url_lookup.xlsx`).
-2. In `dps_config.yaml`, set the `metadata.url` block:
+The default config points to `input/Doc_URL.xlsx`:
 
 ```yaml
 metadata:
   url:
-    lookup_file: "Misc/url_lookup.xlsx"
-    name_column: "Document Name"    # must match your Excel column header exactly
-    url_column: "SharePoint URL"    # must match your Excel column header exactly
+    lookup_file: "./input/Doc_URL.xlsx"
+    name_column: "Document_Name"    # must match your Excel column header exactly
+    url_column: "URL"               # must match your Excel column header exactly
     sheet: 0                        # 0 = first sheet, or use the sheet name as a string
 ```
 
-3. Run Step 5. The console will report how many mappings loaded and how many were resolved from Excel vs. fallback.
-
-**If matching fails**, Step 5 will print a warning listing the column headers it actually found in your file — use that to spot header typos.
+**If matching fails**, Step 1 and Step 5 will print a warning listing the column headers actually found in your file — use that to spot header typos.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `metadata.url.lookup_file` | `""` | Path to an Excel file mapping document names to URLs. Leave empty to skip. |
-| `metadata.url.name_column` | `"Document Name"` | Column header in the Excel file for document names. |
-| `metadata.url.url_column` | `"SharePoint URL"` | Column header in the Excel file for URLs. |
+| `metadata.url.lookup_file` | `"./input/Doc_URL.xlsx"` | Path to the Excel file mapping document names to URLs. Leave empty to skip. |
+| `metadata.url.name_column` | `"Document_Name"` | Column header in the Excel file for document names. |
+| `metadata.url.url_column` | `"URL"` | Column header in the Excel file for URLs. |
 | `metadata.url.sheet` | `0` | Sheet name (string) or index (0 = first sheet). |
-| `metadata.url.fallback_template` | `""` | URL template when no Excel match is found. Use `{filename}` as placeholder. Example: `"https://contoso.sharepoint.com/sites/Policies/Shared Documents/{filename}"` |
+| `metadata.url.fallback_template` | `""` | URL template when no Excel match is found (Step 5 only). Use `{filename}` as placeholder. Example: `"https://contoso.sharepoint.com/sites/Policies/Shared Documents/{filename}"` |
 
 #### Advanced Metadata Settings
 
@@ -829,6 +857,7 @@ output/
 
   6 - validation/
     control_validation.csv         # PASS/MISSING/RELOCATED per control
+    validation_review.xlsx         # Confidence-scored controls for human review
 
   DPS_Report_2026-03-23_143052.xlsx  # Consolidated workbook (all CSVs)
 ```
@@ -852,6 +881,35 @@ python scripts/word_counter.py --input ./output/5\ -\ metadata
 ```
 
 Outputs `word_counts.csv` with per-document and total word counts.
+
+---
+
+### Control Attribute Analyzer (`Misc/analyze_control_attributes.py`)
+
+Standalone diagnostic utility. Scans all input `.docx` files for every control ID match and captures formatting and context attributes for each hit. Use this to identify false positives and fine-tune your `control_id_patterns`, whitelist, and blacklist before running Step 1.
+
+```bash
+python Misc/analyze_control_attributes.py
+python Misc/analyze_control_attributes.py --config dps_config.yaml
+python Misc/analyze_control_attributes.py ./input ./output/1\ -\ controls
+```
+
+Outputs `control_attributes_analysis.csv` (written to the Step 1 controls output folder) with one row per control ID match. Columns include: `source_file`, `paragraph_index`, `control_id`, `match_position`, `paragraph_text`, `context_before`, `context_after`, `paragraph_bold`, `paragraph_italic`, `paragraph_underline`, `font_size_pt`, `font_name`, `paragraph_style`, `is_heading_style`, `paragraph_source` (Text or Table[row][col]), `sentence_contains_period`.
+
+**Typical workflow:** Run this first, filter the CSV by `paragraph_source` and `paragraph_bold` to distinguish real controls from table cross-references, then adjust your config patterns accordingly.
+
+---
+
+### Baseline & Name Parser Tests (`scripts/test_parse_baseline_and_name.py`)
+
+Developer test script for the `parse_baseline_and_name` function in `extract_controls.py`. Verifies correct parsing of control header lines in all supported formats (ID-first, name-before-ID, trailing baselines, em-dashes, etc.). Not needed for normal pipeline use.
+
+```bash
+# Run from the DPS project root
+python scripts/test_parse_baseline_and_name.py
+```
+
+Prints PASS/FAIL for each test case and exits with a non-zero code if any tests fail.
 
 ---
 

@@ -116,6 +116,7 @@ output:
   validation:
     directory: "6 - validation"
     output_file: "control_validation.csv"
+    review_file: "validation_review.xlsx"    # human review workbook with confidence scoring
 
   # --- Consolidated Excel Report ---
   # After all steps complete, build a single .xlsx workbook with one tab
@@ -578,7 +579,7 @@ search_terms:
   terms:
     - "AC"
     - "Cloud"
-    # - "NIST"
+    - "NIST"
     # - "encryption"
     # - "incident response"
 
@@ -771,12 +772,14 @@ metadata:
   #
   # Resolution order: 1) Excel lookup → 2) fallback template → 3) "(URL not configured)"
   url:
-    # Excel file mapping document names → URLs. Leave "" to skip.
-    # Needs at least a name column and a URL column.
+    # Excel file mapping document names → URLs.
+    # This ONE file feeds both Step 1 (Published URL column in controls output)
+    # and Step 5 (URL field in metadata blocks). Run the pipeline first to discover
+    # exact document names, then populate input/Doc_URL.xlsx with names and URLs.
     # Matching: Excel name is checked as a substring of the .docx filename (case-insensitive).
-    lookup_file: ""
-    name_column: "Document Name"    # Column header for doc names
-    url_column: "SharePoint URL"    # Column header for URLs
+    lookup_file: "./input/Doc_URL.xlsx"
+    name_column: "Document_Name"    # Column header for doc names
+    url_column: "URL"               # Column header for URLs
     sheet: 0                        # Sheet name (string) or index (0 = first)
 
     # Fallback URL template when no Excel match found. Use {filename} as placeholder.
@@ -805,15 +808,15 @@ metadata:
 
 
 # ============================================================================
-# SECTION 13: DOCX TO MARKDOWN (standalone — Misc/DPS_docx2md/)
+# SECTION 13: DOCX TO MARKDOWN (standalone — Misc/docx2md.py)
 # ============================================================================
 # Standalone tool for converting .docx files to clean markdown optimised for
 # RAG pipelines. Not part of the main pipeline — run separately.
 #
 # USAGE:
-#   cd "Misc/DPS_docx2md"
-#   python DPS_docx2md.py --config ../../dps_config.yaml
-#   python DPS_docx2md.py --config ../../dps_config.yaml ../../input ../../output/markdown
+#   python Misc/docx2md.py --config dps_config.yaml
+#   python Misc/docx2md.py --config dps_config.yaml input output/markdown
+#   python Misc/docx2md.py input output/markdown
 #
 # Input: Uses the main pipeline's input.directory setting (Section 1) by default.
 # Output: Writes to output/markdown/ (configurable below).

@@ -32,6 +32,7 @@ import re
 import traceback
 
 from docx import Document
+from docx.enum.style import WD_STYLE_TYPE
 
 from shared_utils import (
     ensure_output_dir,
@@ -41,6 +42,7 @@ from shared_utils import (
     is_paragraph_bold,
     iter_docx_files,
     load_config,
+    log_pipeline_issue,
     setup_argparse,
 )
 
@@ -228,6 +230,8 @@ def process_document(filepath: str, output_dir: str, config: dict) -> tuple[list
 
         # Apply the style change if needed
         if new_style:
+            if new_style not in doc.styles:
+                doc.styles.add_style(new_style, WD_STYLE_TYPE.PARAGRAPH)
             para.style = doc.styles[new_style]
             text_preview = para.text.strip()[:80]
             changes.append({
@@ -300,6 +304,7 @@ def main():
             files_failed += 1
             print(f"  ERROR processing {filename}: {e}")
             traceback.print_exc()
+            log_pipeline_issue(os.path.dirname(output_dir), "Step 3 - Heading Fixer", filename, "ERROR", str(e))
 
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

@@ -99,6 +99,7 @@ from docx.opc.exceptions import PackageNotFoundError
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from shared_utils import log_pipeline_issue
 
 
 # ============================================================================
@@ -926,9 +927,9 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
             nested_table_count=0, table_types={}, cross_ref_count=0, cross_refs=[],
             cross_ref_patterns={}, has_text_boxes=False, has_tracked_changes=False,
             has_comments=False, has_images=False, has_embedded_objects=False,
-            has_password_protection=False, doc_type="E", doc_type_reason="Failed to open",
+            has_password_protection=True, doc_type="E", doc_type_reason="Failed to open (encrypted/password-protected)",
             priority_score=0, priority_rank=0, search_term_hits={},
-            errors=[f"Cannot open file: {filepath}. Possibly corrupted or password-protected."]
+            errors=[f"Cannot open file: {filepath}. File is encrypted or password-protected."]
         )
     except Exception as e:
         return DocumentProfile(
@@ -1371,6 +1372,7 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
         ("Comments", 8),
         ("Images", 8),
         ("Text Boxes", 8),
+        ("Password Protected", 8),
         ("Control IDs", 8),
         ("Ctrls/Page", 8),
         ("Control Dense", 8),
@@ -1441,6 +1443,7 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
             bool_to_str(p.has_comments),
             bool_to_str(p.has_images),
             bool_to_str(p.has_text_boxes),
+            bool_to_str(p.has_password_protection),
             p.control_id_count,
             p.control_density,
             bool_to_str(p.control_dense),
@@ -1485,10 +1488,12 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
             ws.cell(row=row_idx, column=34).fill = warn_fill
         if p.table_dense:
             ws.cell(row=row_idx, column=37).fill = warn_fill
+        if p.has_password_protection:
+            ws.cell(row=row_idx, column=30).fill = fail_fill
 
         # Highlight search term hits with green fill
         hit_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-        static_col_count = 38  # number of static columns before search terms
+        static_col_count = 39  # number of static columns before search terms
         for t_idx, term in enumerate(search_terms):
             count = p.search_term_hits.get(term, 0)
             if count > 0:
@@ -1754,6 +1759,9 @@ def main():
         # Legacy config: output.directory directly
         output_dir = os.path.abspath(config['output']['directory'])
 
+    # Pipeline issues root = parent of the profiler output dir (i.e., ./output/)
+    pipeline_output_root = os.path.dirname(output_dir)
+
     print(f"  Input folder:  {input_dir}")
     print(f"  Output folder: {output_dir}")
     print()
@@ -1852,6 +1860,9 @@ def main():
             if profile.errors:
                 # Document was opened but had issues during analysis
                 print(f"WARN  ({elapsed:.1f}s) — {len(profile.errors)} issue(s): {profile.errors[0][:60]}")
+                issue_type = "PASSWORD_PROTECTED" if profile.has_password_protection else "WARNING"
+                for err in profile.errors:
+                    log_pipeline_issue(pipeline_output_root, "Step 0 - Profiler", filename, issue_type, err)
             else:
                 print(
                     f"OK  [Type {profile.doc_type}]  "
@@ -1866,6 +1877,7 @@ def main():
             elapsed = time.time() - doc_start
             print(f"FAIL  ({elapsed:.1f}s) — {e}")
             traceback.print_exc()
+            log_pipeline_issue(pipeline_output_root, "Step 0 - Profiler", filename, "ERROR", str(e))
 
     total_elapsed = time.time() - total_start
     print("-" * 60)

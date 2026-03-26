@@ -1,5 +1,5 @@
 """
-DPS_docx2md — DOCX to Markdown converter optimised for RAG pipelines.
+docx2md — DOCX to Markdown converter optimised for RAG pipelines.
 
 Standalone tool that converts .docx policy documents into clean, well-structured
 markdown files with YAML frontmatter. Designed for the DPS ecosystem but runs
@@ -10,9 +10,9 @@ REQUIREMENTS:
   Python 3.8 or later
 
 USAGE:
-  python DPS_docx2md.py --config ../../dps_config.yaml
-  python DPS_docx2md.py --config ../../dps_config.yaml ../../input ../../output/markdown
-  python DPS_docx2md.py ../../input ../../output/markdown
+  python Misc/docx2md.py --config dps_config.yaml
+  python Misc/docx2md.py --config dps_config.yaml input output/markdown
+  python Misc/docx2md.py input output/markdown
 """
 
 from __future__ import annotations
