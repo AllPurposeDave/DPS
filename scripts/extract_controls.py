@@ -270,25 +270,31 @@ def extract_metadata(paragraphs, patterns, config):
     scan_limit_cfg = config.get("control_extraction", {}).get("metadata_scan_paragraphs", 40)
     scan_limit = min(scan_limit_cfg, len(paragraphs))
 
-    trigger_positions = []
+    # Collect ALL matching fields per paragraph so compound headings like
+    # "Applicability and Scope" populate both the scope and applicability fields.
+    trigger_positions = []  # list of (para_index, [field_name, ...])
     for index in range(scan_limit):
         text = paragraphs[index]["text"]
         if not text:
             continue
+        matched = []
         for field_name, pattern in patterns["metadata_triggers"].items():
             if pattern.search(text):
-                trigger_positions.append((index, field_name))
-                break
+                matched.append(field_name)
+        if matched:
+            trigger_positions.append((index, matched))
 
-    for position_index, (para_index, field_name) in enumerate(trigger_positions):
-        if metadata[field_name]:
+    for position_index, (para_index, field_names) in enumerate(trigger_positions):
+        if all(metadata[f] for f in field_names):
             continue
 
         collected_lines = []
-        if position_index + 1 < len(trigger_positions):
-            stop_index = trigger_positions[position_index + 1][0]
-        else:
-            stop_index = scan_limit
+        # Find the next trigger at a DIFFERENT paragraph index for stop_index
+        stop_index = scan_limit
+        for next_idx in range(position_index + 1, len(trigger_positions)):
+            if trigger_positions[next_idx][0] != para_index:
+                stop_index = trigger_positions[next_idx][0]
+                break
 
         for capture_index in range(para_index, stop_index):
             paragraph_text = paragraphs[capture_index]["text"]
@@ -302,7 +308,11 @@ def extract_metadata(paragraphs, patterns, config):
 
         raw_metadata = " ".join(collected_lines)
         cleaned = patterns["metadata_label_strip"].sub("", raw_metadata, count=1)
-        metadata[field_name] = clean_text(cleaned)
+        cleaned_text = clean_text(cleaned)
+
+        for field_name in field_names:
+            if not metadata[field_name]:
+                metadata[field_name] = cleaned_text
 
     return metadata
 

@@ -982,17 +982,19 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
     customs = [h for h in heading_data if h[4]]
     fakes = [h for h in heading_data if h[5]]
 
-    # ----- Section structure (split at H1 boundaries) -----
-    h1_indices = [(h[0], h[6]) for h in heading_data if h[1] == 1]
+    # ----- Section structure (split at H1/H2/H3 boundaries) -----
+    # Include H1, H2, and H3 headings as individual section rows.
+    # Each section ends at the next heading of the same or higher level (lower number).
+    section_indices = [(h[0], h[1], h[6]) for h in heading_data if 1 <= h[1] <= 3 and not h[5]]
     sections_info = []
 
-    if not h1_indices:
-        # No H1 headings found: treat entire doc as one section
+    if not section_indices:
+        # No headings found: treat entire doc as one section
         sec_chars = total_chars
         sec_tables = len(doc.tables)
         sec_crossrefs = len(detect_cross_references(full_text, config))
         sections_info.append(SectionInfo(
-            heading_text="(No H1 headings)",
+            heading_text="(No headings)",
             heading_level=0,
             heading_style="none",
             is_builtin_style=False,
@@ -1005,12 +1007,13 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
             cross_ref_count=sec_crossrefs,
         ))
     else:
-        for idx, (para_idx, heading_text) in enumerate(h1_indices):
-            # Determine end of this section
-            if idx + 1 < len(h1_indices):
-                end_idx = h1_indices[idx + 1][0]
-            else:
-                end_idx = total_paras
+        for idx, (para_idx, heading_level, heading_text) in enumerate(section_indices):
+            # End at the next heading of the same or higher level (lower number)
+            end_idx = total_paras
+            for next_para_idx, next_level, _ in section_indices[idx + 1:]:
+                if next_level <= heading_level:
+                    end_idx = next_para_idx
+                    break
 
             sec_paras = paragraphs[para_idx:end_idx]
             sec_text = "\n".join(p.text for p in sec_paras)
@@ -1026,7 +1029,7 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
 
             sections_info.append(SectionInfo(
                 heading_text=heading_text,
-                heading_level=1,
+                heading_level=heading_level,
                 heading_style=hd[2] if hd else "unknown",
                 is_builtin_style=hd[3] if hd else False,
                 is_fake_heading=hd[5] if hd else False,

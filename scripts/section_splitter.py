@@ -47,6 +47,7 @@ FAILURE POINT: Check split_manifest.csv after running:
 import csv
 import os
 import re
+import shutil
 import traceback
 
 from docx import Document
@@ -134,13 +135,24 @@ def build_element_sequence(doc):
     return elements
 
 
-def create_sub_document(preamble_elements: list, section_elements: list, output_path: str) -> int:
-    """Create a sub-document containing preamble + section elements. Returns char count."""
-    sub_doc = Document()
+def create_sub_document(preamble_elements: list, section_elements: list, output_path: str, source_path: str) -> int:
+    """Create a sub-document containing preamble + section elements. Returns char count.
 
-    if sub_doc.paragraphs:
-        default_para = sub_doc.paragraphs[0]._element
-        default_para.getparent().remove(default_para)
+    Clones the source DOCX to preserve styles, themes, relationships, and numbering
+    definitions, then clears the body and repopulates with the requested elements.
+    This prevents Word from reporting "unreadable content" errors caused by broken
+    style/relationship references when copying XML into a blank document.
+    """
+    from docx.oxml.ns import qn as _qn
+
+    shutil.copy2(source_path, output_path)
+    sub_doc = Document(output_path)
+
+    # Clear all body elements except sectPr (page layout / section properties)
+    body = sub_doc.element.body
+    for child in list(body):
+        if child.tag != _qn("w:sectPr"):
+            body.remove(child)
 
     total_chars = 0
 
@@ -172,7 +184,7 @@ def split_at_heading2(
     preamble_elements: list, section_elements: list,
     base_name: str, heading1_text: str, output_dir: str,
     sub_counter: int, chars_per_page: int,
-    max_chars: int, preamble_chars: int,
+    max_chars: int, preamble_chars: int, source_path: str,
 ) -> list[dict]:
     """
     Further split a section at Heading 2 boundaries when it exceeds the limit.
@@ -194,7 +206,7 @@ def split_at_heading2(
         safe_heading = sanitize_filename(heading1_text)
         out_name = f"{base_name} - {safe_heading}.docx"
         out_path = os.path.join(output_dir, out_name)
-        char_count = create_sub_document(preamble_elements, section_elements, out_path)
+        char_count = create_sub_document(preamble_elements, section_elements, out_path, source_path)
         records.append({
             "original_doc": f"{base_name}_fixed.docx",
             "sub_doc_filename": out_name,
@@ -225,7 +237,7 @@ def split_at_heading2(
 
         out_name = f"{base_name} - {safe_heading}.docx"
         out_path = os.path.join(output_dir, out_name)
-        char_count = create_sub_document(preamble_elements, chunk, out_path)
+        char_count = create_sub_document(preamble_elements, chunk, out_path, source_path)
         records.append({
             "original_doc": f"{base_name}_fixed.docx",
             "sub_doc_filename": out_name,
@@ -282,7 +294,7 @@ def process_document(filepath: str, output_dir: str, max_chars: int, chars_per_p
         safe_name = sanitize_filename(base_name)
         out_name = f"{safe_name} - Full Document.docx"
         out_path = os.path.join(output_dir, out_name)
-        char_count = create_sub_document([], elements, out_path)
+        char_count = create_sub_document([], elements, out_path, filepath)
         records.append({
             "original_doc": filename,
             "sub_doc_filename": out_name,
@@ -326,14 +338,14 @@ def process_document(filepath: str, output_dir: str, max_chars: int, chars_per_p
             sub_records = split_at_heading2(
                 preamble_elements, section_elements, base_name,
                 heading1_text, output_dir, sec_idx, chars_per_page,
-                max_chars, preamble_chars,
+                max_chars, preamble_chars, filepath,
             )
             records.extend(sub_records)
         else:
             safe_heading = sanitize_filename(heading1_text)
             out_name = f"{base_name} - {safe_heading}.docx"
             out_path = os.path.join(output_dir, out_name)
-            char_count = create_sub_document(preamble_elements, section_elements, out_path)
+            char_count = create_sub_document(preamble_elements, section_elements, out_path, filepath)
             records.append({
                 "original_doc": filename,
                 "sub_doc_filename": out_name,
