@@ -16,7 +16,7 @@
 
 ## Overview
 
-The **Document Processing System (DPS)** is a Python pipeline that transforms IT and InfoSec policy `.docx` files into chunk-friendly documents optimized for Microsoft Copilot RAG (Retrieval-Augmented Generation) retrieval.
+The **Document Processing System (DPS)** is a Python pipeline that transforms policy `.docx` files into chunk-friendly documents optimized for RAG (Retrieval-Augmented Generation) retrieval.
 
 The pipeline runs 7 sequential steps:
 
@@ -51,7 +51,7 @@ Dependencies:
 | Package | Version | Purpose |
 |---------|---------|---------|
 | `python-docx` | >=0.8.11 | Read/write .docx files (all scripts) |
-| `pyyaml` | >=6.0 | Read dps_config.yaml |
+| `pyyaml` | >=6.0 | Read dps_config.yaml (legacy fallback only) |
 | `openpyxl` | >=3.1.0 | Write Excel spreadsheets |
 
 ---
@@ -101,7 +101,7 @@ python run_pipeline.py --step 0,2-4
 
 ```bash
 # Use an alternative config file
-python run_pipeline.py --config my_config.yaml
+python run_pipeline.py --config my_config.xlsx
 
 # Skip the consolidated Excel report at the end
 python run_pipeline.py --no-excel
@@ -112,13 +112,13 @@ python run_pipeline.py --no-excel
 Each script can be run independently outside the pipeline:
 
 ```bash
-python scripts/policy_profiler.py --config dps_config.yaml --input ./input --output ./output/0\ -\ profiler
-python scripts/extract_controls.py --config dps_config.yaml ./input ./output/1\ -\ controls
-python scripts/cross_reference_extractor.py --config dps_config.yaml ./input ./output/2\ -\ cross_references
-python scripts/heading_style_fixer.py --config dps_config.yaml ./input ./output/3\ -\ heading_fixes
-python scripts/section_splitter.py --config dps_config.yaml ./output/3\ -\ heading_fixes ./output/4\ -\ split_documents
-python scripts/add_metadata.py --config dps_config.yaml ./output/4\ -\ split_documents ./output/5\ -\ metadata
-python scripts/validate_controls.py --config dps_config.yaml
+python scripts/policy_profiler.py --config dps_config.xlsx --input ./input --output ./output/0\ -\ profiler
+python scripts/extract_controls.py --config dps_config.xlsx ./input ./output/1\ -\ controls
+python scripts/cross_reference_extractor.py --config dps_config.xlsx ./input ./output/2\ -\ cross_references
+python scripts/heading_style_fixer.py --config dps_config.xlsx ./input ./output/3\ -\ heading_fixes
+python scripts/section_splitter.py --config dps_config.xlsx ./output/3\ -\ heading_fixes ./output/4\ -\ split_documents
+python scripts/add_metadata.py --config dps_config.xlsx ./output/4\ -\ split_documents ./output/5\ -\ metadata
+python scripts/validate_controls.py --config dps_config.xlsx
 ```
 
 ### Pipeline Behavior
@@ -267,7 +267,7 @@ Splits documents at Heading 1 boundaries to produce RAG-optimized sub-documents.
 - **Greedy H2 accumulation:** If an H1 section exceeds the limit, its H2 sub-sections are grouped together until adding the next one would cross the limit — then the split happens at that H2 boundary. Each chunk is as large as possible without exceeding the limit. This avoids unnecessary fragmentation from splitting at every H2.
 - Preserves paragraph formatting via XML deep copy
 
-> **Why `max_characters` matters for RAG:** RAG retrieval sends matching chunks to the LLM as context. Each chunk is retrieved as a unit — a 36k chunk where only 2k is relevant wastes 34k tokens of context budget every query. Smaller, focused chunks improve retrieval precision. Tune `max_characters` in `dps_config.yaml` for your use case: use 18,000 for dense control-heavy docs, keep 36,000 for balanced policies, raise to 72,000 only for very sparse docs.
+> **Why `max_characters` matters for RAG:** RAG retrieval sends matching chunks to the LLM as context. Each chunk is retrieved as a unit — a 36k chunk where only 2k is relevant wastes 34k tokens of context budget every query. Smaller, focused chunks improve retrieval precision. Tune `max_characters` on the Thresholds sheet in `dps_config.xlsx` for your use case: use 18,000 for dense control-heavy docs, keep 36,000 for balanced policies, raise to 72,000 only for very sparse docs.
 
 **Key config section:** `thresholds` (`max_characters`, `chars_per_page`)
 
@@ -354,9 +354,34 @@ Flags that reduce confidence: `EMPTY_DESCRIPTION`, `SHORT_DESCRIPTION`, `LONG_DE
 
 ## Configuration Reference
 
-All settings live in a single file: **`dps_config.yaml`**. The pipeline works with defaults — only change what you need.
+All settings live in a single Excel workbook: **`dps_config.xlsx`**. The pipeline works with defaults — only change what you need.
 
+> **Legacy support:** If `dps_config.xlsx` is not found, the pipeline falls back to `dps_config.yaml`. Both formats produce the same internal configuration. Excel is the recommended format for day-to-day use.
 
+### How to Edit `dps_config.xlsx`
+
+The workbook has 17 sheets (1 README + 16 configuration sheets). Each sheet controls a different part of the pipeline.
+
+**General rules:**
+- **Close the file in Excel before running the pipeline.** An open file causes permission errors on Windows.
+- The **Setting** column (A) and **Value** column (B) are the only columns the pipeline reads. The **Description** column (C) is for your reference — editing it has no effect.
+- **Do not rename sheet tabs.** The parser matches sheets by exact name (e.g., `Input`, `Output`, `Headings`). A renamed sheet is silently skipped.
+- **Do not delete or rename `# Sub-header` rows** (rows starting with `#` in column A). These separate blocks within a sheet. Removing them merges blocks together and causes incorrect parsing.
+- **Do not rearrange columns.** The parser expects Setting | Value | Description order.
+- **Use Excel TRUE/FALSE for booleans** — not "yes"/"no" or "1"/"0". Cells with data validation dropdowns enforce this.
+- **Regex patterns** should be entered as plain text on a single line. Test patterns at [regex101.com](https://regex101.com) before pasting.
+- **Empty rows are skipped** — you can add blank rows for visual spacing without affecting the config.
+
+**Adding new entries:**
+- To add a keyword (e.g., a new section keyword, search term, or exclude pattern), insert a new row in the appropriate list block and enter the value in column A.
+- To add a custom heading style, add it in **both** the `# Custom Heading Styles` list and the `# Heading Style Map` on the Headings sheet.
+- To add a control ID regex pattern, add a new row under `# Control ID Patterns` on the Control Extraction sheet. Test the regex first.
+
+**Regenerating the template:**
+If the workbook becomes corrupted or you want to start fresh with all defaults:
+```bash
+python generate_config_template.py -o dps_config.xlsx
+```
 
 ### Section 1: Input
 
@@ -478,17 +503,15 @@ Remove specific phrases from documents during heading style fixing (Step 3). Del
 | `text_deletions.case_sensitive` | `true` | Whether phrase matching is case-sensitive. |
 | `text_deletions.phrases` | `[]` (empty) | List of exact phrases to delete. After deletion, double-spaces are collapsed to single spaces. |
 
-**Example phrases:**
-```yaml
-text_deletions:
-  enabled: true
-  case_sensitive: false
-  phrases:
-    - "DRAFT - NOT FOR DISTRIBUTION"
-    - "CONFIDENTIAL"
-    - "[INSERT DATE]"
-    - "TBD"
-```
+**Example phrases (on the Text Deletions sheet):**
+| Value | Description |
+|-------|-------------|
+| DRAFT - NOT FOR DISTRIBUTION | Watermark text |
+| CONFIDENTIAL | Classification banner |
+| [INSERT DATE] | Placeholder text |
+| TBD | Placeholder text |
+
+Set `enabled` to TRUE and `case_sensitive` to TRUE or FALSE as needed in the settings block above the phrases list.
 
 > **Warning:** Deletions are permanent in the output files. Original input files are never modified. Review `heading_changes.csv` after running to verify what was removed.
 
@@ -611,14 +634,14 @@ Weights are relative — adjust ratios to change what matters most for your envi
 
 Boost priority for frequently-used documents. Scale: 0-10, multiplied by 2.0 and added to priority.
 
-```yaml
-priority_scoring:
-  usage_frequency:
-    "Access_Control_Policy_POL-AC-2026-001.docx": 9
-    "Incident_Response_Policy_POL-IR-2026-003.docx": 8
-```
+On the **Priority Scoring** sheet under `# Usage Frequency`, add rows with the filename in the Key column and score in the Value column:
 
-Filenames must match exactly. Default: `{}` (empty, no boost).
+| Key | Value |
+|-----|-------|
+| Access_Control_Policy_POL-AC-2026-001.docx | 9 |
+| Incident_Response_Policy_POL-IR-2026-003.docx | 8 |
+
+Filenames must match exactly. Default: empty (no boost).
 
 ---
 
@@ -637,56 +660,134 @@ Search for specific terms across all documents in Step 0. Results appear as colu
 
 ### Section 11: Control Extraction
 
-Controls how Step 1 extracts structured control data from documents.
+Controls how Step 1 extracts structured control data from documents. All settings are on the **Control Extraction** sheet in `dps_config.xlsx`.
 
-#### Common Settings
+The sheet is organized into 7 blocks (separated by blue `# Sub-header` rows):
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `control_extraction.control_id_patterns` | See below | List of regex patterns to match control IDs. |
-| `control_extraction.whitelist` | `[]` | If non-empty, only matching controls are kept. Supports exact IDs (`"AC-1.001"`) and wildcards (`"AC-*"`). |
-| `control_extraction.blacklist` | `[]` | Matching controls are excluded (applied after whitelist). Same syntax as whitelist. |
-| `control_extraction.enable_checkpoint` | `true` | Save progress for resumable batch runs. |
-| `control_extraction.output_format` | `"both"` | Output format: `"csv"`, `"xlsx"`, or `"both"`. |
+#### Block 1: Common Settings
 
-**Default control ID patterns:**
-```
-\b[A-Z]{2,4}[-.]?\d{1,3}[-.]\d{2,4}\b     # AC-1.001, IR001.002, CFG.1.0042
-\b[A-Z]{2,4}\s+\d{1,3}\.\d{2,4}\b          # AUP 1.001, ACC 01.001 (with space)
-\b[A-Z]{2,4}\d{2,3}\.\d{2,4}\b              # ACC01.001 (no separator before digits)
-```
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `require_bold_control_id` | TRUE | Only extract control IDs that appear in bold text. Set FALSE if your IDs aren't bold. |
+| `enable_checkpoint` | TRUE | Save progress so re-runs skip already-processed files. Delete `checkpoint.json` to force a fresh run. |
+| `output_format` | `both` | Output format: `csv`, `xlsx`, or `both` (dropdown). |
 
-If zero controls are extracted, your IDs likely use a different format. Add alternative patterns:
-```yaml
-control_extraction:
-  control_id_patterns:
-    - '\b[A-Z]{2,4}-\d{1,3}\b'              # Simple: AC-1, IR-3
-    - '\b[A-Z]{2,4}\.\d{1,3}\.\d{1,3}\b'    # Dotted: AC.1.1, IR.3.2
-```
+#### Block 2: Control ID Patterns (Regex)
 
-#### Advanced Settings
+One regex pattern per row in column A. The extractor scans document text for matches.
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `control_extraction.guidance_keywords` | `implementation guidance`, `implementation:`, `guidelines:`, `how to implement`, `supplemental guidance` | Keywords marking the boundary between control text and supplemental guidance. |
-| `control_extraction.metadata_triggers.purpose` | `purpose`, `objective`, `intent` | Keywords to detect purpose metadata in first N paragraphs. |
-| `control_extraction.metadata_triggers.scope` | `scope`, `coverage`, `boundary` | Keywords to detect scope metadata. |
-| `control_extraction.metadata_triggers.applicability` | `applicability`, `applies to`, `applies for` | Keywords to detect applicability metadata. |
-| `control_extraction.metadata_scan_paragraphs` | `40` | How many paragraphs from the top of each doc to scan for metadata. |
-| `control_extraction.implementation_trigger` | Regex combining guidance_keywords | Regex for guidance boundary within a control block. |
+**Default patterns (pre-populated):**
 
-#### Heading Detection (within Control Extractor)
+| Pattern | Matches |
+|---------|---------|
+| `\b[A-Z]{2,4}[-.]?\d{1,3}[-.]\d{2,4}\b` | AC-1.001, IR001.002, CFG.1.0042 |
+| `\b[A-Z]{2,4}\s+\d{1,3}\.\d{2,4}\b` | AUP 1.001, ACC 01.001 (space-separated) |
+| `\b[A-Z]{2,4}\d{2,3}\.\d{2,4}\b` | ACC01.001 (no separator before digits) |
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `control_extraction.heading_detection.use_word_heading_style` | `true` | Use Word heading styles as section boundaries. |
-| `control_extraction.heading_detection.section_keyword_pattern` | `^[Ss]ection\s+\d{1,2}` | Regex for "Section N" style headings. |
-| `control_extraction.heading_detection.numbered_title_pattern` | `^\d{1,2}\.?\d{0,2}\s+[A-Z][a-zA-Z\s]{3,50}$` | Regex for numbered title headings. |
-| `control_extraction.heading_detection.detect_allcaps` | `true` | Detect ALL-CAPS text as section headers. |
-| `control_extraction.heading_detection.allcaps_max_length` | `80` | Max character length for ALL-CAPS detection. |
-| `control_extraction.heading_detection.allcaps_min_words` | `3` | Minimum word count for ALL-CAPS detection. |
-| `control_extraction.heading_detection.detect_bold_short` | `true` | Detect bold short text as section headers. |
-| `control_extraction.heading_detection.bold_max_length` | `60` | Max character length for bold heading detection. |
+**How to add patterns:** Insert a new row below the existing patterns and enter your regex in column A. There is no limit on the number of patterns.
+
+**If zero controls are extracted**, your IDs likely use a different format. Common alternatives:
+
+| Pattern | Matches |
+|---------|---------|
+| `\b[A-Z]{2,4}-\d{1,3}\b` | Simple: AC-1, IR-3 |
+| `\b[A-Z]{2,4}\.\d{1,3}\.\d{1,3}\b` | Dotted: AC.1.1, IR.3.2 |
+
+> **Tip:** Test your regex at [regex101.com](https://regex101.com) before adding. Make sure to select the "Python" flavor.
+
+#### Block 3: Whitelist / Blacklist
+
+Filter which controls are kept or excluded after extraction. **One control ID per row** in column A, prefixed with `whitelist:` or `blacklist:`.
+
+**Format:** Each entry is `whitelist:ID` or `blacklist:ID` — the prefix tells the parser which list it belongs to.
+
+| Entry in column A | Effect |
+|-------------------|--------|
+| `whitelist:AC-1.001` | Keep only this exact control (whitelist) |
+| `whitelist:AC-*` | Keep all controls starting with "AC-" (wildcard) |
+| `blacklist:IR-2.003` | Exclude this exact control (blacklist) |
+| `blacklist:DRAFT-*` | Exclude all controls starting with "DRAFT-" |
+
+**Rules:**
+- **No limit** on the number of entries — add as many rows as needed.
+- If the whitelist has **any** entries, **only** matching controls are kept. Leave the whitelist empty to keep all controls.
+- The blacklist is applied **after** the whitelist. Use it to carve out exceptions.
+- Supports **exact IDs** (e.g., `AC-1.001`) and **prefix wildcards** (e.g., `AC-*`). The `*` must be at the end.
+- **Leave this entire block empty** (no `whitelist:` or `blacklist:` rows) to keep all extracted controls — this is the default.
+
+**Examples:**
+
+*Keep only Access Control and Incident Response controls:*
+| Column A |
+|----------|
+| `whitelist:AC-*` |
+| `whitelist:IR-*` |
+
+*Keep everything except drafts and a specific obsolete control:*
+| Column A |
+|----------|
+| `blacklist:DRAFT-*` |
+| `blacklist:AC-99.001` |
+
+*Keep only AC controls, but exclude AC-0 series:*
+| Column A |
+|----------|
+| `whitelist:AC-*` |
+| `blacklist:AC-0*` |
+
+#### Block 4: Guidance Keywords
+
+One keyword per row in column A. When a paragraph contains one of these keywords, text after it is classified as "supplemental guidance" rather than "control description."
+
+| Default Keywords |
+|-----------------|
+| implementation guidance |
+| implementation: |
+| guidelines: |
+| how to implement |
+| supplemental guidance |
+
+**How to add:** Insert a new row and type the keyword in column A. No limit on entries.
+
+#### Block 5: Metadata Triggers
+
+Two-column table (Category | Keyword) that controls how the extractor finds document-level metadata (purpose, scope, applicability). The extractor scans the first N paragraphs (set by `metadata_scan_paragraphs`) for these keywords.
+
+| Category (col A) | Keyword (col B) |
+|-------------------|----------------|
+| purpose | purpose |
+| purpose | objective |
+| purpose | intent |
+| scope | scope |
+| scope | coverage |
+| scope | boundary |
+| applicability | applicability |
+| applicability | applies to |
+| applicability | applies for |
+
+**How to add:** Insert a row with the category in column A and keyword in column B. You can add multiple keywords per category.
+
+#### Block 6: Heading Detection (Advanced)
+
+Controls how the extractor identifies section headings within documents. These settings use dot-notation (e.g., `heading_detection.detect_allcaps`).
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `heading_detection.use_word_heading_style` | TRUE | Use Word heading styles as section boundaries. |
+| `heading_detection.section_keyword_pattern` | `^[Ss]ection\s+\d{1,2}` | Regex for "Section N" style headings. |
+| `heading_detection.numbered_title_pattern` | `^\d{1,2}\.?\d{0,2}\s+[A-Z][a-zA-Z\s]{3,50}$` | Regex for numbered title headings. |
+| `heading_detection.detect_allcaps` | TRUE | Detect ALL-CAPS text as section headers. |
+| `heading_detection.allcaps_max_length` | 80 | Max character length for ALL-CAPS detection. |
+| `heading_detection.allcaps_min_words` | 3 | Minimum word count for ALL-CAPS detection. |
+| `heading_detection.detect_bold_short` | TRUE | Detect bold short text as section headers. |
+| `heading_detection.bold_max_length` | 60 | Max character length for bold heading detection. |
+
+#### Block 7: Implementation Trigger
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `implementation_trigger` | `(?i)(implementation guidance\|...)` | Regex for guidance boundary within a control block. Combines the guidance keywords into a single pattern. |
+| `metadata_scan_paragraphs` | 40 | How many paragraphs from the top of each doc to scan for metadata triggers. |
 
 ---
 
@@ -694,19 +795,11 @@ control_extraction:
 
 Enable or disable individual steps. You can still run disabled steps explicitly with `--step N`.
 
-```yaml
-pipeline:
-  steps:
-    - name: "Step 0 - Document Profiler"
-      script: "policy_profiler.py"
-      enabled: true       # Set to false to skip
-      description: "..."
-    # ... (Steps 1-6 follow the same format)
-```
+On the **Pipeline** sheet, each row is a step with columns: Step | Name | Script | Enabled | Description.
 
 | Key | Description |
 |-----|-------------|
-| `pipeline.steps[N].enabled` | Set to `false` to skip a step when running the full pipeline. The step can still be run explicitly with `--step N`. |
+| `Enabled` column | Set to FALSE to skip a step when running the full pipeline. The step can still be run explicitly with `--step N`. |
 
 ---
 
@@ -735,22 +828,14 @@ Each metadata field can be independently enabled/disabled and reordered:
 | `intent` | Intent | `auto` | Extracted from profiler data (Step 0) or direct doc scan. |
 | `tags` | Tags | `auto` | Generated from doc type, sections, acronyms. |
 
-Custom field examples:
-```yaml
-# Static field — same value on every document
-- key: "classification"
-  label: "Classification"
-  enabled: true
-  source: "static"
-  value: "CUI // SP-NOFORN"
+Custom field examples (on the **Metadata** sheet under `# Metadata Fields`):
 
-# Excel field — pulled from your URL lookup spreadsheet
-- key: "owner"
-  label: "Document Owner"
-  enabled: true
-  source: "excel"
-  excel_column: "Owner"    # must match a column header in your Excel file
-```
+| Key | Label | Enabled | Source | Value |
+|-----|-------|---------|--------|-------|
+| classification | Classification | TRUE | static | CUI // SP-NOFORN |
+| owner | Document Owner | TRUE | excel | *(leave blank — set Excel Column below)* |
+
+For `excel` source fields, also add the `excel_column` setting (e.g., `Owner`) — this must match a column header in your `Doc_URL.xlsx` file.
 
 #### URL Resolution
 
@@ -786,16 +871,14 @@ Because matching is bidirectional, shorter entries match more broadly — `"Poli
 
 **Configuration**
 
-The default config points to `input/Doc_URL.xlsx`:
+The default config points to `input/Doc_URL.xlsx`. These settings are on the **Metadata** sheet:
 
-```yaml
-metadata:
-  url:
-    lookup_file: "./input/Doc_URL.xlsx"
-    name_column: "Document_Name"    # must match your Excel column header exactly
-    url_column: "URL"               # must match your Excel column header exactly
-    sheet: 0                        # 0 = first sheet, or use the sheet name as a string
-```
+| Setting | Value | Description |
+|---------|-------|-------------|
+| url.lookup_file | ./input/Doc_URL.xlsx | Path to URL lookup spreadsheet |
+| url.name_column | Document_Name | Must match your Excel column header exactly |
+| url.url_column | URL | Must match your Excel column header exactly |
+| url.sheet | 0 | 0 = first sheet, or use the sheet name as a string |
 
 **If matching fails**, Step 1 and Step 5 will print a warning listing the column headers actually found in your file — use that to spot header typos.
 
@@ -890,7 +973,7 @@ Standalone diagnostic utility. Scans all input `.docx` files for every control I
 
 ```bash
 python Misc/analyze_control_attributes.py
-python Misc/analyze_control_attributes.py --config dps_config.yaml
+python Misc/analyze_control_attributes.py --config dps_config.xlsx
 python Misc/analyze_control_attributes.py ./input ./output/1\ -\ controls
 ```
 
@@ -915,34 +998,79 @@ Prints PASS/FAIL for each test case and exits with a non-zero code if any tests 
 
 ## Troubleshooting
 
-### Zero controls extracted (Step 1)
+### Config file issues
 
-Your control IDs likely use a different format than the default regex patterns. Check your documents for the ID format, then add a matching pattern to `control_extraction.control_id_patterns`. Test patterns at [regex101.com](https://regex101.com).
+#### "Config file not found" error
+
+The pipeline looks for `dps_config.xlsx` in the current directory. Make sure you run from the DPS project root:
+```bash
+cd /path/to/DPS
+python run_pipeline.py
+```
+Or specify the path explicitly: `python run_pipeline.py --config /path/to/dps_config.xlsx`
+
+#### "Permission denied" or "file is not a zip file" when reading config
+
+**Cause:** The `.xlsx` file is open in Excel or another program.
+**Fix:** Close the file in Excel/LibreOffice, then re-run the pipeline.
+
+#### Config loads but a section is missing or empty
+
+**Cause:** A sheet tab was renamed (e.g., `Input` → `Inputs`) or a `# Sub-header` row was deleted/changed.
+**Fix:** Open the README sheet in `dps_config.xlsx` to see the expected sheet names and sub-header names. Alternatively, regenerate a fresh template:
+```bash
+python generate_config_template.py -o dps_config_fresh.xlsx
+```
+Then copy your custom values from the old file into the fresh template.
+
+#### Boolean setting not working (e.g., `enabled` stays off)
+
+**Cause:** You typed `"yes"`, `"true"`, or `"1"` as text instead of using Excel's built-in TRUE/FALSE.
+**Fix:** Delete the cell contents, then select TRUE or FALSE from the dropdown. If there's no dropdown, type `TRUE` or `FALSE` (Excel auto-converts these to boolean values).
+
+#### Regex pattern not matching expected text
+
+**Cause:** Extra whitespace, line breaks, or curly quotes were introduced when pasting into Excel.
+**Fix:**
+1. Check for trailing spaces — click into the cell and press End to see where the cursor lands
+2. Make sure quotes are straight (`"`) not curly (`""`), which Excel's autocorrect may substitute
+3. Test the exact cell contents at [regex101.com](https://regex101.com)
+
+---
+
+### Pipeline step issues
+
+#### Zero controls extracted (Step 1)
+
+Your control IDs likely use a different format than the default regex patterns. Check your documents for the ID format, then add a matching pattern on the **Control Extraction** sheet under `# Control ID Patterns`. Test patterns at [regex101.com](https://regex101.com).
 
 Common alternative patterns:
-```yaml
-- '\b[A-Z]{2,4}-\d{1,3}\b'              # Simple: AC-1, IR-3
-- '\b[A-Z]{2,4}\.\d{1,3}\.\d{1,3}\b'    # Dotted: AC.1.1, IR.3.2
-```
 
-### Too many fake headings detected (Step 0/3)
+| Value | Description |
+|-------|-------------|
+| `\b[A-Z]{2,4}-\d{1,3}\b` | Simple: AC-1, IR-3 |
+| `\b[A-Z]{2,4}\.\d{1,3}\.\d{1,3}\b` | Dotted: AC.1.1, IR.3.2 |
+
+#### Too many fake headings detected (Step 0/3)
 
 Fake heading detection flags bold text under a character limit. If you're getting false positives:
-- Raise `headings.fake_heading_min_font_size` from `12` to `13` or `14`
-- Lower `headings.fake_heading_max_chars_fixer` from `120` to `80` or `100`
+- On the **Headings** sheet, raise `fake_heading_min_font_size` from `12` to `13` or `14`
+- Lower `fake_heading_max_chars_fixer` from `120` to `80` or `100`
 - Review `heading_changes.csv` to see exactly what was converted
 
-### Real headings showing up as "FAKE" in the profiler
+#### Real headings showing up as "FAKE" in the profiler
 
-Your documents likely use custom Word heading styles. In Word, click the heading and check the Styles pane for the style name, then add it to:
-- `headings.custom_heading_styles` (for profiler recognition)
-- `headings.custom_style_map` (for Step 3 conversion)
+Your documents likely use custom Word heading styles. In Word, click the heading and check the Styles pane for the style name, then on the **Headings** sheet add it to:
+- `# Custom Heading Styles` list (for profiler recognition)
+- `# Heading Style Map` (for Step 3 conversion — map your style name to `Heading 1`, `Heading 2`, or `Heading 3`)
 
-### Word temp files being processed
+**Important:** Add the style in **both** places. Adding it to only one causes the profiler to recognize it but Step 3 won't convert it (or vice versa).
 
-Word creates invisible `~$` lock files when a document is open. These are excluded by default via `input.exclude_patterns`. If you see errors about corrupted files, close the documents in Word before running the pipeline, or add the pattern to the exclude list.
+#### Word temp files being processed
 
-### Resuming a failed batch run (Step 1)
+Word creates invisible `~$` lock files when a document is open. These are excluded by default via `input.exclude_patterns`. If you see errors about corrupted files, close the documents in Word before running the pipeline, or add the pattern to the exclude list on the **Input** sheet.
+
+#### Resuming a failed batch run (Step 1)
 
 If Step 1 fails mid-batch, it saves progress to `checkpoint.json`. Re-running Step 1 will skip already-processed files:
 
@@ -952,19 +1080,19 @@ python run_pipeline.py --step 1
 
 To force a fresh run, delete `output/1 - controls/checkpoint.json` before running.
 
-### Sub-documents are too large or too small (Step 4)
+#### Sub-documents are too large or too small (Step 4)
 
-Adjust `thresholds.max_characters`:
+On the **Thresholds** sheet, adjust `max_characters`:
 - **Too large:** Lower from `36000` to `18000` for tighter splits
 - **Too small:** Raise to `50000` or higher if your context window supports it
 
-### Metadata shows "(Not detected)" for scope/intent (Step 5)
+#### Metadata shows "(Not detected)" for scope/intent (Step 5)
 
 Step 5 tries to get scope and intent from Step 0's profiler data first. If that's unavailable, it falls back to scanning the document directly. For best results:
 1. Run Step 0 first so `document_profiles.json` exists
-2. Check that your documents have sections matching the keywords in `sections.scope` and `sections.intent`
+2. Check that your documents have sections matching the keywords on the **Sections** sheet (scope and intent categories)
 
-### Pipeline stops at a failed step
+#### Pipeline stops at a failed step
 
 The pipeline halts on the first failure. Check the error output, fix the issue, then re-run from that step:
 
@@ -973,3 +1101,18 @@ python run_pipeline.py --step N
 ```
 
 Where `N` is the step that failed. You don't need to re-run earlier successful steps.
+
+---
+
+### Common Excel editing mistakes
+
+| Mistake | What happens | How to fix |
+|---------|-------------|------------|
+| Renamed a sheet tab | That config section loads as empty defaults | Rename the tab back to the exact name (see README sheet) |
+| Deleted a `# Sub-header` row | Settings from that block merge into the wrong block | Re-add the row. Run `generate_config_template.py` to see correct sub-header text |
+| Changed column order | Settings parsed with wrong keys/values | Restore: Setting \| Value \| Description (or Key \| Value \| Description for maps) |
+| Added a keyword row with column A empty | Row is silently skipped | Enter the value in column A |
+| Added too many search terms (>20) | Step 0 runs slowly; inventory Excel gets very wide | Keep search terms under 20. Each term adds a column to the inventory |
+| Pasted a regex with curly/smart quotes | Pattern fails to match | Replace curly quotes with straight quotes. Disable Excel autocorrect for the cell |
+| Saved as `.xls` instead of `.xlsx` | `InvalidFileException` error | Re-save as `.xlsx` (File → Save As → Excel Workbook) |
+| File is password-protected | Pipeline can't open the file | Remove protection (File → Info → Protect Workbook → remove password) |

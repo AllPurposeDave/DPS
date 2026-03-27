@@ -33,7 +33,7 @@ from docx.oxml.ns import qn
 # Import shared_utils from the DPS scripts/ directory
 # ---------------------------------------------------------------------------
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", ".."))
+_PROJECT_ROOT = os.path.normpath(os.path.join(_SCRIPT_DIR, ".."))
 _SCRIPTS_DIR = os.path.join(_PROJECT_ROOT, "scripts")
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
@@ -41,7 +41,6 @@ if _SCRIPTS_DIR not in sys.path:
 from shared_utils import (
     ensure_output_dir,
     get_heading_level,
-    is_heading_style,
     is_paragraph_bold,
     iter_docx_files,
     load_config,
@@ -49,20 +48,12 @@ from shared_utils import (
     sanitize_filename,
     setup_argparse,
 )
+from add_metadata import load_url_mapping, resolve_url
 
 
 # ============================================================================
 # Heading helpers (ported from heading_style_fixer.py)
 # ============================================================================
-
-def _build_heading_patterns(config: dict):
-    """Build heading level regex patterns from config."""
-    hcfg = config.get("headings", {})
-    h1 = re.compile(hcfg.get("heading1_pattern", r"^(?:\d+\.0\s+|[IVXLC]+\.\s+)"))
-    h2 = re.compile(hcfg.get("heading2_pattern", r"^(?:\d+\.\d+\s+|[A-Z]\.\s+)"))
-    h3 = re.compile(hcfg.get("heading3_pattern", r"^\d+\.\d+\.\d+\s+"))
-    return h1, h2, h3
-
 
 def _build_custom_style_map(config: dict) -> dict:
     """Build lowercase-key custom style map from config."""
@@ -72,33 +63,6 @@ def _build_custom_style_map(config: dict) -> dict:
         return {k.strip().lower(): v for k, v in cmap.items()}
     return {}
 
-
-def _determine_heading_level(text: str, re_h1, re_h2, re_h3, default_level: int = 2) -> int:
-    """Return the numeric heading level (1-3) for a fake heading based on numbering."""
-    stripped = text.strip()
-    if re_h3.match(stripped):
-        return 3
-    if re_h1.match(stripped):
-        return 1
-    if re_h2.match(stripped):
-        return 2
-    return default_level
-
-
-def _is_fake_heading(paragraph, max_chars: int = 120) -> bool:
-    """Detect bold-text paragraphs that look like headings but lack a heading style."""
-    text = paragraph.text.strip()
-    if not text:
-        return False
-    if is_heading_style(paragraph.style):
-        return False
-    if len(text) >= max_chars:
-        return False
-    if text.endswith("."):
-        return False
-    if not is_paragraph_bold(paragraph):
-        return False
-    return True
 
 
 # ============================================================================
@@ -130,20 +94,28 @@ def _clean_text(text: str, config_d2m: dict) -> str:
 # Metadata frontmatter
 # ============================================================================
 
-def _build_frontmatter(doc, filepath: str, config: dict) -> str:
+def _build_frontmatter(doc, filepath: str, config: dict,
+                       url_mapping: dict | None = None) -> str:
     """Build YAML frontmatter string from configurable metadata_fields."""
     d2m = config.get("docx2md", {})
     if not d2m.get("include_metadata_frontmatter", True):
         return ""
 
-    fields = d2m.get("metadata_fields", _default_metadata_fields())
+    fields = list(d2m.get("metadata_fields", _default_metadata_fields()))
+
+    # Inject doc_url field if enabled and not already present
+    if d2m.get("include_doc_url", False) and url_mapping is not None:
+        if not any(f.get("name") == "doc_url" for f in fields):
+            fields.append({"name": "doc_url", "source": "doc_url", "default": ""})
+
     lines = ["---"]
 
     for field in fields:
         name = field.get("name", "")
         source = field.get("source", "")
         default = field.get("default", "")
-        value = _resolve_metadata_value(doc, filepath, source, default)
+        value = _resolve_metadata_value(doc, filepath, source, default,
+                                        url_mapping=url_mapping, config=config)
         # Escape quotes in value
         if isinstance(value, str) and ('"' in value or ":" in value or "#" in value):
             value = f'"{value}"'
@@ -156,7 +128,9 @@ def _build_frontmatter(doc, filepath: str, config: dict) -> str:
     return "\n".join(lines)
 
 
-def _resolve_metadata_value(doc, filepath: str, source: str, default: str) -> str:
+def _resolve_metadata_value(doc, filepath: str, source: str, default: str,
+                            url_mapping: dict | None = None,
+                            config: dict | None = None) -> str:
     """Resolve a single metadata field value from its source descriptor."""
     try:
         if source == "filename":
@@ -164,6 +138,12 @@ def _resolve_metadata_value(doc, filepath: str, source: str, default: str) -> st
 
         if source == "converted_date":
             return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+        if source == "doc_url" and url_mapping is not None and config is not None:
+            stem = os.path.splitext(os.path.basename(filepath))[0]
+            url, _src = resolve_url(stem, os.path.basename(filepath),
+                                    url_mapping, config)
+            return url if url else default
 
         if source.startswith("core:"):
             prop_name = source[5:]
@@ -209,19 +189,26 @@ def _default_metadata_fields() -> list[dict]:
 class DocxToMarkdown:
     """Converts a single .docx file to markdown."""
 
-    def __init__(self, filepath: str, config: dict, output_dir: str):
+    def __init__(self, filepath: str, config: dict, output_dir: str,
+                 url_mapping: dict | None = None):
         self.filepath = filepath
         self.filename = os.path.basename(filepath)
         self.config = config
         self.d2m = config.get("docx2md", {})
         self.output_dir = output_dir
+        self.url_mapping = url_mapping or {}
 
         # Heading detection config
-        self.re_h1, self.re_h2, self.re_h3 = _build_heading_patterns(config)
         self.custom_style_map = _build_custom_style_map(config)
-        hcfg = config.get("headings", {})
-        self.default_heading_level = hcfg.get("default_heading_level", 2)
-        self.fake_heading_max_chars = hcfg.get("fake_heading_max_chars_fixer", 120)
+
+        # Control ID heading promotion
+        self.control_id_patterns: list[re.Pattern] = []
+        self.require_bold_control_id = False
+        if self.d2m.get("promote_control_ids_to_heading", False):
+            ctrl_cfg = config.get("control_extraction", {})
+            self.require_bold_control_id = ctrl_cfg.get("require_bold_control_id", False)
+            for pat in ctrl_cfg.get("control_id_patterns", []):
+                self.control_id_patterns.append(re.compile(pat))
 
         # State
         self.lines: list[str] = []
@@ -235,7 +222,7 @@ class DocxToMarkdown:
             "images": 0,
             "links": 0,
             "headings": 0,
-            "fake_headings": 0,
+            "control_headings": 0,
             "has_merged_cells": False,
         }
         self._in_list = False
@@ -257,7 +244,8 @@ class DocxToMarkdown:
             return self._result("error", time.time() - start, msg)
 
         # Build frontmatter
-        frontmatter = _build_frontmatter(doc, self.filepath, self.config)
+        frontmatter = _build_frontmatter(doc, self.filepath, self.config,
+                                         url_mapping=self.url_mapping)
         if frontmatter:
             self.lines.append(frontmatter)
 
@@ -286,6 +274,10 @@ class DocxToMarkdown:
         # Post-process
         self._post_process()
 
+        # Append bottom metadata block if placement is "top_and_bottom"
+        if self.d2m.get("metadata_placement", "top") == "top_and_bottom":
+            self.lines.extend(self._build_bottom_metadata(doc))
+
         # Write .md file
         stem = os.path.splitext(self.filename)[0]
         safe_name = sanitize_filename(stem, max_len=100)
@@ -301,6 +293,32 @@ class DocxToMarkdown:
         elapsed = time.time() - start
         status = "warning" if self.warnings else "success"
         return self._result(status, elapsed, output_file=f"{safe_name}.md")
+
+    # ------------------------------------------------------------------
+    # Bottom metadata block
+    # ------------------------------------------------------------------
+
+    def _build_bottom_metadata(self, doc) -> list[str]:
+        """Build a readable metadata block for the bottom of the document."""
+        d2m = self.d2m
+        fields = list(d2m.get("metadata_fields", _default_metadata_fields()))
+
+        # Inject doc_url field if enabled and not already present
+        if d2m.get("include_doc_url", False) and self.url_mapping:
+            if not any(f.get("name") == "doc_url" for f in fields):
+                fields.append({"name": "doc_url", "source": "doc_url", "default": ""})
+
+        lines = ["", "---", ""]
+        for field in fields:
+            name = field.get("name", "")
+            source = field.get("source", "")
+            default = field.get("default", "")
+            value = _resolve_metadata_value(doc, self.filepath, source, default,
+                                            url_mapping=self.url_mapping,
+                                            config=self.config)
+            lines.append(f"**{name}:** {value}")
+        lines.append("")
+        return lines
 
     # ------------------------------------------------------------------
     # Paragraph processing
@@ -381,14 +399,16 @@ class DocxToMarkdown:
                 if m:
                     return int(m.group(1))
 
-        # Fake heading detection
-        if _is_fake_heading(para, self.fake_heading_max_chars):
-            level = _determine_heading_level(
-                para.text, self.re_h1, self.re_h2, self.re_h3,
-                self.default_heading_level
-            )
-            self.stats["fake_headings"] += 1
-            return level
+        # Control ID heading promotion
+        if self.control_id_patterns:
+            text = para.text.strip()
+            if self.require_bold_control_id and not is_paragraph_bold(para):
+                pass  # skip non-bold paragraphs when bold is required
+            else:
+                for pat in self.control_id_patterns:
+                    if pat.search(text):
+                        self.stats["control_headings"] += 1
+                        return 2  # Always H2
 
         return None
 
@@ -778,7 +798,7 @@ class DocxToMarkdown:
         """Clean up the accumulated lines."""
         max_blank = self.d2m.get("max_consecutive_blank_lines", 2)
 
-        # Heading level normalization
+        # Heading level normalization (shift so minimum = H1)
         if self.d2m.get("heading_normalization", True) and self.heading_levels_used:
             min_level = min(self.heading_levels_used)
             if min_level > 1:
@@ -792,6 +812,19 @@ class DocxToMarkdown:
                         line = "#" * new_level + line[current_level:]
                     new_lines.append(line)
                 self.lines = new_lines
+
+        # Heading cap — collapse anything deeper than max_heading_level
+        max_level = self.d2m.get("max_heading_level", 6)
+        if max_level < 6:
+            new_lines = []
+            for line in self.lines:
+                m = re.match(r"^(#{1,6})\s", line)
+                if m:
+                    current_level = len(m.group(1))
+                    if current_level > max_level:
+                        line = "#" * max_level + line[current_level:]
+                new_lines.append(line)
+            self.lines = new_lines
 
         # Collapse blank lines and strip trailing whitespace
         cleaned = []
@@ -855,7 +888,7 @@ class DocxToMarkdown:
             "images": self.stats["images"],
             "links": self.stats["links"],
             "headings": self.stats["headings"],
-            "fake_headings": self.stats["fake_headings"],
+            "control_headings": self.stats["control_headings"],
             "has_merged_cells": self.stats["has_merged_cells"],
             "file_size_kb": file_size,
             "conversion_time_s": round(elapsed, 2),
@@ -934,14 +967,14 @@ def write_excel_log(results: list[dict], output_dir: str, prefix: str):
     ws1 = wb.create_sheet("Conversion Summary")
     ws1.append([
         "Filename", "Status", "Output File", "Paragraphs", "Tables",
-        "Images", "Links", "Headings", "Fake Headings", "Merged Cells",
+        "Images", "Links", "Headings", "Control Headings", "Merged Cells",
         "File Size (KB)", "Time (s)", "Error"
     ])
     for r in results:
         ws1.append([
             r["filename"], r["status"], r["output_file"],
             r["paragraphs"], r["tables"], r["images"], r["links"],
-            r["headings"], r["fake_headings"],
+            r["headings"], r["control_headings"],
             "Yes" if r["has_merged_cells"] else "No",
             r["file_size_kb"], r["conversion_time_s"],
             r.get("error_msg", ""),
@@ -992,6 +1025,11 @@ def main():
     config = load_config(args.config)
     d2m = config.get("docx2md", {})
 
+    # Load Doc URL mapping if enabled
+    url_mapping = {}
+    if d2m.get("include_doc_url", False):
+        url_mapping = load_url_mapping(config)
+
     # Resolve input directory (use main pipeline input)
     input_dir = args.input_dir
     if not input_dir:
@@ -1027,7 +1065,8 @@ def main():
         fname = os.path.basename(filepath)
         print(f"  [{i}/{len(files)}] {fname} ... ", end="", flush=True)
 
-        converter = DocxToMarkdown(filepath, config, output_dir)
+        converter = DocxToMarkdown(filepath, config, output_dir,
+                                   url_mapping=url_mapping)
         result = converter.convert()
         results.append(result)
 

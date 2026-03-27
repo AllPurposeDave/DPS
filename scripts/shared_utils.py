@@ -2,13 +2,12 @@
 Shared utilities for the DPS pre-processing pipeline.
 
 Common functions used across all pipeline scripts.
-Updated to support the unified dps_config.yaml.
+Supports both dps_config.xlsx (preferred) and dps_config.yaml (legacy fallback).
 
 REQUIREMENTS:
-  pip install python-docx pyyaml
+  pip install python-docx openpyxl pyyaml
   Python 3.8 or later
 """
-# pip install python-docx pyyaml
 
 from __future__ import annotations
 
@@ -23,34 +22,541 @@ from typing import Optional
 
 def load_config(config_path: Optional[str] = None) -> dict:
     """
-    Load the unified dps_config.yaml.
+    Load DPS configuration from Excel (.xlsx) or YAML (.yaml).
 
     Search order:
-      1. Explicit path passed via --config
-      2. ./dps_config.yaml (current directory)
-      3. ../dps_config.yaml (parent directory — for running from scripts/)
+      1. Explicit path passed via --config (any format)
+      2. ./dps_config.xlsx  → ../dps_config.xlsx   (Excel preferred)
+      3. ./dps_config.yaml  → ../dps_config.yaml   (YAML fallback)
 
-    Returns the parsed YAML dict, or an empty dict if no config is found.
+    Returns the parsed config dict, or an empty dict if no config is found.
     """
-    import yaml
-
     search_paths = []
     if config_path:
         search_paths.append(config_path)
-    search_paths.extend([
-        os.path.join(os.getcwd(), "dps_config.yaml"),
-        os.path.join(os.getcwd(), "..", "dps_config.yaml"),
-    ])
+    # Excel first, then YAML fallback
+    for name in ["dps_config.xlsx", "dps_config.yaml"]:
+        search_paths.append(os.path.join(os.getcwd(), name))
+        search_paths.append(os.path.join(os.getcwd(), "..", name))
 
     for path in search_paths:
         if os.path.isfile(path):
-            with open(path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f) or {}
-            # Store the resolved config directory for relative path resolution
-            config["_config_dir"] = os.path.dirname(os.path.abspath(path))
-            return config
+            if path.lower().endswith(".xlsx"):
+                return load_config_xlsx(path)
+            else:
+                import yaml
+                with open(path, "r", encoding="utf-8") as f:
+                    config = yaml.safe_load(f) or {}
+                config["_config_dir"] = os.path.dirname(os.path.abspath(path))
+                return config
 
     return {}
+
+
+# ── Excel config parser ─────────────────────────────────────────────────────
+
+def _coerce_value(val):
+    """Coerce Excel cell value to appropriate Python type."""
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        # Convert float-that-is-int (e.g. 36000.0 → 36000)
+        if isinstance(val, float) and val == int(val) and not str(val).startswith("0."):
+            return int(val)
+        return val
+    s = str(val).strip()
+    if s == "":
+        return None
+    if s.upper() == "TRUE":
+        return True
+    if s.upper() == "FALSE":
+        return False
+    try:
+        f = float(s)
+        if f == int(f) and "." not in s:
+            return int(s)
+        return f
+    except ValueError:
+        return s
+
+
+def _expand_dot_keys(flat: dict) -> dict:
+    """Expand dot-notation keys into nested dicts. E.g. {'a.b': 1} → {'a': {'b': 1}}."""
+    result = {}
+    for key, val in flat.items():
+        parts = key.split(".")
+        d = result
+        for part in parts[:-1]:
+            d = d.setdefault(part, {})
+        d[parts[-1]] = val
+    return result
+
+
+def _read_all_rows(ws):
+    """Read all rows from a worksheet as lists of values."""
+    rows = []
+    for row in ws.iter_rows(values_only=True):
+        rows.append(list(row))
+    return rows
+
+
+def _is_subheader(row):
+    """Check if a row is a sub-header (starts with single # but not ##).
+
+    Convention: '# Section Name' = sub-header (block delimiter).
+    '## description text' = inline help comment (not a delimiter).
+    """
+    if not row or not row[0]:
+        return False
+    val = str(row[0]).strip()
+    return val.startswith("#") and not val.startswith("##")
+
+
+def _split_by_subheaders(rows):
+    """Split rows into named blocks at # sub-headers. Returns list of (name, rows) tuples."""
+    blocks = []
+    current_name = ""
+    current_rows = []
+    for row in rows:
+        if _is_subheader(row):
+            if current_rows:
+                blocks.append((current_name, current_rows))
+            current_name = str(row[0]).strip().lstrip("# ").strip()
+            current_rows = []
+        else:
+            current_rows.append(row)
+    if current_rows:
+        blocks.append((current_name, current_rows))
+    return blocks
+
+
+def _is_comment(row):
+    """Check if a row is a comment/description line (starts with ## or #)."""
+    if not row or not row[0]:
+        return False
+    val = str(row[0]).strip()
+    return val.startswith("#")
+
+
+def _parse_settings_rows(rows):
+    """Parse Setting|Value|Description rows into a flat dict (skips sub-headers, comments, and blanks)."""
+    result = {}
+    for row in rows:
+        if not row or not row[0] or _is_comment(row):
+            continue
+        key = str(row[0]).strip()
+        raw = row[1] if len(row) > 1 else None
+        # For settings, preserve empty strings (they're meaningful, e.g. fallback_template: "")
+        if raw is None:
+            continue
+        if isinstance(raw, str) and raw.strip() == "":
+            result[key] = ""
+        else:
+            val = _coerce_value(raw)
+            if val is not None:
+                result[key] = val
+    return result
+
+
+def _parse_list_column(rows, col=0):
+    """Extract non-empty values from a single column, skipping sub-headers and comments."""
+    result = []
+    for row in rows:
+        if not row or _is_comment(row):
+            continue
+        val = row[col] if col < len(row) else None
+        if val is not None and str(val).strip():
+            result.append(_coerce_value(val) if not isinstance(val, str) else str(val).strip())
+    return result
+
+
+def _parse_map_rows(rows, key_col=0, val_col=1):
+    """Parse Key|Value rows into a dict, skipping sub-headers, comments, and blanks."""
+    result = {}
+    for row in rows:
+        if not row or _is_comment(row):
+            continue
+        key = row[key_col] if key_col < len(row) else None
+        val = row[val_col] if val_col < len(row) else None
+        if key and str(key).strip():
+            result[str(key).strip()] = _coerce_value(val) if val is not None else ""
+    return result
+
+
+# ── Per-sheet parsers ────────────────────────────────────────────────────────
+
+def _parse_input_sheet(ws):
+    rows = _read_all_rows(ws)[1:]  # skip header
+    blocks = _split_by_subheaders(rows)
+    result = {}
+    exclude = []
+    for name, block_rows in blocks:
+        name_lower = name.lower()
+        if "directory" in name_lower or "setting" in name_lower:
+            settings = _parse_settings_rows(block_rows)
+            result.update(settings)
+        elif "exclude" in name_lower or "pattern" in name_lower or "skip" in name_lower or "file" in name_lower:
+            exclude.extend(_parse_list_column(block_rows))
+    if exclude:
+        result["exclude_patterns"] = exclude
+    return result
+
+
+def _parse_output_sheet(ws):
+    rows = _read_all_rows(ws)[1:]  # skip header
+    flat = _parse_settings_rows(rows)
+    return _expand_dot_keys(flat)
+
+
+def _parse_sections_sheet(ws):
+    rows = _read_all_rows(ws)[1:]  # skip header
+    result = {}
+    for row in rows:
+        if not row or _is_comment(row):
+            continue
+        category = str(row[0]).strip().lower() if row[0] else None
+        keyword = str(row[1]).strip() if len(row) > 1 and row[1] else None
+        if category and keyword:
+            result.setdefault(category, []).append(keyword)
+    return result
+
+
+def _parse_headings_sheet(ws):
+    rows = _read_all_rows(ws)[1:]  # skip header
+    blocks = _split_by_subheaders(rows)
+    result = {}
+    for name, block_rows in blocks:
+        name_lower = name.lower()
+        if "built-in" in name_lower or "builtin" in name_lower or "standard word" in name_lower:
+            result["builtin_styles"] = _parse_list_column(block_rows)
+        elif "style map" in name_lower or "maps your" in name_lower or ("map" in name_lower and "key" in name_lower):
+            result["custom_style_map"] = _parse_map_rows(block_rows)
+        elif ("custom" in name_lower or "org" in name_lower) and "map" not in name_lower:
+            if "custom_heading_styles" not in result:
+                result["custom_heading_styles"] = _parse_list_column(block_rows)
+        elif "fake" in name_lower:
+            settings = _parse_settings_rows(block_rows)
+            result.update(settings)
+        elif "pattern" in name_lower or "level" in name_lower:
+            settings = _parse_settings_rows(block_rows)
+            result.update(settings)
+    return result
+
+
+def _parse_text_deletions_sheet(ws):
+    rows = _read_all_rows(ws)[1:]
+    blocks = _split_by_subheaders(rows)
+    result = {}
+    for name, block_rows in blocks:
+        if "setting" in name.lower():
+            result.update(_parse_settings_rows(block_rows))
+        elif "phrase" in name.lower() or "delete" in name.lower():
+            result["phrases"] = _parse_list_column(block_rows)
+    # Ensure phrases key exists even if empty
+    result.setdefault("phrases", [])
+    return result
+
+
+def _parse_cross_references_sheet(ws):
+    rows = _read_all_rows(ws)[1:]
+    blocks = _split_by_subheaders(rows)
+    result = {}
+    for name, block_rows in blocks:
+        name_lower = name.lower()
+        if "detection" in name_lower and "setting" in name_lower:
+            result.update(_parse_settings_rows(block_rows))
+        elif "extraction" in name_lower or "phrase" in name_lower:
+            patterns = []
+            for row in block_rows:
+                if row and row[0] and not _is_comment(row):
+                    phrase = str(row[0]).strip()
+                    ptype = str(row[1]).strip() if len(row) > 1 and row[1] else "internal"
+                    if phrase:
+                        patterns.append({"phrase": phrase, "type": ptype})
+            if patterns:
+                result["extraction_patterns"] = patterns
+        elif "profiler" in name_lower or "counting" in name_lower:
+            if "profiler_patterns" not in result:
+                result["profiler_patterns"] = _parse_list_column(block_rows)
+        elif "keyword" in name_lower or "document name" in name_lower:
+            result["document_name_keywords"] = _parse_list_column(block_rows)
+    return result
+
+
+def _parse_tables_sheet(ws):
+    rows = _read_all_rows(ws)[1:]
+    classification = {}
+    for row in rows:
+        if not row or _is_comment(row):
+            continue
+        ttype = str(row[0]).strip() if row[0] else None
+        keyword = str(row[1]).strip() if len(row) > 1 and row[1] else None
+        min_cols = _coerce_value(row[2]) if len(row) > 2 and row[2] else 2
+        if ttype and keyword:
+            entry = classification.setdefault(ttype, {"keywords": [], "min_columns": min_cols})
+            entry["keywords"].append(keyword)
+            entry["min_columns"] = min_cols
+    return {"classification": classification}
+
+
+def _parse_classification_sheet(ws):
+    rows = _read_all_rows(ws)[1:]
+    blocks = _split_by_subheaders(rows)
+    result = {}
+    for name, block_rows in blocks:
+        name_lower = name.lower()
+        if "type a" in name_lower:
+            settings = _parse_settings_rows(block_rows)
+            flat = _expand_dot_keys(settings)
+            result["type_a"] = flat.get("type_a", settings)
+        elif "type b" in name_lower:
+            settings = _parse_settings_rows(block_rows)
+            flat = _expand_dot_keys(settings)
+            result["type_b"] = flat.get("type_b", settings)
+        elif "type c" in name_lower or "procedure" in name_lower or "keyword" in name_lower:
+            keywords = _parse_list_column(block_rows)
+            if keywords:
+                result["type_c"] = {"procedure_keywords": keywords}
+        elif "type d" in name_lower:
+            settings = _parse_settings_rows(block_rows)
+            flat = _expand_dot_keys(settings)
+            result["type_d"] = flat.get("type_d", settings)
+    return result
+
+
+def _parse_profiling_flags_sheet(ws):
+    rows = _read_all_rows(ws)[1:]
+    flat = _parse_settings_rows(rows)
+    return _expand_dot_keys(flat)
+
+
+def _parse_thresholds_sheet(ws):
+    rows = _read_all_rows(ws)[1:]
+    return _parse_settings_rows(rows)
+
+
+def _parse_priority_scoring_sheet(ws):
+    rows = _read_all_rows(ws)[1:]
+    blocks = _split_by_subheaders(rows)
+    result = {}
+    for name, block_rows in blocks:
+        name_lower = name.lower()
+        if "weight" in name_lower:
+            result["weights"] = _parse_settings_rows(block_rows)
+        elif "usage" in name_lower or "frequency" in name_lower:
+            freq = {}
+            for row in block_rows:
+                if not row or _is_comment(row):
+                    continue
+                fname = str(row[0]).strip() if row[0] else ""
+                val = _coerce_value(row[1] if len(row) > 1 else None)
+                if fname and val is not None:
+                    freq[fname] = val
+            result["usage_frequency"] = freq
+    result.setdefault("usage_frequency", {})
+    return result
+
+
+def _parse_search_terms_sheet(ws):
+    rows = _read_all_rows(ws)[1:]
+    blocks = _split_by_subheaders(rows)
+    result = {}
+    for name, block_rows in blocks:
+        if "setting" in name.lower():
+            result.update(_parse_settings_rows(block_rows))
+        elif "term" in name.lower():
+            result["terms"] = _parse_list_column(block_rows)
+    return result
+
+
+def _parse_control_extraction_sheet(ws):
+    rows = _read_all_rows(ws)[1:]
+    blocks = _split_by_subheaders(rows)
+    result = {}
+    for name, block_rows in blocks:
+        name_lower = name.lower()
+        if "common" in name_lower and "setting" in name_lower:
+            result.update(_parse_settings_rows(block_rows))
+        elif "control id" in name_lower or ("regex" in name_lower and "pattern" in name_lower):
+            result["control_id_patterns"] = _parse_list_column(block_rows)
+        elif "whitelist" in name_lower or "blacklist" in name_lower:
+            wl = []
+            bl = []
+            for row in block_rows:
+                if not row or _is_comment(row) or not row[0]:
+                    continue
+                val = str(row[0]).strip()
+                if val.startswith("whitelist:"):
+                    wl.append(val.split(":", 1)[1].strip())
+                elif val.startswith("blacklist:"):
+                    bl.append(val.split(":", 1)[1].strip())
+            result["whitelist"] = wl
+            result["blacklist"] = bl
+        elif "guidance" in name_lower or "boundary" in name_lower:
+            if "guidance_keywords" not in result:
+                result["guidance_keywords"] = _parse_list_column(block_rows)
+        elif "trigger" in name_lower and ("metadata" in name_lower or "category" in name_lower):
+            triggers = {}
+            for row in block_rows:
+                if not row or _is_comment(row) or not row[0]:
+                    continue
+                cat = str(row[0]).strip()
+                kw = str(row[1]).strip() if len(row) > 1 and row[1] else ""
+                if cat and kw:
+                    triggers.setdefault(cat, []).append(kw)
+            if triggers:
+                result["metadata_triggers"] = triggers
+        elif "heading detection" in name_lower or "advanced" in name_lower:
+            settings = _parse_settings_rows(block_rows)
+            flat = _expand_dot_keys(settings)
+            result["heading_detection"] = flat.get("heading_detection", settings)
+        elif "implementation trigger" in name_lower:
+            settings = _parse_settings_rows(block_rows)
+            result.update(settings)
+        else:
+            # Catch remaining settings
+            settings = _parse_settings_rows(block_rows)
+            result.update(settings)
+    # Ensure list keys default to empty
+    result.setdefault("whitelist", [])
+    result.setdefault("blacklist", [])
+    return result
+
+
+def _parse_pipeline_sheet(ws):
+    rows = _read_all_rows(ws)[1:]
+    steps = []
+    for row in rows:
+        if not row or _is_comment(row):
+            continue
+        if row[1] is None and row[2] is None:
+            continue
+        steps.append({
+            "name": str(row[1]).strip() if row[1] else "",
+            "script": str(row[2]).strip() if len(row) > 2 and row[2] else "",
+            "enabled": _coerce_value(row[3]) if len(row) > 3 else True,
+            "description": str(row[4]).strip() if len(row) > 4 and row[4] else "",
+        })
+    return {"steps": steps}
+
+
+def _parse_metadata_sheet(ws):
+    rows = _read_all_rows(ws)[1:]
+    blocks = _split_by_subheaders(rows)
+    result = {}
+    for name, block_rows in blocks:
+        name_lower = name.lower()
+        if "general" in name_lower:
+            result.update(_parse_settings_rows(block_rows))
+        elif "key" in name_lower and "label" in name_lower:
+            # Metadata fields table: Key | Label | Enabled | Source | Value
+            fields = []
+            for row in block_rows:
+                if not row or _is_comment(row) or not row[0]:
+                    continue
+                field = {"key": str(row[0]).strip()}
+                if len(row) > 1 and row[1]:
+                    field["label"] = str(row[1]).strip()
+                if len(row) > 2 and row[2] is not None:
+                    field["enabled"] = _coerce_value(row[2])
+                if len(row) > 3 and row[3]:
+                    field["source"] = str(row[3]).strip()
+                if len(row) > 4 and row[4]:
+                    field["value"] = str(row[4]).strip()
+                fields.append(field)
+            result["fields"] = fields
+        elif "url" in name_lower and ("resolution" in name_lower or "lookup" in name_lower):
+            settings = _parse_settings_rows(block_rows)
+            flat = _expand_dot_keys(settings)
+            result["url"] = flat.get("url", settings)
+        elif "advanced" in name_lower:
+            result.update(_parse_settings_rows(block_rows))
+        elif "tag generation" in name_lower:
+            settings = _parse_settings_rows(block_rows)
+            flat = _expand_dot_keys(settings)
+            result["tags"] = flat.get("tags", settings)
+        elif "static" in name_lower or ("tag" in name_lower and "all" in name_lower):
+            tags = _parse_list_column(block_rows)
+            result.setdefault("tags", {})["static_tags"] = tags
+    return result
+
+
+def _parse_docx2md_sheet(ws):
+    rows = _read_all_rows(ws)[1:]
+    blocks = _split_by_subheaders(rows)
+    result = {}
+    for name, block_rows in blocks:
+        name_lower = name.lower()
+        if "metadata field" in name_lower and "name" in name_lower:
+            # Metadata fields table: Name | Source | Default
+            fields = []
+            for row in block_rows:
+                if not row or not row[0] or str(row[0]).startswith("#"):
+                    continue
+                field = {"name": str(row[0]).strip()}
+                if len(row) > 1 and row[1]:
+                    field["source"] = str(row[1]).strip()
+                if len(row) > 2 and row[2] is not None and str(row[2]).strip():
+                    field["default"] = str(row[2]).strip()
+                fields.append(field)
+            if fields:
+                result["metadata_fields"] = fields
+        else:
+            settings = _parse_settings_rows(block_rows)
+            result.update(settings)
+    return result
+
+
+# ── Main Excel loader ────────────────────────────────────────────────────────
+
+def load_config_xlsx(xlsx_path: str) -> dict:
+    """
+    Load configuration from a dps_config.xlsx workbook.
+
+    Returns the same nested dict structure as loading from dps_config.yaml,
+    so all downstream scripts work without changes.
+    """
+    from openpyxl import load_workbook as _load_wb
+
+    wb = _load_wb(xlsx_path, read_only=True, data_only=True)
+
+    # Map sheet names to parser functions
+    sheet_parsers = {
+        "Input": ("input", _parse_input_sheet),
+        "Output": ("output", _parse_output_sheet),
+        "Sections": ("sections", _parse_sections_sheet),
+        "Headings": ("headings", _parse_headings_sheet),
+        "Text Deletions": ("text_deletions", _parse_text_deletions_sheet),
+        "Cross References": ("cross_references", _parse_cross_references_sheet),
+        "Tables": ("tables", _parse_tables_sheet),
+        "Classification": ("classification", _parse_classification_sheet),
+        "Profiling Flags": ("profiling_flags", _parse_profiling_flags_sheet),
+        "Thresholds": ("thresholds", _parse_thresholds_sheet),
+        "Priority Scoring": ("priority_scoring", _parse_priority_scoring_sheet),
+        "Search Terms": ("search_terms", _parse_search_terms_sheet),
+        "Control Extraction": ("control_extraction", _parse_control_extraction_sheet),
+        "Pipeline": ("pipeline", _parse_pipeline_sheet),
+        "Metadata": ("metadata", _parse_metadata_sheet),
+        "Docx2md": ("docx2md", _parse_docx2md_sheet),
+    }
+
+    config = {}
+    for sheet_name, (config_key, parser_fn) in sheet_parsers.items():
+        if sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            try:
+                config[config_key] = parser_fn(ws)
+            except Exception as e:
+                print(f"  WARNING: Error parsing sheet '{sheet_name}': {e}")
+                config[config_key] = {}
+
+    wb.close()
+
+    # Store config directory for relative path resolution
+    config["_config_dir"] = os.path.dirname(os.path.abspath(xlsx_path))
+    return config
 
 
 def resolve_path(config: dict, relative_path: str) -> str:
@@ -111,7 +617,7 @@ def setup_argparse(description: str) -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         default=None,
-        help="Path to dps_config.yaml (auto-detected if omitted)",
+        help="Path to dps_config.xlsx or dps_config.yaml (auto-detected if omitted)",
     )
     parser.add_argument(
         "input_dir",

@@ -6,7 +6,7 @@ DPS — Document Processing System — Pipeline Runner
 One command to run the entire pipeline, or pick individual steps.
 
 HOW IT WORKS:
-    1. Reads dps_config.yaml for all paths and settings
+    1. Reads dps_config.xlsx (or dps_config.yaml) for all paths and settings
     2. Runs each enabled step in order (0 → 5)
     3. Each step's script reads from the input/ folder (or previous step's output)
     4. All outputs land in numbered sub-folders under output/
@@ -38,19 +38,20 @@ import subprocess
 import sys
 import time
 
-import yaml
+# Add scripts/ to path for shared_utils import
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts"))
+from shared_utils import load_config as _load_config
 
 
 def load_config(config_path: str) -> dict:
-    """Load and validate the config file."""
+    """Load and validate the config file (supports .xlsx and .yaml)."""
     if not os.path.isfile(config_path):
         print(f"ERROR: Config file not found: {config_path}")
-        print("Expected dps_config.yaml in the project root.")
-        print("FIX: Copy or create dps_config.yaml (see the template in this repo).")
+        print("Expected dps_config.xlsx (or dps_config.yaml) in the project root.")
+        print("FIX: Run 'python generate_config_template.py' to create dps_config.xlsx.")
         sys.exit(1)
 
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
+    config = _load_config(config_path)
 
     if not config or not isinstance(config, dict):
         print(f"ERROR: Config file is empty or invalid: {config_path}")
@@ -230,8 +231,8 @@ def main():
     )
     parser.add_argument(
         "--config", "-c",
-        default="dps_config.yaml",
-        help="Path to dps_config.yaml (default: dps_config.yaml in current folder)",
+        default="dps_config.xlsx",
+        help="Path to dps_config.xlsx or .yaml (default: dps_config.xlsx in current folder)",
     )
     parser.add_argument(
         "--step", "-s",

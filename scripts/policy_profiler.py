@@ -249,32 +249,13 @@ class DocumentProfile:
 
 def load_config(config_path: str) -> dict:
     """
-    Read and return the YAML configuration file.
+    Load and validate the configuration file (supports .xlsx and .yaml).
 
-    WHAT IT DOES:
-      Opens profiler_config.yaml (or the path you passed with --config) and
-      parses all the settings that drive the rest of the script: input/output
-      paths, heading detection rules, cross-reference patterns, thresholds, etc.
-
-    FAILURE MODES:
-
-      "Config file not found" → You are running the script from the wrong folder,
-        OR the --config path is wrong.
-        FIX: Either (a) open your terminal, cd to the folder that contains both
-        policy_profiler.py AND profiler_config.yaml, then run the script; or
-        (b) pass the full path explicitly:
-              python policy_profiler.py --config "C:/full/path/profiler_config.yaml"
-
-      "Config file has a formatting error" → The YAML file was edited and a
-        typo was introduced (wrong indentation, stray colon, etc.).
-        FIX: Open profiler_config.yaml in a text editor. The error message
-        includes the line number. YAML is sensitive to indentation — use
-        spaces, never tabs. Each level of nesting = 2 more spaces.
-
-      "Config is empty or invalid" → The file exists but is blank or contains
-        only comments.
-        FIX: Restore from a backup, or re-download the original config.
+    Uses shared_utils.load_config() for the actual parsing, with validation
+    and user-friendly error messages on top.
     """
+    from shared_utils import load_config as _shared_load_config
+
     config_path = os.path.abspath(config_path)
 
     # --- File existence check ------------------------------------------------
@@ -288,33 +269,19 @@ def load_config(config_path: str) -> dict:
         print("OR you must pass the full path with --config.")
         print()
         print("EXAMPLE (full path):")
-        print('  python policy_profiler.py --config "C:/MyDocs/profiler_config.yaml"')
+        print('  python policy_profiler.py --config "C:/MyDocs/dps_config.xlsx"')
         print("=" * 60)
         sys.exit(1)
 
-    # --- Parse YAML ----------------------------------------------------------
+    # --- Parse config (Excel or YAML) ----------------------------------------
     try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            cfg = yaml.safe_load(f)
-    except yaml.YAMLError as e:
-        print("=" * 60)
-        print("ERROR: Config file has a formatting error.")
-        print(f"  File: {config_path}")
-        print()
-        # yaml exceptions often include line/column info
-        if hasattr(e, 'problem_mark') and e.problem_mark:
-            print(f"  Problem near line {e.problem_mark.line + 1}, "
-                  f"column {e.problem_mark.column + 1}")
-        print(f"  Detail: {e}")
-        print()
-        print("YAML rules to check:")
-        print("  - Use 2 spaces per indentation level (no tabs)")
-        print("  - Colons must be followed by a space:  key: value")
-        print("  - Lists start with '  - item' (2 spaces, dash, space)")
-        print("=" * 60)
-        sys.exit(1)
+        cfg = _shared_load_config(config_path)
     except Exception as e:
-        print(f"ERROR: Could not read config file: {e}")
+        print("=" * 60)
+        print("ERROR: Could not read config file.")
+        print(f"  File: {config_path}")
+        print(f"  Detail: {e}")
+        print("=" * 60)
         sys.exit(1)
 
     # --- Sanity check --------------------------------------------------------
@@ -322,7 +289,7 @@ def load_config(config_path: str) -> dict:
         print("=" * 60)
         print("ERROR: Config file appears to be empty or invalid.")
         print(f"  File: {config_path}")
-        print("FIX: Restore profiler_config.yaml from a backup.")
+        print("FIX: Run 'python generate_config_template.py' to create a fresh config.")
         print("=" * 60)
         sys.exit(1)
 

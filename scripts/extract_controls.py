@@ -136,8 +136,11 @@ def build_patterns(config: dict) -> dict:
     section_kw = hd_cfg.get("section_keyword_pattern", r'^[Ss]ection\s+\d{1,2}')
     numbered_title = hd_cfg.get("numbered_title_pattern", r'^\d{1,2}\.?\d{0,2}\s+[A-Z][a-zA-Z\s]{3,50}$')
 
+    require_bold = ctrl_cfg.get("require_bold_control_id", False)
+
     return {
         "control_id": control_id_combined,
+        "require_bold_control_id": require_bold,
         "guidance_regex": guidance_regex,
         "section_keyword": re.compile(section_kw),
         "numbered_title": re.compile(numbered_title),
@@ -193,10 +196,12 @@ def extract_paragraphs_from_docx(filepath):
     for paragraph in document.paragraphs:
         text = paragraph.text.strip()
         first_run_bold = False
+        bold_text = ""
         if paragraph.runs:
             first_run_bold = bool(paragraph.runs[0].bold)
+            bold_text = "".join(r.text for r in paragraph.runs if r.bold)
         style_name = paragraph.style.name if paragraph.style else ""
-        paragraphs.append({"text": text, "bold": first_run_bold, "style": style_name, "source": "Text"})
+        paragraphs.append({"text": text, "bold": first_run_bold, "bold_text": bold_text, "style": style_name, "source": "Text"})
 
     # Also extract from table cells
     for table in document.tables:
@@ -204,8 +209,10 @@ def extract_paragraphs_from_docx(filepath):
             for cell in row.cells:
                 text = cell.text.strip()
                 if text:
-                    # For table cells, treat as non-bold (tables rarely have style info)
-                    paragraphs.append({"text": text, "bold": False, "style": "", "source": "Table"})
+                    bold_text = "".join(
+                        r.text for para in cell.paragraphs for r in para.runs if r.bold
+                    )
+                    paragraphs.append({"text": text, "bold": False, "bold_text": bold_text, "style": "", "source": "Table"})
 
     return paragraphs
 
@@ -457,6 +464,7 @@ def find_control_blocks(paragraphs, patterns):
     using guidance keyword boundaries.
     """
     control_id_regex = patterns["control_id"]
+    require_bold = patterns.get("require_bold_control_id", False)
     blocks = []
     current_section_header = ""
     active_block = None
@@ -475,11 +483,27 @@ def find_control_blocks(paragraphs, patterns):
         if not text:
             continue
 
-        control_id_matches = control_id_regex.findall(text)
+        # When require_bold_control_id is enabled, only match control IDs that
+        # appear in bold runs. This prevents false positives from control IDs
+        # referenced by name inside description or guidance text.
+        if require_bold:
+            bold_text = paragraph_dict.get("bold_text", "")
+            bold_matches = control_id_regex.findall(bold_text)
+            if bold_matches and isinstance(bold_matches[0], tuple):
+                bold_matches = [next(g for g in m if g) for m in bold_matches]
+            # Only keep IDs that actually appear in bold runs
+            valid_bold_ids = set(bold_matches)
+            all_matches = control_id_regex.findall(text)
+            if all_matches and isinstance(all_matches[0], tuple):
+                all_matches = [next(g for g in m if g) for m in all_matches]
+            control_id_matches = [m for m in all_matches if m in valid_bold_ids]
+        else:
+            control_id_matches = control_id_regex.findall(text)
 
         if control_id_matches:
-            # Flatten: findall with groups returns tuples — take first non-empty
-            if control_id_matches and isinstance(control_id_matches[0], tuple):
+            # Flatten: findall with groups returns tuples — take first non-empty.
+            # Only needed for the non-bold path; bold path already flattens above.
+            if not require_bold and isinstance(control_id_matches[0], tuple):
                 control_id_matches = [
                     next(g for g in m if g) for m in control_id_matches
                 ]
