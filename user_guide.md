@@ -10,6 +10,10 @@
 6. [Configuration Reference](#configuration-reference)
 7. [Output Reference](#output-reference)
 8. [Utilities](#utilities)
+   - [DOCX to Markdown Converter](#docx-to-markdown-converter-miscdocx2mdpy)
+   - [Acronym Finder](#acronym-finder-miscacronym-finderacronym_finderpy)
+   - [Word Counter](#word-counter-scriptsword_counterpy)
+   - [Control Attribute Analyzer](#control-attribute-analyzer-miscanalyze_control_attributespy)
 9. [Troubleshooting](#troubleshooting)
 
 ---
@@ -904,6 +908,62 @@ The default config points to `input/Doc_URL.xlsx`. These settings are on the **M
 
 ---
 
+### Section 13: DOCX to Markdown (`docx2md`)
+
+All settings live under the `docx2md:` key in `dps_config.yaml`. This section controls the standalone `Misc/docx2md.py` converter — it has no effect on the main pipeline steps.
+
+#### General Settings
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `output_directory` | `./output/markdown` | Where converted `.md` files are written (relative to config file). |
+| `include_metadata_frontmatter` | `true` | Write YAML frontmatter block at the top of each `.md` file. |
+| `metadata_placement` | `top` | `top` = frontmatter only, `top_and_bottom` = also appends a readable metadata block at the end of the file. |
+| `table_strategy` | `auto` | `pipe` = always use pipe tables, `html` = always use HTML tables, `auto` = use HTML only for tables with merged cells. |
+| `image_handling` | `extract` | `extract` = save images to a `<docname>_images/` subfolder and insert Markdown image links, `skip` = ignore images. |
+| `extract_text_boxes` | `true` | Extract floating text box content and insert it inline in the document body. |
+| `clean_smart_quotes` | `true` | Replace curly quotes (`""`), en/em dashes, and ellipsis with ASCII equivalents. |
+| `strip_zero_width_chars` | `true` | Remove zero-width and BOM characters from output. |
+| `promote_control_ids_to_heading` | `false` | Promote paragraphs matching a control ID pattern to H2 headings. Uses `control_extraction` patterns from the main pipeline config. |
+| `log_file_prefix` | `docx2md_log` | Prefix for the timestamped Excel log file (e.g., `docx2md_log_2026-03-24_143052.xlsx`). |
+
+#### Metadata Fields
+
+Configured as a list under `docx2md.metadata_fields`. Each entry produces one key in the YAML frontmatter. Fields are written in the order listed.
+
+```yaml
+metadata_fields:
+  - name: "fieldName"     # key name in the frontmatter
+    source: "source_type" # where the value comes from
+    default: ""           # fallback if source returns nothing
+```
+
+**Built-in source types:**
+
+| Source | Example | Description |
+|--------|---------|-------------|
+| `filename` | `filename` | Basename of the `.docx` file |
+| `converted_date` | `converted_date` | ISO timestamp of the conversion run |
+| `doc_url` | `doc_url` | URL from `input/Doc_URL.xlsx` (same file used by pipeline Steps 1 and 5) |
+| `core:<prop>` | `core:title`, `core:author`, `core:created` | Word core document properties |
+| `filename_regex:<pattern>` | `filename_regex:([A-Z]+-\d{4}-\d+)` | Regex applied to the filename stem; returns first capture group |
+| `static:<value>` | `static:InfoSec` | Literal value stamped on every document |
+| `excel_lookup_list:<file>:<sheet>:<key>:<value>` | See below | Multi-value lookup from any Excel file; returns a YAML list |
+
+**`excel_lookup_list` format:**
+
+Reads all rows in `<sheet>` where `<key>` column matches the current `.docx` filename (tries exact filename and stem-without-extension), and returns all matching `<value>` column entries as a YAML list (e.g., `["MFA", "NIST", "RAG"]`).
+
+```yaml
+- name: "acronyms"
+  source: "excel_lookup_list:./output/acronym_intake_template.xlsx:Per Document:Document:Acronym"
+  default: ""
+```
+
+The `doc_url` source loads the URL mapping automatically when any field uses it — `include_doc_url: true` is not required when using `metadata_fields`.
+
+---
+
 ## Output Reference
 
 After a full pipeline run, the output directory looks like this:
@@ -950,6 +1010,146 @@ The **consolidated report** (`DPS_Report_*.xlsx`) contains one styled sheet per 
 ---
 
 ## Utilities
+
+### DOCX to Markdown Converter (`Misc/docx2md.py`)
+
+Standalone tool that converts `.docx` policy documents into clean, well-structured Markdown files with YAML frontmatter. Designed for RAG pipelines — output is optimized for ingestion, not human reading.
+
+**When to use:** After the main pipeline has processed your documents, run docx2md if your downstream system ingests Markdown instead of DOCX (e.g., a custom RAG indexer, a knowledge base, or a vector store). Also useful for archiving content in a portable text format.
+
+```bash
+python Misc/docx2md.py --config dps_config.yaml
+python Misc/docx2md.py --config dps_config.yaml ./input ./output/markdown
+python Misc/docx2md.py ./input ./output/markdown
+```
+
+**Output:** One `.md` file per `.docx`, written to `output/markdown/` by default (configurable). Each file has a YAML frontmatter block at the top with configurable metadata fields.
+
+**Log file:** A timestamped Excel log (`docx2md_log_<timestamp>.xlsx`) is written after each run with per-file status (success/warning/error), elapsed time, heading levels used, and any warnings.
+
+#### Metadata Fields
+
+The YAML frontmatter is fully configurable. Default fields:
+
+| Field | Source | Description |
+|-------|--------|-------------|
+| `title` | `core:title` | Word document core property |
+| `source_file` | `filename` | Original `.docx` filename |
+| `author` | `core:author` | Word document author property |
+| `created` | `core:created` | Document creation date |
+| `modified` | `core:modified` | Last modified date |
+| `doc_id` | `filename_regex:...` | Extracted from filename via regex |
+| `converted` | `converted_date` | Timestamp of this conversion run |
+| `publishedURL` | `doc_url` | URL from `input/Doc_URL.xlsx` (same file as pipeline Step 1 & 5) |
+
+Fields are configured in `dps_config.yaml` under `docx2md.metadata_fields`. Each field has three keys:
+
+```yaml
+- name: "fieldName"       # key in the YAML frontmatter
+  source: "source_type"   # where the value comes from (see below)
+  default: ""             # fallback if source returns nothing
+```
+
+#### Source Types
+
+| Source | Format | Description |
+|--------|--------|-------------|
+| `filename` | `filename` | The `.docx` basename |
+| `converted_date` | `converted_date` | ISO timestamp of the conversion run |
+| `doc_url` | `doc_url` | URL from `input/Doc_URL.xlsx` — same lookup used by pipeline Steps 1 and 5 |
+| `core:<prop>` | `core:title`, `core:author`, etc. | Word core document properties |
+| `filename_regex:<pattern>` | `filename_regex:([A-Z]+-\d+)` | Regex capture group from the filename stem |
+| `static:<value>` | `static:InfoSec` | Hardcoded value on every document |
+| `excel_lookup_list:<file>:<sheet>:<key>:<value>` | See below | Multi-value lookup from any Excel file |
+
+#### Excel List Lookup (`excel_lookup_list`)
+
+Reads all rows in an Excel sheet where a key column matches the current document's filename, and returns the matching value column as a YAML list. Useful for pulling acronym lists, tag sets, or any per-doc multi-value data from a spreadsheet.
+
+**Format:**
+```yaml
+source: "excel_lookup_list:<excel_path>:<sheet_name>:<key_col_header>:<value_col_header>"
+```
+
+**Example — acronym tags from the Acronym Finder output:**
+```yaml
+- name: "acronyms"
+  source: "excel_lookup_list:./output/acronym_audit.xlsx:Per Document:Document:Acronym"
+  default: ""
+```
+
+Output in frontmatter:
+```yaml
+acronyms: ["API", "DPS", "MFA", "RAG"]
+```
+
+Key matching tries both `MyDoc.docx` (full filename) and `MyDoc` (stem without extension).
+
+#### Key Config Settings (`dps_config.yaml → docx2md`)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `output_directory` | `./output/markdown` | Where `.md` files are written |
+| `include_metadata_frontmatter` | `true` | Write YAML frontmatter block |
+| `metadata_fields` | See above | List of field definitions |
+| `table_strategy` | `auto` | `pipe` = always pipe tables, `html` = always HTML, `auto` = HTML only for merged cells |
+| `image_handling` | `extract` | `extract` = extract images to a subfolder, `skip` = ignore images |
+| `extract_text_boxes` | `true` | Include floating text box content inline |
+| `clean_smart_quotes` | `true` | Replace curly quotes/dashes with ASCII equivalents |
+| `log_file_prefix` | `docx2md_log` | Prefix for the timestamped log Excel file |
+
+---
+
+### Acronym Finder (`Misc/Acronym Finder/acronym_finder.py`)
+
+Scans all `.docx` input files for acronym candidates, flags undefined ones (no parenthetical expansion found), and outputs a multi-sheet Excel report.
+
+**When to use:** Run before restructuring (alongside Step 0). Undefined acronyms in chunks produce bad RAG answers — a chunk saying "MFA is required per AC-2.1" with no expansion confuses the retrieval model. Fix undefined acronyms in source docs before transformation.
+
+```bash
+cd "Misc/Acronym Finder"
+python acronym_finder.py                             # Uses acronym_config.yaml defaults
+python acronym_finder.py /path/to/my_config.yaml     # Custom config
+```
+
+**Output:** `output/acronym_audit.xlsx` with two key sheets:
+- **Global Summary** — all acronyms ranked by occurrence count; undefined ones highlighted yellow
+- **Per Document** — one row per acronym per document (used by docx2md `excel_lookup_list`)
+
+**What to do with results:**
+1. Sort Global Summary by "Total Occurrences" descending — top 20-30 are highest impact
+2. Yellow rows = undefined acronyms; each needs an expansion added to the source doc, or goes on the ignore list in `acronym_config.yaml`
+3. Feed undefined acronyms into Notebook 2 as a checklist — expand on first use within each section, not just first use in the document
+
+**Config:** `Misc/Acronym Finder/acronym_config.yaml` — set `input_folder`, tune the `ignore_list`, and adjust `min_global_occurrences` to filter low-frequency noise.
+
+#### Acronym Intake Template (`Misc/Acronym Finder/create_acronym_template.py`)
+
+Generates a blank, pre-formatted Excel template for manually entering acronym definitions and per-document acronym mappings.
+
+```bash
+python "Misc/Acronym Finder/create_acronym_template.py" --config dps_config.yaml
+python "Misc/Acronym Finder/create_acronym_template.py" --output ./output/acronym_intake.xlsx
+```
+
+**Output:** `output/acronym_intake_template.xlsx` with two sheets:
+
+| Sheet | Purpose |
+|-------|---------|
+| **Acronym Definitions** | Master glossary — fill in `Acronym`, `Full Name / Definition`, `Category`, `Notes` |
+| **Per Document** | Per-doc mapping — `Document` (exact `.docx` filename), `Acronym`, `Occurrences`, `Found In`, `Definition(s) Detected` |
+
+The **Per Document** sheet matches the structure of the acronym finder output exactly — you can paste rows from `acronym_audit.xlsx` directly into it, or fill it in manually.
+
+**Connecting to docx2md:** Once the template is filled in, use the `excel_lookup_list` source in `dps_config.yaml` to pull acronyms into each document's frontmatter:
+
+```yaml
+- name: "acronyms"
+  source: "excel_lookup_list:./output/acronym_intake_template.xlsx:Per Document:Document:Acronym"
+  default: ""
+```
+
+---
 
 ### Word Counter (`scripts/word_counter.py`)
 

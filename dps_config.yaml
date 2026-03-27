@@ -615,6 +615,29 @@ control_extraction:
   # of extracting any control ID regardless of formatting.
   require_bold_control_id: true
 
+  # If require_bold_control_id is true and a document yields ZERO controls,
+  # automatically retry extraction without the bold requirement. This catches
+  # documents that don't bold their control IDs without disabling bold filtering
+  # globally. Set false to strictly enforce bold-only extraction.
+  bold_fallback_if_zero: true
+
+  # Always extract control IDs from table cells regardless of the bold setting.
+  # Table-based control listings often lack bold formatting but are structured
+  # data (not inline references), so bold filtering is unnecessary for them.
+  tables_ignore_bold: true
+
+  # Only match control IDs that appear within the first N characters of a
+  # paragraph. An alternative to bold filtering for distinguishing control
+  # definitions (which start with the ID) from inline references mid-sentence
+  # (e.g. "See also AC-1.002 for details"). Works independently of bold settings.
+  control_id_anchor_start: false
+  control_id_start_chars: 25     # How far from the start to look (chars)
+
+  # Discard control blocks with fewer than this many content lines.
+  # Inline references produce blocks with 0-1 lines of content; real control
+  # definitions typically have several. Set to 0 to disable (keep all blocks).
+  min_control_block_lines: 0
+
   # Filter by control ID. Supports exact IDs ("AC-1.001") and wildcards ("AC-*").
   whitelist: []               # If non-empty, ONLY matching controls are kept
   blacklist: []               # Matching controls are excluded (applied after whitelist)
@@ -893,6 +916,14 @@ docx2md:
       default: ""
     - name: "converted"
       source: "converted_date"
+    - name: "publishedURL"
+      source: "doc_url"
+      default: ""
+    # Acronyms found in this document, pulled from the acronym finder Excel output.
+    # Run Misc/Acronym Finder/acronym_finder.py first to generate the Excel file.
+    # - name: "acronyms"
+    #   source: "excel_lookup_list:./output/acronym_audit.xlsx:Per Document:Document:Acronym"
+    #   default: ""
     # --- Add your own fields below this line ---
     # - name: "organization"
     #   source: "static:Acme Corp"

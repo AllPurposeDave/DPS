@@ -116,10 +116,10 @@ def _build_frontmatter(doc, filepath: str, config: dict,
         default = field.get("default", "")
         value = _resolve_metadata_value(doc, filepath, source, default,
                                         url_mapping=url_mapping, config=config)
-        # Escape quotes in value
-        if isinstance(value, str) and ('"' in value or ":" in value or "#" in value):
-            value = f'"{value}"'
-        elif isinstance(value, str):
+        if isinstance(value, list):
+            items = ", ".join(f'"{v}"' for v in value)
+            value = f"[{items}]"
+        else:
             value = f'"{value}"'
         lines.append(f"{name}: {value}")
 
@@ -130,8 +130,12 @@ def _build_frontmatter(doc, filepath: str, config: dict,
 
 def _resolve_metadata_value(doc, filepath: str, source: str, default: str,
                             url_mapping: dict | None = None,
-                            config: dict | None = None) -> str:
-    """Resolve a single metadata field value from its source descriptor."""
+                            config: dict | None = None) -> "str | list":
+    """Resolve a single metadata field value from its source descriptor.
+
+    Returns a string for scalar sources, or a list of strings for
+    ``excel_lookup_list`` sources.
+    """
     try:
         if source == "filename":
             return os.path.basename(filepath)
@@ -163,6 +167,40 @@ def _resolve_metadata_value(doc, filepath: str, source: str, default: str,
 
         if source.startswith("static:"):
             return source[7:]
+
+        if source.startswith("excel_lookup_list:") and config is not None:
+            # Format: excel_lookup_list:<excel_path>:<sheet>:<key_col_header>:<value_col_header>
+            # Reads all rows in <sheet> where <key_col_header> matches the current
+            # doc filename and returns a list of <value_col_header> values.
+            params = source[len("excel_lookup_list:"):].split(":", 3)
+            if len(params) != 4:
+                return default
+            xl_path_raw, sheet_name, key_col_name, value_col_name = params
+            xl_path = resolve_path(config, xl_path_raw)
+            if not os.path.isfile(xl_path):
+                return default
+            import openpyxl
+            wb = openpyxl.load_workbook(xl_path, read_only=True, data_only=True)
+            if sheet_name not in wb.sheetnames:
+                return default
+            ws = wb[sheet_name]
+            rows = ws.iter_rows(values_only=True)
+            headers = list(next(rows, []))
+            try:
+                key_idx = headers.index(key_col_name)
+                val_idx = headers.index(value_col_name)
+            except ValueError:
+                return default
+            fname = os.path.basename(filepath)
+            stem = os.path.splitext(fname)[0]
+            results = []
+            for row in rows:
+                cell_key = str(row[key_idx]) if row[key_idx] is not None else ""
+                if cell_key in (fname, stem):
+                    val = row[val_idx]
+                    if val is not None and str(val) != "_ERROR":
+                        results.append(str(val))
+            return results if results else default
 
     except Exception:
         pass
@@ -316,6 +354,8 @@ class DocxToMarkdown:
             value = _resolve_metadata_value(doc, self.filepath, source, default,
                                             url_mapping=self.url_mapping,
                                             config=self.config)
+            if isinstance(value, list):
+                value = ", ".join(value)
             lines.append(f"**{name}:** {value}")
         lines.append("")
         return lines
@@ -459,22 +499,70 @@ class DocxToMarkdown:
 
     def _render_inline(self, para, doc) -> str:
         """Walk paragraph XML children to render runs and hyperlinks in order."""
-        parts: list[str] = []
+        # Collect (text, bold, italic, strike) segments so adjacent runs with
+        # identical formatting can be merged before applying markdown markers.
+        # This prevents mid-word `***` artifacts caused by Word splitting a
+        # single formatted word across multiple runs.
+        segments: list = []  # each item: (text, bold, italic, strike) or ("hyperlink", str)
 
         for child in para._element:
             tag = child.tag
 
             if tag == qn("w:r"):
-                parts.append(self._render_run(child))
+                text_parts = []
+                for t in child.findall(qn("w:t")):
+                    if t.text:
+                        text_parts.append(t.text)
+                text = "".join(text_parts)
+                if not text:
+                    continue
+                rpr = child.find(qn("w:rPr"))
+                bold = italic = strike = False
+                if rpr is not None:
+                    bold = rpr.find(qn("w:b")) is not None
+                    italic = rpr.find(qn("w:i")) is not None
+                    strike = rpr.find(qn("w:strike")) is not None
+                segments.append((text, bold, italic, strike))
 
             elif tag == qn("w:hyperlink"):
-                parts.append(self._render_hyperlink(child, doc))
+                segments.append(("hyperlink", self._render_hyperlink(child, doc)))
+
+        # Merge consecutive runs with identical formatting
+        parts: list[str] = []
+        i = 0
+        while i < len(segments):
+            seg = segments[i]
+            if seg[0] == "hyperlink":
+                parts.append(seg[1])
+                i += 1
+                continue
+            text, bold, italic, strike = seg
+            # Accumulate adjacent runs with the same format
+            j = i + 1
+            while j < len(segments) and segments[j][0] != "hyperlink":
+                _, b2, it2, st2 = segments[j]
+                if b2 == bold and it2 == italic and st2 == strike:
+                    text += segments[j][0]
+                    j += 1
+                else:
+                    break
+            i = j
+            # Apply markdown formatting to merged text
+            if strike:
+                text = f"~~{text}~~"
+            if bold and italic:
+                text = f"***{text}***"
+            elif bold:
+                text = f"**{text}**"
+            elif italic:
+                text = f"*{text}*"
+            parts.append(text)
 
         text = "".join(parts)
         return _clean_text(text, self.d2m)
 
     def _render_run(self, run_elem) -> str:
-        """Render a single w:r element with inline formatting."""
+        """Render a single w:r element with inline formatting (used externally)."""
         text_parts = []
         for t in run_elem.findall(qn("w:t")):
             if t.text:
@@ -484,18 +572,13 @@ class DocxToMarkdown:
         if not text:
             return ""
 
-        # Check formatting from rPr
         rpr = run_elem.find(qn("w:rPr"))
-        bold = False
-        italic = False
-        strike = False
-
+        bold = italic = strike = False
         if rpr is not None:
             bold = rpr.find(qn("w:b")) is not None
             italic = rpr.find(qn("w:i")) is not None
             strike = rpr.find(qn("w:strike")) is not None
 
-        # Apply markdown formatting
         if strike:
             text = f"~~{text}~~"
         if bold and italic:
@@ -1025,9 +1108,13 @@ def main():
     config = load_config(args.config)
     d2m = config.get("docx2md", {})
 
-    # Load Doc URL mapping if enabled
+    # Load Doc URL mapping if enabled via legacy flag OR any metadata field uses source "doc_url"
     url_mapping = {}
-    if d2m.get("include_doc_url", False):
+    _fields_use_doc_url = any(
+        f.get("source") == "doc_url"
+        for f in d2m.get("metadata_fields", [])
+    )
+    if d2m.get("include_doc_url", False) or _fields_use_doc_url:
         url_mapping = load_url_mapping(config)
 
     # Resolve input directory (use main pipeline input)

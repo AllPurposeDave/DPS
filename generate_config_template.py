@@ -669,14 +669,28 @@ def _build_control_extraction_sheet(wb, cfg: dict):
     _add_subheader(ws, "Common Settings")
     _add_setting(ws, "require_bold_control_id", ce.get("require_bold_control_id", True),
                  "Only extract control IDs that appear in bold text. Set FALSE if your IDs are not bold")
+    _add_setting(ws, "bold_fallback_if_zero", ce.get("bold_fallback_if_zero", True),
+                 "If bold-only extraction finds 0 controls in a doc, auto-retry without the bold requirement")
+    _add_setting(ws, "tables_ignore_bold", ce.get("tables_ignore_bold", True),
+                 "Always extract control IDs from table cells regardless of bold setting")
+    _add_setting(ws, "control_id_anchor_start", ce.get("control_id_anchor_start", False),
+                 "Only match control IDs near the start of a paragraph (filters out inline references)")
+    _add_setting(ws, "control_id_start_chars", ce.get("control_id_start_chars", 25),
+                 "How many chars from paragraph start to search when anchor_start is enabled")
+    _add_setting(ws, "min_control_block_lines", ce.get("min_control_block_lines", 0),
+                 "Discard control blocks with fewer than N content lines. 0 = keep all. 2 = drop inline refs")
     _add_setting(ws, "enable_checkpoint", ce.get("enable_checkpoint", True),
                  "Save progress so re-runs skip already-processed files. Delete checkpoint.json to force fresh run")
     _add_setting(ws, "output_format", ce.get("output_format", "both"),
                  '"csv", "xlsx", or "both" — controls the output file format for extracted controls')
 
+    bool_settings = (
+        "require_bold_control_id", "bold_fallback_if_zero", "tables_ignore_bold",
+        "control_id_anchor_start", "enable_checkpoint",
+    )
     for r in range(2, ws.max_row + 1):
         val = ws.cell(row=r, column=1).value
-        if val in ("require_bold_control_id", "enable_checkpoint"):
+        if val in bool_settings:
             _add_bool_validation(ws, "B", r, r)
         if val == "output_format":
             _add_enum_validation(ws, "B", r, ["csv", "xlsx", "both"])

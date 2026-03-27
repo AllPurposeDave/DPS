@@ -137,10 +137,20 @@ def build_patterns(config: dict) -> dict:
     numbered_title = hd_cfg.get("numbered_title_pattern", r'^\d{1,2}\.?\d{0,2}\s+[A-Z][a-zA-Z\s]{3,50}$')
 
     require_bold = ctrl_cfg.get("require_bold_control_id", False)
+    bold_fallback = ctrl_cfg.get("bold_fallback_if_zero", True)
+    tables_ignore_bold = ctrl_cfg.get("tables_ignore_bold", True)
+    anchor_start = ctrl_cfg.get("control_id_anchor_start", False)
+    anchor_chars = ctrl_cfg.get("control_id_start_chars", 25)
+    min_block_lines = ctrl_cfg.get("min_control_block_lines", 0)
 
     return {
         "control_id": control_id_combined,
         "require_bold_control_id": require_bold,
+        "bold_fallback_if_zero": bold_fallback,
+        "tables_ignore_bold": tables_ignore_bold,
+        "control_id_anchor_start": anchor_start,
+        "control_id_start_chars": anchor_chars,
+        "min_control_block_lines": min_block_lines,
         "guidance_regex": guidance_regex,
         "section_keyword": re.compile(section_kw),
         "numbered_title": re.compile(numbered_title),
@@ -465,6 +475,10 @@ def find_control_blocks(paragraphs, patterns):
     """
     control_id_regex = patterns["control_id"]
     require_bold = patterns.get("require_bold_control_id", False)
+    tables_ignore_bold = patterns.get("tables_ignore_bold", True)
+    anchor_start = patterns.get("control_id_anchor_start", False)
+    anchor_chars = patterns.get("control_id_start_chars", 25)
+    min_block_lines = patterns.get("min_control_block_lines", 0)
     blocks = []
     current_section_header = ""
     active_block = None
@@ -483,10 +497,15 @@ def find_control_blocks(paragraphs, patterns):
         if not text:
             continue
 
+        # Determine whether bold filtering applies to this paragraph.
+        # tables_ignore_bold: table cells always extract regardless of bold setting.
+        is_table = (source == "Table")
+        use_bold = require_bold and not (tables_ignore_bold and is_table)
+
         # When require_bold_control_id is enabled, only match control IDs that
         # appear in bold runs. This prevents false positives from control IDs
         # referenced by name inside description or guidance text.
-        if require_bold:
+        if use_bold:
             bold_text = paragraph_dict.get("bold_text", "")
             bold_matches = control_id_regex.findall(bold_text)
             if bold_matches and isinstance(bold_matches[0], tuple):
@@ -499,6 +518,18 @@ def find_control_blocks(paragraphs, patterns):
             control_id_matches = [m for m in all_matches if m in valid_bold_ids]
         else:
             control_id_matches = control_id_regex.findall(text)
+
+        # control_id_anchor_start: only keep IDs that appear near the start of
+        # the paragraph. Filters out inline references like "See also AC-1.002"
+        # without requiring bold formatting.
+        if anchor_start and control_id_matches:
+            anchored = []
+            for mid in (control_id_matches if not isinstance(control_id_matches[0], tuple) else control_id_matches):
+                cid = mid if isinstance(mid, str) else next(g for g in mid if g)
+                pos = text.find(cid)
+                if pos != -1 and pos <= anchor_chars:
+                    anchored.append(cid)
+            control_id_matches = anchored
 
         if control_id_matches:
             # Flatten: findall with groups returns tuples — take first non-empty.
@@ -537,6 +568,12 @@ def find_control_blocks(paragraphs, patterns):
 
     if active_block is not None:
         blocks.append(active_block)
+
+    # min_control_block_lines: discard blocks with too few content lines.
+    # Inline references (e.g. "See AC-1.002") produce blocks with 0-1 lines;
+    # real control definitions typically have multiple lines of description.
+    if min_block_lines > 0:
+        blocks = [b for b in blocks if len(b["raw_lines"]) >= min_block_lines]
 
     # Split each block's raw text into description / guidance / miscellaneous
     guidance_regex = patterns["guidance_regex"]
@@ -740,6 +777,17 @@ def process_single_document(filepath, patterns, config, url_mapping=None):
           f"Scope: {scope_found} | Applicability: {applicability_found}")
 
     control_blocks = find_control_blocks(paragraphs, patterns)
+
+    # bold_fallback_if_zero: if bold-only extraction found nothing, retry
+    # without the bold requirement so documents with non-bold IDs still extract.
+    if (not control_blocks
+            and patterns.get("require_bold_control_id", False)
+            and patterns.get("bold_fallback_if_zero", True)):
+        fallback_patterns = dict(patterns, require_bold_control_id=False)
+        control_blocks = find_control_blocks(paragraphs, fallback_patterns)
+        if control_blocks:
+            print(f"  Bold fallback: re-extracted {len(control_blocks)} controls without bold requirement")
+
     print(f"  Controls extracted: {len(control_blocks)}")
 
     # Apply whitelist/blacklist filtering

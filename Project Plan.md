@@ -78,25 +78,72 @@ Standalone tools in `Misc/` for supplemental audits. These do NOT run through `r
 
 ### Acronym Finder (`Misc/Acronym Finder/acronym_finder.py`)
 
-**When to use:** Run this BEFORE restructuring, alongside Step 0 profiling. Finds every acronym candidate across all docs, flags undefined ones (no parenthetical expansion found), and outputs a 5-sheet Excel report with a cross-reference matrix.
+**When to use:** Run this BEFORE restructuring, alongside Step 0 profiling. Finds every acronym candidate across all docs, flags undefined ones (no parenthetical expansion found), and outputs a multi-sheet Excel report.
 
 **Why it matters:** Undefined acronyms in chunks = bad RAG answers. A chunk saying "MFA is required per AC-2.1" with no expansion confuses the retrieval model. Fix undefined acronyms before notebook transformation so every section is self-contained.
 
 ```bash
 cd "Misc/Acronym Finder"
-python acronym_finder.py                        # Uses acronym_config.yaml defaults
+python acronym_finder.py                          # Uses acronym_config.yaml defaults
 python acronym_finder.py /path/to/my_config.yaml  # Custom config
 ```
 
 Config: `acronym_config.yaml` — set `input_folder`, tune `ignore_list`, set `min_global_occurrences`.
 
+**Output:** `output/acronym_audit.xlsx` — key sheets:
+- **Global Summary** — all acronyms ranked by occurrence; undefined ones highlighted yellow
+- **Per Document** — one row per acronym per doc; this sheet is consumed by docx2md's `excel_lookup_list` source type to embed acronym lists in Markdown metadata
+
 **What to do with results:**
 1. Sort Global Summary by "Total Occurrences" descending. Top 20-30 are highest-impact.
-2. Check Undefined Acronyms sheet. Each needs an expansion added OR goes on the ignore list.
-3. Check Cross-Reference Matrix for acronyms spanning 10+ docs with no definition — worst offenders.
-4. Feed Undefined Acronyms sheet into Notebook 2 as a checklist (expand on first use within each section, not just first use in the document).
+2. Yellow rows = undefined acronyms. Each needs an expansion added to the source doc OR goes on the `ignore_list` in `acronym_config.yaml`.
+3. Feed undefined acronyms into Notebook 2 as a checklist (expand on first use within each section, not just first use in the document).
+
+#### Acronym Intake Template (`Misc/Acronym Finder/create_acronym_template.py`)
+
+Generates a blank Excel template for manually entering acronym definitions and per-doc mappings. Use this when you want to build or maintain the acronym data manually rather than relying solely on the auto-scanner output.
+
+```bash
+python "Misc/Acronym Finder/create_acronym_template.py" --config dps_config.yaml
+python "Misc/Acronym Finder/create_acronym_template.py" --output ./output/acronym_intake.xlsx
+```
+
+**Output:** `output/acronym_intake_template.xlsx` with two sheets:
+
+| Sheet | Columns | Purpose |
+|-------|---------|---------|
+| **Acronym Definitions** | Acronym, Full Name / Definition, Category, Notes | Master glossary for human review and annotation |
+| **Per Document** | Document, Acronym, Occurrences, Found In, Definition(s) Detected | Per-doc mapping; matches `acronym_audit.xlsx` format exactly so rows can be pasted between them |
+
+To embed acronym lists in docx2md Markdown output, uncomment the `acronyms` field in `dps_config.yaml`:
+
+```yaml
+- name: "acronyms"
+  source: "excel_lookup_list:./output/acronym_intake_template.xlsx:Per Document:Document:Acronym"
+  default: ""
+```
 
 > **Note:** The Extract Controls standalone script that was previously in `Misc/` has been consolidated into pipeline Step 1. It supports whitelist/blacklist filtering, multiple control ID patterns, configurable heading detection, and Excel output. Word counting is now integrated into Step 0 (profiler). The standalone `word_counter.py` script remains available for ad-hoc use. Configure via `dps_config.yaml`.
+
+### DOCX to Markdown Converter (`Misc/docx2md.py`)
+
+Converts `.docx` policy documents to clean Markdown with YAML metadata, optimized for RAG ingestion. Runs independently of the main pipeline.
+
+```bash
+python Misc/docx2md.py --config dps_config.yaml
+python Misc/docx2md.py --config dps_config.yaml ./input ./output/markdown
+```
+
+**Output:** One `.md` file per `.docx` in `output/markdown/`. Each file has a YAML metadata block with configurable fields. A timestamped Excel log is written after each run.
+
+**Key features:**
+- Configurable metadata fields in `dps_config.yaml` under `docx2md.metadata_fields`
+- `publishedURL` field pulls document URLs from `input/Doc_URL.xlsx` — the same file used by pipeline Steps 1 and 5
+- `excel_lookup_list` source type pulls multi-value data (e.g., acronym lists) from any Excel file keyed by document filename, rendered as a YAML list in the metadata block
+- Bold/italic formatting preserved per run; adjacent same-format Word runs are merged before applying Markdown markers to prevent mid-word `***` artifacts
+- Tables rendered as pipe tables or HTML (auto-detects merged cells); images extracted to a subfolder
+
+**Config:** `dps_config.yaml` → `docx2md:` section. See user guide Section 13 for full reference.
 
 ## Workflow Overview
 
