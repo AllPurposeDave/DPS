@@ -533,9 +533,8 @@ def find_control_blocks(paragraphs, patterns):
 
         if control_id_matches:
             # Flatten: findall with groups returns tuples — take first non-empty.
-            # The bold path already flattens above; this catches the non-bold path
-            # AND table cells where use_bold is False even though require_bold is True.
-            if not use_bold and isinstance(control_id_matches[0], tuple):
+            # Always flatten unconditionally to handle all code paths.
+            if isinstance(control_id_matches[0], tuple):
                 control_id_matches = [
                     next(g for g in m if g) for m in control_id_matches
                 ]
