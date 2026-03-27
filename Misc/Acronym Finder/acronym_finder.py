@@ -91,16 +91,16 @@ def build_regex(cfg):
     if p['pure_caps']:
         parts.append(rf'[A-Z]{{{mn},{mx}}}')
     if p['caps_with_numbers']:
-        parts.append(rf'[A-Z][A-Z0-9]{{{mn - 1},{mx - 1}}}')
+        parts.append(rf'[A-Z][A-Z]{{{mn - 1},{mx - 1}}}')
     if p['caps_with_hyphens']:
-        parts.append(rf'[A-Z][A-Z0-9\-]{{{mn - 1},{mx - 1}}}')
+        parts.append(rf'[A-Z][A-Z\-]{{{mn - 1},{mx - 1}}}')
     if p['caps_with_slashes']:
         parts.append(rf'[A-Z]{{2,}}/[A-Z]{{2,}}')
     combined = '|'.join(parts)
     acronym_re = re.compile(rf'\b({combined})\b')
     paren_re = None
     if p['parenthetical_defs']:
-        paren_re = re.compile(r'([A-Za-z\s\-]+?)\s*\(([A-Z][A-Z0-9\-/]{1,9})\)')
+        paren_re = re.compile(r'([A-Za-z\s\-]+?)\s*\(([A-Z][A-Z\-/]{1,9})\)')
     return acronym_re, paren_re
 
 
@@ -165,6 +165,8 @@ def find_acronyms(text_sources, acronym_re, paren_re, ignore_set, cfg):
             candidate = m.group(0).strip('-').strip('/')
             if len(candidate) < min_len:
                 continue
+            if any(c.isdigit() for c in candidate):
+                continue
             if candidate.upper() in ignore_set:
                 continue
             acronyms[candidate]['count'] += 1
@@ -176,6 +178,8 @@ def find_acronyms(text_sources, acronym_re, paren_re, ignore_set, cfg):
                 full_form = m.group(1).strip()
                 short_form = m.group(2).strip('-').strip('/')
                 if len(short_form) < min_len:
+                    continue
+                if any(c.isdigit() for c in short_form):
                     continue
                 if short_form.upper() in ignore_set:
                     continue

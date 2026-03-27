@@ -24,8 +24,12 @@ Output:
 import re
 import csv
 import os
+import sys
 from pathlib import Path
 from dataclasses import dataclass, asdict
+
+# Add scripts directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
 from docx import Document
 

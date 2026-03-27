@@ -16,7 +16,7 @@ search:
   # Minimum length for an acronym candidate (2 = "AC", 3 = "MFA")
   min_length: 2
   # Maximum length (filters out long ALL-CAPS words that aren't acronyms)
-  max_length: 10
+  max_length: 8
   # Include acronyms found inside tables?
   scan_tables: true
   # Include acronyms found in headers/footers?

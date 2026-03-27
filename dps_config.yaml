@@ -895,6 +895,7 @@ docx2md:
   #              "converted_date"          → timestamp of conversion run
   #   default:  fallback if source is empty (optional)
   include_metadata_frontmatter: true
+  include_doc_url: true
 
   metadata_fields:
     - name: "title"
@@ -902,12 +903,6 @@ docx2md:
       default: ""
     - name: "source_file"
       source: "filename"
-    - name: "author"
-      source: "core:author"
-      default: "Unknown"
-    - name: "created"
-      source: "core:created"
-      default: ""
     - name: "modified"
       source: "core:modified"
       default: ""
@@ -916,7 +911,7 @@ docx2md:
       default: ""
     - name: "converted"
       source: "converted_date"
-    - name: "publishedURL"
+    - name: "PublishedURL"
       source: "doc_url"
       default: ""
     # Acronyms found in this document, pulled from the acronym finder Excel output.
