@@ -1,18 +1,19 @@
 """
-docx2md — DOCX to Markdown converter optimised for RAG pipelines.
+docx2md — DOCX to Markdown converter optimised for RAG pipelines (DPS Step 7).
 
-Standalone tool that converts .docx policy documents into clean, well-structured
-markdown files with YAML frontmatter. Designed for the DPS ecosystem but runs
-independently of the main pipeline.
+Converts .docx policy documents into clean, well-structured markdown files with
+YAML frontmatter. Part of the DPS pipeline; can also run standalone.
+
+Supports Pure Conversion (read from input/) or Optimized (read from a pipeline
+step's output, e.g. heading_fixes).
 
 REQUIREMENTS:
   pip install python-docx pyyaml openpyxl
   Python 3.8 or later
 
 USAGE:
-  python Misc/docx2md.py --config dps_config.yaml
-  python Misc/docx2md.py --config dps_config.yaml input output/markdown
-  python Misc/docx2md.py input output/markdown
+  Via pipeline:  python run_pipeline.py --step 7
+  Standalone:    python scripts/docx2md.py --config dps_config.xlsx input/ output/7\ -\ markdown/
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ from shared_utils import (
     is_paragraph_bold,
     iter_docx_files,
     load_config,
+    match_doc_name,
     resolve_path,
     sanitize_filename,
     setup_argparse,
@@ -192,11 +194,10 @@ def _resolve_metadata_value(doc, filepath: str, source: str, default: str,
             except ValueError:
                 return default
             fname = os.path.basename(filepath)
-            stem = os.path.splitext(fname)[0]
             results = []
             for row in rows:
                 cell_key = str(row[key_idx]) if row[key_idx] is not None else ""
-                if cell_key in (fname, stem):
+                if match_doc_name(fname, cell_key):
                     val = row[val_idx]
                     if val is not None and str(val) != "_ERROR":
                         results.append(str(val))
@@ -1117,16 +1118,27 @@ def main():
     if d2m.get("include_doc_url", False) or _fields_use_doc_url:
         url_mapping = load_url_mapping(config)
 
-    # Resolve input directory (use main pipeline input)
+    # Resolve input directory — supports Pure Conversion vs Optimized toggle
     input_dir = args.input_dir
     if not input_dir:
-        input_dir = config.get("input", {}).get("directory", "./input")
+        if d2m.get("pure_conversion", False):
+            # Pure Conversion: read from original input/
+            input_dir = config.get("input", {}).get("directory", "./input")
+        else:
+            # Optimized: read from a pipeline step's output
+            source_step = d2m.get("optimized_source_step", "heading_fixes")
+            step_dir = config.get("output", {}).get(source_step, {}).get("directory", "")
+            if step_dir:
+                output_root = config.get("output", {}).get("directory", "./output")
+                input_dir = os.path.join(output_root, step_dir)
+            else:
+                input_dir = config.get("input", {}).get("directory", "./input")
         input_dir = resolve_path(config, input_dir)
 
     # Resolve output directory
     output_dir = args.output_dir
     if not output_dir:
-        output_dir = d2m.get("output_directory", "./output/markdown")
+        output_dir = d2m.get("output_directory", "./output/7 - markdown")
         output_dir = resolve_path(config, output_dir)
 
     ensure_output_dir(output_dir)
@@ -1138,10 +1150,12 @@ def main():
     print(f"  Output: {output_dir}")
     print()
 
-    files = iter_docx_files(input_dir, config)
+    # When reading from step output, only exclude temp files (not _fixed, _optimized etc.)
+    exclude_ovr = ["~$"] if not d2m.get("pure_conversion", False) else None
+    files = iter_docx_files(input_dir, config, exclude_override=exclude_ovr)
     if not files:
         print("  No .docx files found in input directory.")
-        print("  Check your input path and exclude patterns in dps_config.yaml.")
+        print("  Check your input path and exclude patterns in dps_config.xlsx.")
         return
 
     print(f"  Found {len(files)} document(s) to convert.")

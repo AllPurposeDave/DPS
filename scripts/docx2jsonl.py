@@ -1,31 +1,20 @@
 """
-docx2jsonl -- DOCX to JSONL converter optimised for RAG pipelines.
+docx2jsonl — DOCX to JSONL converter optimised for RAG pipelines (DPS Step 8).
 
-Standalone tool that converts .docx policy documents into chunked JSONL files
-(saved as *.jsonl.txt) with per-chunk metadata (tags, URL, heading context).
-Designed for the DPS ecosystem but runs independently of the main pipeline.
+Converts .docx policy documents into chunked JSONL files (saved as *.jsonl.txt)
+with per-chunk metadata (tags, PublishedURL, heading context).
+Part of the DPS pipeline; can also run standalone.
+
+Supports Pure Conversion (read from input/) or Optimized (read from a pipeline
+step's output, e.g. heading_fixes).
 
 REQUIREMENTS:
   pip install python-docx pyyaml openpyxl
-  Python 3.10 or later
+  Python 3.8 or later
 
 USAGE:
-  # Convert all .docx files in input/ to JSONL in output/jsonl/:
-  python Misc/docx2jsonl.py input output/jsonl
-
-  # With config and tag file:
-  python Misc/docx2jsonl.py --config dps_config.yaml --tags input/Doc_Tags.xlsx input output/jsonl
-
-  # Generate a tag template Excel from Doc_URL.xlsx:
-  python Misc/docx2jsonl.py --generate-tags --config dps_config.yaml
-
-  # Custom chunk size and overlap:
-  python Misc/docx2jsonl.py --max-chunk-chars 2000 --overlap-words 50 input output/jsonl
-
-IMAGE HANDLING:
-  Images are replaced with [IMAGE: alt_text] placeholders. For AI-based
-  image-to-text conversion, process the source .docx files externally and
-  feed the text back into the documents before running this script.
+  Via pipeline:  python run_pipeline.py --step 8
+  Standalone:    python scripts/docx2jsonl.py --config dps_config.xlsx input/ output/8\ -\ jsonl/
 """
 
 from __future__ import annotations
@@ -57,10 +46,13 @@ from shared_utils import (
     is_paragraph_bold,
     iter_docx_files,
     load_config,
+    match_doc_name,
+    normalize_doc_name,
     resolve_path,
     sanitize_filename,
     setup_argparse,
 )
+from add_metadata import load_url_mapping, resolve_url
 
 
 # ============================================================================
@@ -144,88 +136,14 @@ def _is_fake_heading(paragraph, max_chars: int = 120) -> bool:
 # Excel mapping loaders
 # ============================================================================
 
-def load_url_mapping(config: dict) -> dict[str, str]:
-    """Load document-name-to-URL mapping from Doc_URL.xlsx.
+def _resolve_url_for_jsonl(url_mapping: dict, doc_name: str, config: dict) -> str:
+    """Resolve URL for a document name using shared add_metadata.resolve_url().
 
-    Returns {name: url} dict. Names stored as-is (original case from Excel).
-    Empty dict if no lookup file configured or found.
+    Thin wrapper that adapts the shared (url, source) return to a plain string.
     """
-    import openpyxl
-
-    meta_cfg = config.get("metadata", {})
-    url_cfg = meta_cfg.get("url", {})
-    lookup_file = url_cfg.get("lookup_file", "")
-
-    if not lookup_file:
-        return {}
-
-    lookup_path = resolve_path(config, lookup_file)
-    if not os.path.isfile(lookup_path):
-        print(f"  NOTE: URL lookup file not found: {lookup_path}")
-        print("  URL metadata will be empty.")
-        return {}
-
-    name_col = url_cfg.get("name_column", "Document Name").lower()
-    url_col = url_cfg.get("url_column", "SharePoint URL").lower()
-    sheet_ref = url_cfg.get("sheet", 0)
-
-    try:
-        wb = openpyxl.load_workbook(lookup_path, read_only=True, data_only=True)
-        if isinstance(sheet_ref, int):
-            ws = wb.worksheets[sheet_ref]
-        else:
-            ws = wb[sheet_ref]
-    except Exception as e:
-        print(f"  WARNING: Could not read URL lookup file: {e}")
-        return {}
-
-    headers = {}
-    for col_idx, cell in enumerate(next(ws.iter_rows(min_row=1, max_row=1, values_only=False))):
-        if cell.value:
-            headers[str(cell.value).strip().lower()] = col_idx
-
-    name_idx = headers.get(name_col)
-    url_idx = headers.get(url_col)
-
-    if name_idx is None or url_idx is None:
-        print(f"  WARNING: Could not find columns '{name_col}' and/or '{url_col}' in {lookup_path}")
-        print(f"  Found columns: {list(headers.keys())}")
-        return {}
-
-    mapping = {}
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        name_val = row[name_idx] if name_idx < len(row) else None
-        url_val = row[url_idx] if url_idx < len(row) else None
-        if name_val and url_val:
-            mapping[str(name_val).strip()] = str(url_val).strip()
-
-    wb.close()
-    print(f"  Loaded {len(mapping)} URL mappings from {os.path.basename(lookup_path)}")
-    return mapping
-
-
-def _resolve_url(url_mapping: dict, doc_name: str) -> str:
-    """Resolve URL for a document name, trying several matching strategies."""
     stem = os.path.splitext(doc_name)[0]
-
-    # Exact match (case-insensitive)
-    for key, url in url_mapping.items():
-        if key.lower() == stem.lower():
-            return url
-
-    # Try replacing underscores with spaces
-    stem_spaced = stem.replace("_", " ")
-    for key, url in url_mapping.items():
-        if key.lower() == stem_spaced.lower():
-            return url
-
-    # Try matching just the first part (before any date/ID suffix)
-    stem_words = re.sub(r"[_\-]+", " ", stem).strip()
-    for key, url in url_mapping.items():
-        if key.lower() in stem_words.lower() or stem_words.lower() in key.lower():
-            return url
-
-    return ""
+    url, _source = resolve_url(stem, doc_name, url_mapping, config)
+    return url if url != "(URL not configured)" else ""
 
 
 def load_tag_mapping(tag_file: str) -> dict[str, list[str]]:
@@ -300,6 +218,76 @@ def _resolve_tags(tag_mapping: dict, doc_name: str) -> list[str]:
     return []
 
 
+def load_acronym_mapping(acronym_file: str) -> dict[str, list[str]]:
+    """Load per-document acronyms from confirmed Acronym Definitions Excel.
+
+    Reads the 'Per Document' sheet with columns: Document | Acronym | ...
+    Returns {lowercase_doc_name: [acronym1, acronym2, ...]}.
+    Only acronyms for that specific document are included.
+    """
+    import openpyxl
+
+    if not acronym_file or not os.path.isfile(acronym_file):
+        return {}
+
+    try:
+        wb = openpyxl.load_workbook(acronym_file, read_only=True, data_only=True)
+    except Exception as e:
+        print(f"  WARNING: Could not read acronym definitions file: {e}")
+        return {}
+
+    # Look for "Per Document" sheet
+    target_sheet = None
+    for name in wb.sheetnames:
+        if "per document" in name.lower():
+            target_sheet = name
+            break
+    if not target_sheet:
+        wb.close()
+        return {}
+
+    ws = wb[target_sheet]
+
+    # Find column indices from header row
+    headers = {}
+    for col_idx, cell in enumerate(next(ws.iter_rows(min_row=1, max_row=1, values_only=False))):
+        if cell.value:
+            headers[str(cell.value).strip().lower()] = col_idx
+
+    doc_idx = headers.get("document")
+    acr_idx = headers.get("acronym")
+
+    if doc_idx is None or acr_idx is None:
+        wb.close()
+        return {}
+
+    mapping: dict[str, list[str]] = {}
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        doc_val = row[doc_idx] if doc_idx < len(row) else None
+        acr_val = row[acr_idx] if acr_idx < len(row) else None
+        if doc_val and acr_val:
+            doc_key = normalize_doc_name(str(doc_val).strip())
+            acronym = str(acr_val).strip()
+            mapping.setdefault(doc_key, []).append(acronym)
+
+    wb.close()
+    if mapping:
+        print(f"  Loaded acronym definitions for {len(mapping)} documents from {os.path.basename(acronym_file)}")
+    return mapping
+
+
+def _resolve_acronyms(acronym_mapping: dict, doc_name: str) -> list[str]:
+    """Resolve acronyms for a document name using shared matching logic."""
+    if not acronym_mapping:
+        return []
+
+    for key, acronyms in acronym_mapping.items():
+        if match_doc_name(doc_name, key):
+            return acronyms
+
+    return []
+
+
 # ============================================================================
 # Tag template generator
 # ============================================================================
@@ -361,6 +349,7 @@ class DocxToJsonl:
         output_dir: str,
         url_mapping: dict,
         tag_mapping: dict,
+        acronym_mapping: Optional[dict] = None,
         max_chunk_chars: int = 1500,
         overlap_words: int = 30,
         min_chunk_chars: int = 100,
@@ -371,6 +360,7 @@ class DocxToJsonl:
         self.output_dir = output_dir
         self.url_mapping = url_mapping
         self.tag_mapping = tag_mapping
+        self.acronym_mapping = acronym_mapping or {}
         self.max_chunk_chars = max_chunk_chars
         self.overlap_words = overlap_words
         self.min_chunk_chars = min_chunk_chars
@@ -443,7 +433,7 @@ class DocxToJsonl:
         # Resolve metadata and backfill total_chunks
         stem = os.path.splitext(self.filename)[0]
         doc_name = stem.replace("_", " ")
-        url = _resolve_url(self.url_mapping, self.filename)
+        url = _resolve_url_for_jsonl(self.url_mapping, self.filename, self.config)
         tags = _resolve_tags(self.tag_mapping, self.filename)
         total = len(self.chunks)
 
@@ -451,8 +441,9 @@ class DocxToJsonl:
             chunk["chunk_id"] = f"{sanitize_filename(stem, max_len=80)}_{idx + 1:03d}"
             chunk["doc_name"] = doc_name
             chunk["source_file"] = self.filename
-            chunk["url"] = url
+            chunk["PublishedURL"] = url
             chunk["tags"] = tags
+            chunk["acronyms"] = _resolve_acronyms(self.acronym_mapping, self.filename)
             chunk["chunk_index"] = idx
             chunk["total_chunks"] = total
 
@@ -760,6 +751,15 @@ def main():
 
     # Load config
     config = load_config(args.config) if args.config else {}
+    d2j = config.get("docx2jsonl", {})
+
+    # Apply config defaults to CLI args (CLI overrides config)
+    if args.max_chunk_chars == 1500 and d2j.get("max_chunk_chars"):
+        args.max_chunk_chars = d2j["max_chunk_chars"]
+    if args.overlap_words == 30 and d2j.get("overlap_words"):
+        args.overlap_words = d2j["overlap_words"]
+    if args.min_chunk_chars == 100 and d2j.get("min_chunk_chars"):
+        args.min_chunk_chars = d2j["min_chunk_chars"]
 
     # Handle --generate-tags
     if args.generate_tags:
@@ -769,9 +769,28 @@ def main():
         generate_tag_template(config, tag_output)
         return
 
-    # Resolve directories
-    input_dir = args.input_dir if args.input_dir else os.path.join(_PROJECT_ROOT, "input")
-    output_dir = args.output_dir if args.output_dir else os.path.join(_PROJECT_ROOT, "output", "jsonl")
+    # Resolve input directory — supports Pure Conversion vs Optimized toggle
+    input_dir = args.input_dir
+    if not input_dir:
+        if d2j.get("pure_conversion", False):
+            # Pure Conversion: read from original input/
+            input_dir = config.get("input", {}).get("directory", "./input")
+        else:
+            # Optimized: read from a pipeline step's output
+            source_step = d2j.get("optimized_source_step", "heading_fixes")
+            step_dir = config.get("output", {}).get(source_step, {}).get("directory", "")
+            if step_dir:
+                output_root = config.get("output", {}).get("directory", "./output")
+                input_dir = os.path.join(output_root, step_dir)
+            else:
+                input_dir = config.get("input", {}).get("directory", "./input")
+        input_dir = resolve_path(config, input_dir)
+
+    # Resolve output directory
+    output_dir = args.output_dir
+    if not output_dir:
+        output_dir = d2j.get("output_directory", "./output/8 - jsonl")
+        output_dir = resolve_path(config, output_dir)
 
     if not os.path.isdir(input_dir):
         print(f"ERROR: Input directory not found: {input_dir}")
@@ -794,13 +813,25 @@ def main():
 
     tag_file = args.tags
     if not tag_file:
+        tag_file = d2j.get("tag_file", "")
+        if tag_file:
+            tag_file = resolve_path(config, tag_file)
+    if not tag_file:
         default_tag_path = os.path.join(_PROJECT_ROOT, "input", "Doc_Tags.xlsx")
         if os.path.isfile(default_tag_path):
             tag_file = default_tag_path
     tag_mapping = load_tag_mapping(tag_file) if tag_file else {}
 
+    # Load acronym definitions (per-document matching)
+    acronym_file = d2j.get("acronym_definitions_file", "")
+    if acronym_file:
+        acronym_file = resolve_path(config, acronym_file)
+    acronym_mapping = load_acronym_mapping(acronym_file) if acronym_file else {}
+
     # Find input files
-    docx_files = iter_docx_files(input_dir, config)
+    # When reading from step output, only exclude temp files (not _fixed, _optimized etc.)
+    exclude_ovr = ["~$"] if not d2j.get("pure_conversion", False) else None
+    docx_files = iter_docx_files(input_dir, config, exclude_override=exclude_ovr)
     if not docx_files:
         print("\nNo .docx files found in input directory.")
         return
@@ -824,6 +855,7 @@ def main():
                 output_dir=output_dir,
                 url_mapping=url_mapping,
                 tag_mapping=tag_mapping,
+                acronym_mapping=acronym_mapping,
                 max_chunk_chars=args.max_chunk_chars,
                 overlap_words=args.overlap_words,
                 min_chunk_chars=args.min_chunk_chars,

@@ -5,5 +5,6 @@
 # Python:   3.10 or later required (uses X | Y type hint syntax)
 
 python-docx>=0.8.11    # Read/write .docx files (all scripts)
-pyyaml>=6.0            # Read dps_config.yaml (profiler + pipeline runner)
+pyyaml>=6.0            # Read dps_config_fallback.yaml (YAML fallback config)
 openpyxl>=3.1.0        # Write Excel inventory spreadsheet (profiler)
+lxml>=4.9.0            # Full anomaly detection + nested table counting (profiler)

@@ -116,6 +116,8 @@ from docx.oxml.ns import qn  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from shared_utils import (  # noqa: E402
     load_config,
+    match_doc_name,
+    normalize_doc_name,
     setup_argparse,
     get_output_dir,
     iter_docx_files,
@@ -294,36 +296,59 @@ def load_split_manifest(config: dict) -> dict[str, str]:
 
 def load_acronym_data(config: dict) -> dict[str, list[str]]:
     """
-    Load per-document acronyms from the Acronym Finder output Excel.
+    Load per-document acronyms for tag generation.
 
     WHAT IT DOES:
-        Reads the "Per Document" sheet from the acronym audit Excel file.
-        Returns a dict mapping lowercase filenames to lists of acronyms
-        sorted by frequency (most common first).
+        Prefers the human-verified Acronym Definitions file
+        (metadata.tags.acronym_definitions_file or the shared path at
+        docx2jsonl.acronym_definitions_file).  Falls back to the raw
+        Acronym Finder audit output (metadata.tags.acronym_audit_file)
+        only when no definitions file is available.
+
+        Reads the "Per Document" sheet from whichever file is found.
+        Returns a dict mapping normalized document names to lists of
+        acronyms sorted by frequency (most common first).
 
     RETURNS:
-        Dict of {lowercase_filename: [acronym1, acronym2, ...]}.
-        Empty dict if no audit file configured or not found.
+        Dict of {normalized_doc_name: [acronym1, acronym2, ...]}.
+        Empty dict if no file configured or not found.
     """
     import openpyxl
 
     meta_cfg = config.get("metadata", {})
     tags_cfg = meta_cfg.get("tags", {})
+
+    # --- Resolve which file to read ---
+    # 1. Prefer verified definitions file
+    defs_file = tags_cfg.get("acronym_definitions_file", "")
+    if not defs_file:
+        # Also check the docx2jsonl config (same file, shared path)
+        defs_file = config.get("docx2jsonl", {}).get("acronym_definitions_file", "")
+    # 2. Fall back to raw audit file
     audit_file = tags_cfg.get("acronym_audit_file", "")
 
-    if not audit_file:
-        return {}
+    chosen_path = ""
+    source_label = ""
+    if defs_file:
+        candidate = resolve_path(config, defs_file)
+        if os.path.isfile(candidate):
+            chosen_path = candidate
+            source_label = "definitions"
+    if not chosen_path and audit_file:
+        candidate = resolve_path(config, audit_file)
+        if os.path.isfile(candidate):
+            chosen_path = candidate
+            source_label = "audit"
 
-    audit_path = resolve_path(config, audit_file)
-    if not os.path.isfile(audit_path):
-        print(f"  NOTE: Acronym audit file not found: {audit_path}")
-        print("        Acronym tags will be skipped.")
+    if not chosen_path:
+        if defs_file or audit_file:
+            print("  NOTE: Acronym file(s) configured but not found. Acronym tags will be skipped.")
         return {}
 
     try:
-        wb = openpyxl.load_workbook(audit_path, read_only=True, data_only=True)
+        wb = openpyxl.load_workbook(chosen_path, read_only=True, data_only=True)
     except Exception as e:
-        print(f"  WARNING: Could not read acronym audit file: {e}")
+        print(f"  WARNING: Could not read acronym {source_label} file: {e}")
         return {}
 
     # Try to find the "Per Document" sheet
@@ -334,11 +359,12 @@ def load_acronym_data(config: dict) -> dict[str, list[str]]:
             break
 
     if not sheet_name:
-        # Fall back to "Global Summary" or first sheet
-        for name in wb.sheetnames:
-            if "global" in name.lower() or "summary" in name.lower():
-                sheet_name = name
-                break
+        # Fall back to "Global Summary" or first sheet (audit file only)
+        if source_label == "audit":
+            for name in wb.sheetnames:
+                if "global" in name.lower() or "summary" in name.lower():
+                    sheet_name = name
+                    break
         if not sheet_name:
             sheet_name = wb.sheetnames[0]
 
@@ -374,7 +400,7 @@ def load_acronym_data(config: dict) -> dict[str, list[str]]:
         acro = row[acro_idx] if acro_idx < len(row) else None
         count = row[count_idx] if count_idx is not None and count_idx < len(row) else 1
         if fname and acro:
-            key = str(fname).strip().lower()
+            key = normalize_doc_name(str(fname).strip())
             if key not in doc_acronyms:
                 doc_acronyms[key] = []
             try:
@@ -392,7 +418,8 @@ def load_acronym_data(config: dict) -> dict[str, list[str]]:
         result[key] = [a[0] for a in acro_list]
 
     total_acronyms = sum(len(v) for v in result.values())
-    print(f"  Loaded {total_acronyms} acronyms across {len(result)} documents from audit file.")
+    print(f"  Loaded {total_acronyms} acronyms across {len(result)} documents "
+          f"from {source_label} file ({os.path.basename(chosen_path)}).")
     return result
 
 
@@ -456,13 +483,13 @@ def resolve_url(
         2. Falls back to the URL template with {filename} substitution.
         3. Returns "(URL not configured)" if neither works.
     """
-    # Normalize doc_name: convert underscores to spaces, lowercase
-    doc_name_normalized = doc_name.replace("_", " ").lower()
+    # Normalize doc_name: convert underscores/hyphens to spaces, lowercase
+    doc_name_normalized = re.sub(r"[_\-]+", " ", doc_name).strip().lower()
 
     # 1. Excel lookup — substring match
     for excel_name, url in url_mapping.items():
         # Normalize excel_name the same way for comparison
-        excel_name_normalized = excel_name.replace("_", " ").lower()
+        excel_name_normalized = re.sub(r"[_\-]+", " ", excel_name).strip().lower()
         if excel_name_normalized in doc_name_normalized or doc_name_normalized in excel_name_normalized:
             return url, "excel"
 
@@ -695,9 +722,8 @@ def generate_tags(
     # 3. Acronym tags
     if acronym_data:
         max_tags = tags_cfg.get("max_acronym_tags", 15)
-        # Try matching by parent filename
         for key, acronyms in acronym_data.items():
-            if key in parent_lower or parent_lower in key:
+            if match_doc_name(parent, key):
                 limited = acronyms[:max_tags] if max_tags > 0 else acronyms
                 tags.extend(limited)
                 break

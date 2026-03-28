@@ -26,6 +26,8 @@ be incorrectly promoted to heading styles.
 """
 # pip install python-docx
 
+from __future__ import annotations
+
 import csv
 import os
 import re
@@ -195,10 +197,125 @@ def apply_text_deletions(doc, config: dict) -> list[dict]:
     return deletions
 
 
-def process_document(filepath: str, output_dir: str, config: dict) -> tuple[list[dict], list[dict]]:
+def _get_heading_level(para) -> int | None:
+    """Return heading level (1-9) if the paragraph has a Heading style, else None."""
+    if para.style and is_heading_style(para.style):
+        # Style name is "Heading N"
+        try:
+            return int(para.style.name.split()[-1])
+        except (ValueError, IndexError):
+            pass
+    return None
+
+
+def apply_section_deletions(doc, config: dict) -> list[dict]:
     """
-    Process a single .docx file: apply text deletions, fix heading styles, save as _fixed.docx.
-    Returns a tuple: (heading_changes, deletion_records).
+    Delete entire sections (heading + body) based on configured section headings.
+
+    For each entry in text_deletions.section_deletions where delete=True,
+    finds paragraphs with a Heading style whose text contains the configured
+    heading string (case-insensitive substring match). Removes that heading
+    paragraph and all subsequent body elements (paragraphs and tables) until
+    the next heading of the same or higher level (lower or equal number).
+
+    Works on the document's XML body directly so both paragraphs and tables
+    within the section are removed.
+
+    Returns a list of deletion records for the change log.
+    """
+    deletion_cfg = config.get("text_deletions", {})
+    if not deletion_cfg.get("enabled", False):
+        return []
+
+    section_deletions = deletion_cfg.get("section_deletions", [])
+    if not section_deletions:
+        return []
+
+    # Build list of active section headings to delete
+    targets = []
+    for entry in section_deletions:
+        if entry.get("delete", True):
+            targets.append(entry["heading"].strip().lower())
+    if not targets:
+        return []
+
+    from lxml import etree
+
+    body = doc.element.body
+    nsmap = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    records = []
+
+    # We iterate repeatedly because removing elements shifts indices.
+    # Process one target section at a time.
+    for target in targets:
+        # Scan paragraphs for a heading match
+        while True:
+            found = False
+            for para in doc.paragraphs:
+                level = _get_heading_level(para)
+                if level is None:
+                    continue
+                if target not in para.text.strip().lower():
+                    continue
+
+                # Found a matching heading — collect elements to remove
+                found = True
+                heading_text = para.text.strip()
+                elements_to_remove = [para._element]
+                count_paras = 0
+                count_tables = 0
+
+                # Walk subsequent siblings in the XML body
+                sibling = para._element.getnext()
+                while sibling is not None:
+                    tag = etree.QName(sibling.tag).localname if isinstance(sibling.tag, str) else ""
+                    if tag == "p":
+                        # Check if this paragraph is a heading of same or higher level
+                        style_elem = sibling.find(".//w:pStyle", nsmap)
+                        if style_elem is not None:
+                            style_val = style_elem.get(f"{{{nsmap['w']}}}val") or ""
+                            if style_val.startswith("Heading"):
+                                try:
+                                    # XML stores "Heading1" (no space) or "Heading 1"
+                                    digits = style_val.replace("Heading", "").strip()
+                                    sib_level = int(digits)
+                                    if sib_level <= level:
+                                        break  # Stop — next section at same/higher level
+                                except (ValueError, IndexError):
+                                    pass
+                        elements_to_remove.append(sibling)
+                        count_paras += 1
+                    elif tag == "tbl":
+                        elements_to_remove.append(sibling)
+                        count_tables += 1
+                    # Skip non-paragraph/table elements (e.g. section breaks)
+                    sibling = sibling.getnext()
+
+                # Remove all collected elements
+                for elem in elements_to_remove:
+                    parent = elem.getparent()
+                    if parent is not None:
+                        parent.remove(elem)
+
+                records.append({
+                    "heading_deleted": heading_text,
+                    "heading_level": level,
+                    "paragraphs_removed": count_paras,
+                    "tables_removed": count_tables,
+                })
+                break  # Restart scan (indices shifted)
+
+            if not found:
+                break  # No more matches for this target
+
+    return records
+
+
+def process_document(filepath: str, output_dir: str, config: dict) -> tuple[list[dict], list[dict], list[dict]]:
+    """
+    Process a single .docx file: apply text deletions, section deletions,
+    fix heading styles, save as _fixed.docx.
+    Returns a tuple: (heading_changes, deletion_records, section_deletion_records).
     """
     headings_cfg = config.get("headings", {})
     max_chars = headings_cfg.get("fake_heading_max_chars_fixer", 120)
@@ -242,11 +359,14 @@ def process_document(filepath: str, output_dir: str, config: dict) -> tuple[list
                 "paragraph_text_preview": text_preview,
             })
 
+    # Apply section deletions AFTER heading fixes (needs correct heading styles)
+    section_deletion_records = apply_section_deletions(doc, config)
+
     # Save the fixed document
     output_path = os.path.join(output_dir, f"{base_name}_fixed.docx")
     doc.save(output_path)
 
-    return changes, deletion_records
+    return changes, deletion_records, section_deletion_records
 
 
 def main():
@@ -273,18 +393,19 @@ def main():
 
     all_changes = []
     total_deletions = 0
+    total_section_deletions = 0
     files_processed = 0
     files_failed = 0
 
     for filepath in docx_files:
         filename = os.path.basename(filepath)
         try:
-            changes, deletion_records = process_document(filepath, output_dir, config)
+            changes, deletion_records, section_deletion_records = process_document(filepath, output_dir, config)
             # Tag heading changes
             for c in changes:
                 c["change_type"] = "heading_fix"
                 c["phrase_deleted"] = ""
-            # Convert deletion records to CSV rows
+            # Convert text deletion records to CSV rows
             for d in deletion_records:
                 all_changes.append({
                     "doc_name": filename,
@@ -295,11 +416,25 @@ def main():
                     "change_type": "text_deletion",
                     "phrase_deleted": d["phrase_deleted"],
                 })
+            # Convert section deletion records to CSV rows
+            for s in section_deletion_records:
+                removed = s["paragraphs_removed"] + s["tables_removed"]
+                all_changes.append({
+                    "doc_name": filename,
+                    "paragraph_index": "",
+                    "original_style": f"Heading {s['heading_level']}",
+                    "new_style": "[SECTION DELETED]",
+                    "paragraph_text_preview": s["heading_deleted"][:80],
+                    "change_type": "section_deletion",
+                    "phrase_deleted": f"{s['paragraphs_removed']} para(s) + {s['tables_removed']} table(s) removed",
+                })
             all_changes.extend(changes)
             total_deletions += len(deletion_records)
+            total_section_deletions += len(section_deletion_records)
             files_processed += 1
             del_msg = f", {len(deletion_records)} deletion(s)" if deletion_records else ""
-            print(f"  Processing {filename}... {len(changes)} heading(s) fixed{del_msg}")
+            sec_msg = f", {len(section_deletion_records)} section(s) deleted" if section_deletion_records else ""
+            print(f"  Processing {filename}... {len(changes)} heading(s) fixed{del_msg}{sec_msg}")
         except Exception as e:
             files_failed += 1
             print(f"  ERROR processing {filename}: {e}")
@@ -315,10 +450,11 @@ def main():
     print("\n" + "=" * 60)
     print("STEP 3 — HEADING STYLE FIXER SUMMARY")
     print("=" * 60)
-    print(f"Files processed:      {files_processed}")
-    print(f"Files failed:         {files_failed}")
-    print(f"Total headings fixed: {heading_count}")
-    print(f"Total text deletions: {total_deletions}")
+    print(f"Files processed:        {files_processed}")
+    print(f"Files failed:           {files_failed}")
+    print(f"Total headings fixed:   {heading_count}")
+    print(f"Total text deletions:   {total_deletions}")
+    print(f"Total sections deleted: {total_section_deletions}")
     print(f"\nFixed documents written to: {output_dir}")
     print(f"Change log written to: {csv_path}")
 

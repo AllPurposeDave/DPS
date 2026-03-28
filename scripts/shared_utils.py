@@ -2,7 +2,7 @@
 Shared utilities for the DPS pre-processing pipeline.
 
 Common functions used across all pipeline scripts.
-Supports both dps_config.xlsx (preferred) and dps_config.yaml (legacy fallback).
+Supports both dps_config.xlsx (preferred) and dps_config_fallback.yaml (legacy fallback).
 
 REQUIREMENTS:
   pip install python-docx openpyxl pyyaml
@@ -27,7 +27,7 @@ def load_config(config_path: Optional[str] = None) -> dict:
     Search order:
       1. Explicit path passed via --config (any format)
       2. ./dps_config.xlsx  → ../dps_config.xlsx   (Excel preferred)
-      3. ./dps_config.yaml  → ../dps_config.yaml   (YAML fallback)
+      3. ./dps_config_fallback.yaml  → ../dps_config_fallback.yaml   (YAML fallback)
 
     Returns the parsed config dict, or an empty dict if no config is found.
     """
@@ -35,7 +35,7 @@ def load_config(config_path: Optional[str] = None) -> dict:
     if config_path:
         search_paths.append(config_path)
     # Excel first, then YAML fallback
-    for name in ["dps_config.xlsx", "dps_config.yaml"]:
+    for name in ["dps_config.xlsx", "dps_config_fallback.yaml"]:
         search_paths.append(os.path.join(os.getcwd(), name))
         search_paths.append(os.path.join(os.getcwd(), "..", name))
 
@@ -250,12 +250,41 @@ def _parse_text_deletions_sheet(ws):
     blocks = _split_by_subheaders(rows)
     result = {}
     for name, block_rows in blocks:
-        if "setting" in name.lower():
+        name_lower = name.lower()
+        if "setting" in name_lower:
             result.update(_parse_settings_rows(block_rows))
-        elif "phrase" in name.lower() or "delete" in name.lower():
+        elif "section" in name_lower:
+            # Parse Section Heading | Delete (TRUE/FALSE) | Description rows
+            section_deletions = []
+            for row in block_rows:
+                if not row or _is_comment(row):
+                    continue
+                heading = row[0] if row[0] else None
+                if heading is None or not str(heading).strip():
+                    continue
+                heading = str(heading).strip()
+                # Skip the sub-table column header row
+                if heading.lower() == "section heading":
+                    continue
+                delete = True
+                if len(row) > 1 and row[1] is not None:
+                    val = _coerce_value(row[1])
+                    if isinstance(val, bool):
+                        delete = val
+                    elif isinstance(val, str) and val.strip().upper() == "FALSE":
+                        delete = False
+                desc = str(row[2]).strip() if len(row) > 2 and row[2] else ""
+                section_deletions.append({
+                    "heading": heading,
+                    "delete": delete,
+                    "description": desc,
+                })
+            result["section_deletions"] = section_deletions
+        elif "phrase" in name_lower:
             result["phrases"] = _parse_list_column(block_rows)
-    # Ensure phrases key exists even if empty
+    # Ensure keys exist even if empty
     result.setdefault("phrases", [])
+    result.setdefault("section_deletions", [])
     return result
 
 
@@ -450,7 +479,7 @@ def _parse_metadata_sheet(ws):
         name_lower = name.lower()
         if "general" in name_lower:
             result.update(_parse_settings_rows(block_rows))
-        elif "key" in name_lower and "label" in name_lower:
+        elif ("key" in name_lower and "label" in name_lower) or name_lower == "metadata fields":
             # Metadata fields table: Key | Label | Enabled | Source | Value
             fields = []
             for row in block_rows:
@@ -489,10 +518,23 @@ def _parse_docx2md_sheet(ws):
     result = {}
     for name, block_rows in blocks:
         name_lower = name.lower()
-        if "metadata field" in name_lower and "name" in name_lower:
-            # Metadata fields table: Name | Source | Default
-            fields = []
+        if ("metadata field" in name_lower and "name" in name_lower) or name_lower == "metadata frontmatter":
+            # Block may contain settings before the ## table header, then field rows after
+            settings_rows = []
+            field_rows = []
+            past_table_header = False
             for row in block_rows:
+                if row and row[0] and str(row[0]).startswith("##"):
+                    past_table_header = True
+                    continue
+                if past_table_header:
+                    field_rows.append(row)
+                else:
+                    settings_rows.append(row)
+            if settings_rows:
+                result.update(_parse_settings_rows(settings_rows))
+            fields = []
+            for row in field_rows:
                 if not row or not row[0] or str(row[0]).startswith("#"):
                     continue
                 field = {"name": str(row[0]).strip()}
@@ -506,6 +548,36 @@ def _parse_docx2md_sheet(ws):
         else:
             settings = _parse_settings_rows(block_rows)
             result.update(settings)
+    return result
+
+
+def _parse_acronym_finder_sheet(ws):
+    """Parse the Acronym Finder sheet into the same dict structure as the YAML config."""
+    rows = _read_all_rows(ws)[1:]
+    blocks = _split_by_subheaders(rows)
+    result = {}
+    for name, block_rows in blocks:
+        name_lower = name.lower()
+        if "search" in name_lower:
+            result["search"] = _parse_settings_rows(block_rows)
+        elif "pattern" in name_lower:
+            result["patterns"] = _parse_settings_rows(block_rows)
+        elif "ignore" in name_lower:
+            result["ignore_list"] = _parse_list_column(block_rows, col=0)
+        else:
+            settings = _parse_settings_rows(block_rows)
+            result.update(settings)
+    return result
+
+
+def _parse_docx2jsonl_sheet(ws):
+    """Parse the Docx2jsonl sheet into the same dict structure as the YAML config."""
+    rows = _read_all_rows(ws)[1:]
+    blocks = _split_by_subheaders(rows)
+    result = {}
+    for _name, block_rows in blocks:
+        settings = _parse_settings_rows(block_rows)
+        result.update(settings)
     return result
 
 
@@ -540,6 +612,8 @@ def load_config_xlsx(xlsx_path: str) -> dict:
         "Pipeline": ("pipeline", _parse_pipeline_sheet),
         "Metadata": ("metadata", _parse_metadata_sheet),
         "Docx2md": ("docx2md", _parse_docx2md_sheet),
+        "Docx2jsonl": ("docx2jsonl", _parse_docx2jsonl_sheet),
+        "Acronym Finder": ("acronym_finder", _parse_acronym_finder_sheet),
     }
 
     config = {}
@@ -568,6 +642,31 @@ def resolve_path(config: dict, relative_path: str) -> str:
         return relative_path
     config_dir = config.get("_config_dir", os.getcwd())
     return os.path.normpath(os.path.join(config_dir, relative_path))
+
+
+def normalize_doc_name(name: str) -> str:
+    """Normalize a document name for matching.
+
+    Strips extension, lowercases, and collapses underscores/hyphens/spaces
+    into single spaces so that 'POL-AC-2026-001', 'POL_AC_2026_001', and
+    'POL AC 2026 001' all produce the same key.
+    """
+    stem = os.path.splitext(name)[0]
+    return re.sub(r"[_\-\s]+", " ", stem).strip().lower()
+
+
+def match_doc_name(needle: str, haystack_key: str) -> bool:
+    """Check whether two document names refer to the same document.
+
+    Both values are normalized before comparison.  Returns True on exact
+    match *or* substring containment (either direction) so that split
+    sub-files like 'PolicyDoc - Section 3' still match 'PolicyDoc'.
+    """
+    a = normalize_doc_name(needle)
+    b = normalize_doc_name(haystack_key)
+    if not a or not b:
+        return False
+    return a == b or a in b or b in a
 
 
 def get_input_dir(config: dict, cli_override: Optional[str] = None) -> str:
@@ -634,7 +733,8 @@ def setup_argparse(description: str) -> argparse.ArgumentParser:
     return parser
 
 
-def iter_docx_files(input_dir: str, config: Optional[dict] = None) -> list:
+def iter_docx_files(input_dir: str, config: Optional[dict] = None,
+                    exclude_override: Optional[list] = None) -> list:
     """
     Return sorted list of .docx file paths in input_dir.
     Skips files matching exclude patterns from config.
@@ -652,7 +752,7 @@ def iter_docx_files(input_dir: str, config: Optional[dict] = None) -> list:
     input_cfg = config.get("input", {})
     file_pattern = input_cfg.get("pattern", "*.docx")
     recursive = input_cfg.get("recursive", False)
-    exclude_patterns = input_cfg.get("exclude_patterns", ["~$"])
+    exclude_patterns = exclude_override if exclude_override is not None else input_cfg.get("exclude_patterns", ["~$"])
 
     if recursive:
         pattern = os.path.join(input_dir, "**", file_pattern)

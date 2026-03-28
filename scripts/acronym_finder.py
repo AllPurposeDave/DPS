@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-ACRONYM FINDER PROFILING SCRIPT
-================================
+ACRONYM FINDER — DPS Pipeline Step 1
+======================================
 Scans .docx files for acronym candidates. Outputs Excel report.
-Uses YAML config for ignore list and search settings.
+Part of the DPS pipeline; can also run standalone.
 
 pip install python-docx openpyxl pyyaml
 """
 
+import argparse
 import os
 import re
 import sys
-import yaml
 import glob
 from collections import defaultdict
 from pathlib import Path
@@ -21,66 +21,45 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-
-def find_dps_config(start_dir):
-    """Walk up from start_dir looking for dps_config.yaml. Returns path or None."""
-    current = Path(start_dir).resolve()
-    for _ in range(6):  # limit search depth
-        candidate = current / 'dps_config.yaml'
-        if candidate.is_file():
-            return str(candidate)
-        parent = current.parent
-        if parent == current:
-            break
-        current = parent
-    return None
+# Add scripts/ to path for shared_utils import
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from shared_utils import load_config as _load_dps_config
 
 
-def load_config(config_path):
-    config_dir = Path(config_path).resolve().parent
+def load_config_from_dps(config, input_dir, output_dir):
+    """Build internal config dict from the DPS master config."""
+    af_cfg = config.get("acronym_finder", {})
 
-    with open(config_path, 'r') as f:
-        cfg = yaml.safe_load(f)
+    output_file = af_cfg.get("output_file", "acronym_audit.xlsx")
+    cfg = {
+        "input_folder": input_dir,
+        "output_file": os.path.join(output_dir, output_file),
+        "_exclude_patterns": config.get("input", {}).get("exclude_patterns", ["~$"]),
+    }
 
-    # --- Resolve input_folder ---
-    # Prefer dps_config.yaml from parent directories (single source of truth).
-    dps_path = find_dps_config(config_dir)
-    if dps_path:
-        with open(dps_path, 'r') as f:
-            dps = yaml.safe_load(f) or {}
-        dps_dir = Path(dps_path).resolve().parent
-        raw_input = dps.get('input', {}).get('directory', './input')
-        cfg['input_folder'] = str((dps_dir / raw_input).resolve())
-        cfg['_exclude_patterns'] = dps.get('input', {}).get('exclude_patterns', ['~$'])
-        cfg['_dps_config'] = dps_path
-    else:
-        # Fall back to acronym_config.yaml value, resolved relative to config file
-        raw_input = cfg.get('input_folder', '../../input')
-        cfg['input_folder'] = str((config_dir / raw_input).resolve())
-        cfg.setdefault('_exclude_patterns', ['~$'])
+    # Search settings with defaults
+    search = af_cfg.get("search", {})
+    cfg["search"] = {
+        "min_length": search.get("min_length", 2),
+        "max_length": search.get("max_length", 10),
+        "scan_tables": search.get("scan_tables", True),
+        "scan_headers_footers": search.get("scan_headers_footers", True),
+        "scan_textboxes": search.get("scan_textboxes", True),
+        "min_global_occurrences": search.get("min_global_occurrences", 1),
+        "min_doc_occurrences": search.get("min_doc_occurrences", 1),
+    }
 
-    # --- Resolve output_file relative to config file if not absolute ---
-    raw_output = cfg.get('output_file', '../../output/acronym_audit.xlsx')
-    if not os.path.isabs(raw_output):
-        cfg['output_file'] = str((config_dir / raw_output).resolve())
+    # Pattern settings with defaults
+    patterns = af_cfg.get("patterns", {})
+    cfg["patterns"] = {
+        "pure_caps": patterns.get("pure_caps", True),
+        "caps_with_numbers": patterns.get("caps_with_numbers", True),
+        "caps_with_hyphens": patterns.get("caps_with_hyphens", True),
+        "caps_with_slashes": patterns.get("caps_with_slashes", True),
+        "parenthetical_defs": patterns.get("parenthetical_defs", True),
+    }
 
-    cfg.setdefault('search', {})
-    s = cfg['search']
-    s.setdefault('min_length', 2)
-    s.setdefault('max_length', 10)
-    s.setdefault('scan_tables', True)
-    s.setdefault('scan_headers_footers', True)
-    s.setdefault('scan_textboxes', True)
-    s.setdefault('min_global_occurrences', 1)
-    s.setdefault('min_doc_occurrences', 1)
-    cfg.setdefault('patterns', {})
-    p = cfg['patterns']
-    p.setdefault('pure_caps', True)
-    p.setdefault('caps_with_numbers', True)
-    p.setdefault('caps_with_hyphens', True)
-    p.setdefault('caps_with_slashes', True)
-    p.setdefault('parenthetical_defs', True)
-    cfg.setdefault('ignore_list', [])
+    cfg["ignore_list"] = af_cfg.get("ignore_list", [])
     return cfg
 
 
@@ -451,12 +430,37 @@ def write_excel(all_doc_results, global_acronyms, files, cfg):
 
 
 def main():
-    config_path = sys.argv[1] if len(sys.argv) > 1 else 'acronym_config.yaml'
-    if not os.path.exists(config_path):
-        print(f"ERROR: Config file not found: {config_path}")
-        print("Expected: acronym_config.yaml in the same folder, or pass path as argument.")
+    parser = argparse.ArgumentParser(
+        description="DPS Step 1 — Acronym Finder: scan .docx files for acronym candidates",
+    )
+    parser.add_argument("--config", "-c", default=None,
+                        help="Path to dps_config.xlsx or .yaml")
+    parser.add_argument("--input", "-i", default=None,
+                        help="Input directory containing .docx files")
+    parser.add_argument("--output", "-o", default=None,
+                        help="Output directory for acronym_audit.xlsx")
+    args = parser.parse_args()
+
+    # Load DPS config
+    config = _load_dps_config(args.config)
+    if not config:
+        print("ERROR: Could not load DPS config. Use --config to specify path.")
         sys.exit(1)
-    cfg = load_config(config_path)
+
+    # Resolve input/output directories
+    config_dir = config.get("_config_dir", os.getcwd())
+    input_dir = args.input or os.path.join(
+        config_dir, config.get("input", {}).get("directory", "./input")
+    )
+    output_dir = args.output or os.path.join(
+        config_dir, config.get("output", {}).get("directory", "./output"),
+        config.get("output", {}).get("acronyms", {}).get("directory", "1 - acronyms"),
+    )
+
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
+    cfg = load_config_from_dps(config, input_dir, output_dir)
     all_doc_results, global_acronyms, files = process_all_docs(cfg)
     write_excel(all_doc_results, global_acronyms, files, cfg)
 

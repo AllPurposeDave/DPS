@@ -1,32 +1,32 @@
 """
-Step 6: Control Validation
+Step 9: Control Validation
 ============================
 
-Validates that all controls extracted by Step 1 (extract_controls.py) are
-present in the split documents produced by Step 4 (section_splitter.py).
+Validates that all controls extracted by Step 2 (extract_controls.py) are
+present in the split documents produced by Step 5 (section_splitter.py).
 
 Also generates a human-review validation workbook with confidence scoring
 to help reviewers efficiently triage the ~10-20% of controls that may have
 extraction errors.
 
 Reads:
-    - output/1 - controls/controls_output.csv  (source controls)
-    - output/4 - split_documents/*.docx         (split documents)
-    - output/4 - split_documents/split_manifest.csv (sub-doc → parent mapping)
+    - output/2 - controls/controls_output.csv  (source controls)
+    - output/5 - split_documents/*.docx         (split documents)
+    - output/5 - split_documents/split_manifest.csv (sub-doc → parent mapping)
     - input/*.docx                              (source documents for context)
 
 Outputs:
-    - output/6 - validation/control_validation.csv
-    - output/6 - validation/validation_review.xlsx
+    - output/9 - validation/control_validation.csv
+    - output/9 - validation/validation_review.xlsx
 
 Usage (unified pipeline):
-    python run_pipeline.py --step 6
+    python run_pipeline.py --step 9
 
 Usage (standalone):
     python scripts/validate_controls.py
-    python scripts/validate_controls.py --config ../dps_config.yaml
+    python scripts/validate_controls.py --config ../dps_config.xlsx
 
-PREREQUISITES: Steps 1, 3, and 4 must have run first.
+PREREQUISITES: Steps 2, 4, and 5 must have run first.
 """
 
 from __future__ import annotations
@@ -588,6 +588,7 @@ def generate_validation_xlsx(
     ws2.append(["3. Set Validation Status (col M) using the dropdown."])
     ws2.append(["4. Add notes in col N as needed."])
     ws2.append(["5. Spot-check 10-20% of green rows for calibration."])
+    ws2.append(["6. Use the 'Add Missing Controls' sheet to enter controls the extractor missed."])
 
     # Style summary header
     ws2["A1"].font = Font(name="Arial", bold=True, size=14)
@@ -599,7 +600,215 @@ def generate_validation_xlsx(
     for col_idx in range(1, 7):
         ws2.column_dimensions[get_column_letter(col_idx)].width = 35
 
+    # ---- Sheet 3: Add Missing Controls ----
+    ws3 = wb.create_sheet(title="Add Missing Controls")
+
+    # Instruction row
+    ws3.append([
+        "Enter controls that exist in source documents but were NOT extracted by the pipeline. "
+        "Required fields: Control ID, Source File, Section Header, Control Description."
+    ])
+    ws3.merge_cells(start_row=1, start_column=1, end_row=1, end_column=8)
+    ws3["A1"].font = Font(name="Arial", italic=True, size=10, color="555555")
+    ws3["A1"].alignment = Alignment(wrap_text=True)
+    ws3.row_dimensions[1].height = 35
+
+    # Headers
+    missing_headers = [
+        "Control ID", "Source File", "Section Header", "Control Description",
+        "Supplemental Guidance", "Baseline", "Control Name", "Reviewer Notes",
+    ]
+    ws3.append(missing_headers)
+    for cell in ws3[2]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+
+    # Column widths
+    missing_col_widths = {1: 16, 2: 40, 3: 30, 4: 60, 5: 40, 6: 10, 7: 30, 8: 30}
+    for col_idx, width in missing_col_widths.items():
+        ws3.column_dimensions[get_column_letter(col_idx)].width = width
+
+    # Example placeholder row (light gray italic)
+    example_row = [
+        "AC-2.3", "Access_Control_Policy_POL-AC-2026-001.docx",
+        "Access Enforcement", "The organization enforces approved authorizations...",
+        "", "L, M, H", "Access Enforcement", "Missed because control ID was in a table cell",
+    ]
+    ws3.append(example_row)
+    placeholder_font = Font(name="Arial", italic=True, size=10, color="999999")
+    for cell in ws3[3]:
+        cell.font = placeholder_font
+
+    # Data validation: Source File dropdown from known source files
+    source_files = sorted(set(
+        c.get("source_file", "").strip() for c in scored_controls
+        if c.get("source_file", "").strip()
+    ))
+    if source_files:
+        sf_list = ",".join(source_files)
+        # Excel data validation has a 255-char formula limit; use a range if too long
+        if len(sf_list) <= 250:
+            sf_dv = DataValidation(type="list", formula1=f'"{sf_list}"', allow_blank=True)
+        else:
+            # Too many files for inline list — skip dropdown, reviewers type manually
+            sf_dv = None
+        if sf_dv:
+            sf_dv.prompt = "Select the source document"
+            sf_dv.promptTitle = "Source File"
+            ws3.add_data_validation(sf_dv)
+            # Apply to rows 3-102 (100 empty rows for reviewer input)
+            for row_num in range(3, 103):
+                sf_dv.add(ws3.cell(row=row_num, column=2))
+
+    # Freeze header
+    ws3.freeze_panes = "A3"
+
     wb.save(output_path)
+
+
+def write_review_readme(validation_dir: str) -> None:
+    """Write a README.md into the validation output directory to guide reviewers."""
+    readme_path = os.path.join(validation_dir, "README.md")
+    content = """\
+# Validation Review Workflow
+
+## What This Folder Contains
+
+| File | Purpose |
+|------|---------|
+| **control_validation.csv** | Machine-readable validation status for each control (PASS / MISSING / RELOCATED) |
+| **validation_review.xlsx** | Human review workbook with confidence scoring, source context, and input sheets |
+| **README.md** | This file — instructions for the review workflow |
+
+After review, the feedback script produces:
+| File | Purpose |
+|------|---------|
+| **confirmed_controls.csv** | The authoritative control set (reviewed + manually added, minus false positives) |
+| **feedback_report.txt** | Summary of review findings, error patterns, and config suggestions |
+| **suggested_config_changes.yaml** | Machine-readable config patch (only if clear patterns found) |
+
+---
+
+## How to Review validation_review.xlsx
+
+> **Important:** Open in Microsoft Excel (not Google Sheets — data validation dropdowns may not work).
+
+### Step 1: Check the Summary Sheet
+Open the **Summary** sheet to understand the scope:
+- Total controls, confidence band counts (Red / Yellow / Green)
+- Per-document breakdown and flag frequency
+
+### Step 2: Understand the Color Coding
+The **Validation Review** sheet is sorted worst-first:
+- **Red rows (0-30):** Review these first — likely extraction errors
+- **Yellow rows (31-60):** Suspicious — worth spot-checking
+- **Green rows (61-100):** Likely correct — sample 10-20% for calibration
+
+### Step 3: Review Each Control (Red First)
+For each row, compare:
+- **Source Context (col H):** The surrounding paragraphs from the original document, with `>>>` marking the control line
+- **Extracted Description (col I):** What the pipeline extracted
+
+Also check:
+- **Section Header (col F):** Is this the real section, or a suspect one (crosswalk, glossary)?
+- **Extraction Source (col G):** "Table" extractions are more error-prone than "Text"
+- **Baseline (col K) / Control Name (col L):** Verify if present
+
+### Step 4: Set Validation Status (Column M — Dropdown)
+
+| Status | When to Use |
+|--------|-------------|
+| **Correct** | Extraction is accurate — control ID, description, and metadata are right |
+| **Wrong-FalsePositive** | This is NOT a real control (e.g., crosswalk table reference, inline mention) |
+| **Wrong-Description** | Control is real but the extracted description text is wrong or truncated |
+| **Wrong-Guidance** | Guidance text is wrong, or guidance was mixed into the description |
+| **Wrong-Baseline** | Baseline (L/M/H) is incorrect |
+| **Wrong-Section** | Control was placed under the wrong section header |
+| **Missing-Content** | Control is real but key content was not captured |
+| **Needs-Review** | Unsure — flag for a second reviewer |
+
+### Step 5: Add Reviewer Notes (Column N)
+Be specific about what is wrong and what the correct value should be:
+- Good: "Description should stop at 'Implementation Guidance:' — everything after is guidance"
+- Good: "This is a crosswalk table entry, not a real control"
+- Bad: "wrong"
+
+### Step 6: Add Missing Controls (Third Sheet)
+If you spot a control in a source document that the extractor **missed entirely**, go to
+the **Add Missing Controls** sheet and enter it manually. Required fields:
+- **Control ID** — the ID as it appears in the document
+- **Source File** — which .docx it came from (use the dropdown)
+- **Section Header** — which section it appears under
+- **Control Description** — the full control text
+
+Optional: Supplemental Guidance, Baseline, Control Name, Reviewer Notes.
+
+### Step 7: Save and Hand Off
+- Save the file — keep the **.xlsx format** and **do not rename it**
+- The feedback script expects `validation_review.xlsx` in this folder
+
+---
+
+## Flag Reference
+
+| Flag | Confidence Penalty | What It Means |
+|------|--------------------|---------------|
+| EMPTY_DESCRIPTION | -40 | No control description was extracted |
+| SHORT_DESCRIPTION | -30 | Description is under 20 characters |
+| LONG_DESCRIPTION | -20 | Description exceeds 2000 characters |
+| SUSPECT_SECTION | -35 | Found in a section like Revision History, Glossary, or Framework Crosswalk |
+| APPENDIX_SECTION | -15 | Found in an Appendix section |
+| DUPLICATE_ID_SAME_DOC | -25 | Same control ID extracted multiple times from the same document |
+| DUPLICATE_ID_CROSS_DOC | -10 | Same control ID appears in different source documents |
+| TABLE_HEADERS_IN_DESC | -20 | Description contains table header text (extraction boundary error) |
+| GUIDANCE_IN_DESC | -15 | Description contains guidance keywords (boundary set too far) |
+| TABLE_SOURCE | -10 | Control was extracted from a Word table (less context available) |
+| EMPTY_BASELINE | -10 | No baseline when sibling controls have baselines |
+| EMPTY_NAME | -5 | No control name when sibling controls have names |
+| MULTI_CONTROL_PARAGRAPH | -10 | Multiple control IDs share the same paragraph |
+
+---
+
+## How This Feeds Back Into the Pipeline
+
+After completing your review:
+
+```
+python scripts/ingest_review_feedback.py
+python scripts/ingest_review_feedback.py --config dps_config.xlsx
+```
+
+This reads your reviewed `validation_review.xlsx` and produces:
+
+1. **confirmed_controls.csv** — The authoritative control set:
+   - Controls marked "Correct" + unreviewed controls (assumed correct)
+   - Manually added controls from the "Add Missing Controls" sheet
+   - Excludes controls marked "Wrong-FalsePositive"
+
+2. **feedback_report.txt** — Analysis of review findings:
+   - Review coverage and status breakdown
+   - Missing controls added by reviewer
+   - Error patterns and per-document accuracy
+   - Config improvement suggestions
+
+3. **suggested_config_changes.yaml** — Actionable config changes (if patterns detected)
+
+---
+
+## Tips for Efficient Review
+
+- **Sort by Confidence** (default) — worst rows first, so you catch real problems early
+- **Filter by Source File** — focus on one document at a time for consistency
+- **Use the Summary sheet's flag frequency** — if one flag dominates, investigate that pattern
+- **If you see the same error 5+ times**, note it in Reviewer Notes — it likely indicates a config fix
+- **Don't review every green row** — sample 10-20% to calibrate, then trust the rest
+- **Use the "Add Missing Controls" sheet** whenever you notice the extractor missed something
+"""
+    with open(readme_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    print(f"  Review README written to: {readme_path}")
 
 
 def main():
@@ -615,9 +824,9 @@ def main():
     if not os.path.isabs(output_root):
         output_root = os.path.normpath(os.path.join(config_dir, output_root))
 
-    # Resolve Step 1 controls CSV path
+    # Resolve Step 2 controls CSV path
     controls_cfg = output_cfg.get("controls", {})
-    controls_dir = os.path.join(output_root, controls_cfg.get("directory", "1 - controls"))
+    controls_dir = os.path.join(output_root, controls_cfg.get("directory", "2 - controls"))
     controls_file = controls_cfg.get("output_file", "controls_output.csv")
     controls_csv_path = os.path.join(controls_dir, controls_file)
 
@@ -628,23 +837,23 @@ def main():
             controls_csv_path = alt_path
         else:
             print(f"ERROR: Controls output not found at {controls_csv_path}")
-            print("Step 1 (extract_controls.py) must run first.")
+            print("Step 2 (extract_controls.py) must run first.")
             return
 
-    # Resolve Step 4 split documents directory
+    # Resolve Step 5 split documents directory
     split_cfg = output_cfg.get("split_documents", {})
-    split_dir = os.path.join(output_root, split_cfg.get("directory", "4 - split_documents"))
+    split_dir = os.path.join(output_root, split_cfg.get("directory", "5 - split_documents"))
     manifest_file = split_cfg.get("manifest_file", "split_manifest.csv")
     manifest_path = os.path.join(split_dir, manifest_file)
 
     if not os.path.isdir(split_dir):
         print(f"ERROR: Split documents directory not found at {split_dir}")
-        print("Steps 3-4 (heading_style_fixer + section_splitter) must run first.")
+        print("Steps 4-5 (heading_style_fixer + section_splitter) must run first.")
         return
 
-    # Resolve Step 6 output directory
+    # Resolve Step 9 output directory
     validation_cfg = output_cfg.get("validation", {})
-    validation_dir = os.path.join(output_root, validation_cfg.get("directory", "6 - validation"))
+    validation_dir = os.path.join(output_root, validation_cfg.get("directory", "9 - validation"))
     validation_file = validation_cfg.get("output_file", "control_validation.csv")
     ensure_output_dir(validation_dir)
     output_path = os.path.join(validation_dir, validation_file)
@@ -769,6 +978,9 @@ def main():
     print(f"Yellow (suspicious):   {yellow_count}")
     print(f"Green (likely correct): {green_count}")
     print(f"\nReview workbook written to: {review_path}")
+
+    # Write the reviewer README
+    write_review_readme(validation_dir)
 
 
 if __name__ == "__main__":

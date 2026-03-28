@@ -5,19 +5,27 @@
 # This ONE file controls everything: input location, output location, and
 # every tunable setting for every script in the pipeline.
 #
+# NOTE: This is the FALLBACK config. The primary config is dps_config.xlsx.
+#       Edit the Excel file for day-to-day use. This YAML is loaded only when
+#       the Excel file is not found.
+#
 # PIPELINE ORDER (scripts run in this sequence):
 #   Step 0  policy_profiler.py            Scan & classify all docs (includes word counts)
-#   Step 1  extract_controls.py           Pull structured control data
-#   Step 2  cross_reference_extractor.py  Capture cross-refs (BEFORE any edits)
-#   Step 3  heading_style_fixer.py        Fix fake headings → real Word styles
-#   Step 4  section_splitter.py           Split docs at H1 boundaries
-#   Step 5  add_metadata.py              Stamp sub-docs with identity metadata
+#   Step 1  acronym_finder.py             Scan all docs for acronym candidates
+#   Step 2  extract_controls.py           Pull structured control data
+#   Step 3  cross_reference_extractor.py  Capture cross-refs (BEFORE any edits)
+#   Step 4  heading_style_fixer.py        Fix fake headings → real Word styles
+#   Step 5  section_splitter.py           Split docs at H1 boundaries
+#   Step 6  add_metadata.py              Stamp sub-docs with identity metadata
+#   Step 7  docx2md.py                   Convert .docx to clean Markdown
+#   Step 8  docx2jsonl.py                Convert .docx to chunked JSONL
+#   Step 9  validate_controls.py         Validate controls in split documents
 #
 # HOW TO RUN:
 #   Full pipeline:   python run_pipeline.py
 #   Single script:   python run_pipeline.py --step 0
 #   Range of steps:  python run_pipeline.py --step 1-3
-#   Standalone:      python scripts/extract_controls.py --config dps_config.yaml input/ output/1\ -\ controls/
+#   Standalone:      python scripts/extract_controls.py --config dps_config_fallback.yaml input/ output/2\ -\ controls/
 #
 # ----------------------------------------------------------------------------
 # QUICK START — Check these first, everything else has sensible defaults:
@@ -66,8 +74,9 @@ input:
 # SECTION 2: OUTPUT — Where results go                         [YOU SET THIS]
 # ============================================================================
 # Sub-folders are created automatically on first run:
-#   0 - profiler/  1 - controls/  2 - cross_references/
-#   3 - heading_fixes/  4 - split_documents/  5 - metadata/
+#   0 - profiler/  1 - acronyms/  2 - controls/  3 - cross_references/
+#   4 - heading_fixes/  5 - split_documents/  6 - metadata/
+#   7 - markdown/  8 - jsonl/  9 - validation/
 
 output:
   directory: "./output"
@@ -81,40 +90,53 @@ output:
     tables_file: "table_inventory.csv"           # One row per table per doc
     crossrefs_file: "crossref_inventory.csv"     # One row per cross-reference
 
-  # --- Step 1: Control extractor outputs ---
+  # --- Step 1: Acronym Finder outputs ---
+  acronyms:
+    directory: "1 - acronyms"
+    output_file: "acronym_audit.xlsx"
+
+  # --- Step 2: Control extractor outputs ---
   controls:
-    directory: "1 - controls"
+    directory: "2 - controls"
     output_file: "controls_output.csv"
     output_file_xlsx: "controls_output.xlsx"
     checkpoint_file: "checkpoint.json"           # Tracks progress for resume
     error_log: "errors.log"
 
-  # --- Step 2: Cross-reference extractor outputs ---
+  # --- Step 3: Cross-reference extractor outputs ---
   cross_references:
-    directory: "2 - cross_references"
+    directory: "3 - cross_references"
     output_file: "cross_references.csv"
 
-  # --- Step 3: Heading style fixer outputs ---
+  # --- Step 4: Heading style fixer outputs ---
   heading_fixes:
-    directory: "3 - heading_fixes"
+    directory: "4 - heading_fixes"
     changes_file: "heading_changes.csv"
     # Fixed .docx files are also written here (named *_fixed.docx)
 
-  # --- Step 4: Section splitter outputs ---
+  # --- Step 5: Section splitter outputs ---
   split_documents:
-    directory: "4 - split_documents"
+    directory: "5 - split_documents"
     manifest_file: "split_manifest.csv"
     # Sub-document .docx files are also written here
 
-  # --- Step 5: Metadata injector outputs ---
+  # --- Step 6: Metadata injector outputs ---
   metadata:
-    directory: "5 - metadata"
+    directory: "6 - metadata"
     manifest_file: "metadata_manifest.csv"
     # Processed .docx files with metadata blocks are also written here
 
-  # --- Step 6: Validation outputs ---
+  # --- Step 7: DOCX to Markdown outputs ---
+  markdown:
+    directory: "7 - markdown"
+
+  # --- Step 8: DOCX to JSONL outputs ---
+  jsonl:
+    directory: "8 - jsonl"
+
+  # --- Step 9: Validation outputs ---
   validation:
-    directory: "6 - validation"
+    directory: "9 - validation"
     output_file: "control_validation.csv"
     review_file: "validation_review.xlsx"    # human review workbook with confidence scoring
 
@@ -593,7 +615,7 @@ search_terms:
 
 
 # ============================================================================
-# SECTION 11: CONTROL EXTRACTION (used by Step 1 — Extract Controls)
+# SECTION 11: CONTROL EXTRACTION (used by Step 2 — Extract Controls)
 # ============================================================================
 
 control_extraction:
@@ -703,35 +725,50 @@ pipeline:
       enabled: true
       description: "Scan all docs, extract metadata, classify types, score priority, count words"
 
-    - name: "Step 1 - Control Extractor"
+    - name: "Step 1 - Acronym Finder"
+      script: "acronym_finder.py"
+      enabled: true
+      description: "Scan all docs for acronym candidates and generate audit Excel"
+
+    - name: "Step 2 - Control Extractor"
       script: "extract_controls.py"
       enabled: true
       description: "Extract structured control data from compliance docs"
 
-    - name: "Step 2 - Cross-Reference Extractor"
+    - name: "Step 3 - Cross-Reference Extractor"
       script: "cross_reference_extractor.py"
       enabled: true
       description: "Capture all cross-refs BEFORE any structural changes"
 
-    - name: "Step 3 - Heading Style Fixer"
+    - name: "Step 4 - Heading Style Fixer"
       script: "heading_style_fixer.py"
       enabled: true
       description: "Convert fake bold headings to real Word Heading styles"
 
-    - name: "Step 4 - Section Splitter"
+    - name: "Step 5 - Section Splitter"
       script: "section_splitter.py"
       enabled: true
       description: "Split fixed docs at H1 boundaries into sub-documents"
 
-    - name: "Step 5 - Metadata Injector"
+    - name: "Step 6 - Metadata Injector"
       script: "add_metadata.py"
       enabled: true
       description: "Add identity metadata (name, URL, scope, intent, tags) to sub-documents"
 
-    - name: "Step 6 - Control Validator"
+    - name: "Step 7 - DOCX to Markdown"
+      script: "docx2md.py"
+      enabled: true
+      description: "Convert .docx files to clean Markdown with YAML frontmatter"
+
+    - name: "Step 8 - DOCX to JSONL"
+      script: "docx2jsonl.py"
+      enabled: true
+      description: "Convert .docx files to chunked JSONL for RAG/vector DB ingestion"
+
+    - name: "Step 9 - Control Validator"
       script: "validate_controls.py"
       enabled: true
-      description: "Validate all Step 1 controls are present in Step 4 split documents"
+      description: "Validate all Step 2 controls are present in Step 5 split documents"
 
 
 # ============================================================================
@@ -827,8 +864,13 @@ metadata:
     include_doc_type: true          # Add "Type-B" etc. from profiler
     include_sections_found: true    # Add "has-scope", "has-controls" etc.
 
-    # Path to Acronym Finder output Excel (run Misc/Acronym Finder first).
-    # Leave "" to skip. Reads "Per Document" sheet, matches by filename.
+    # Path to verified Acronym Definitions Excel (preferred).
+    # Same file used by Steps 7/8. Reads "Per Document" sheet.
+    # Leave "" to fall back to acronym_audit_file below.
+    acronym_definitions_file: "./input/Acronym_Definitions.xlsx"
+
+    # Path to raw Acronym Finder output Excel (fallback if no definitions file).
+    # Leave "" to skip acronym tags entirely.
     acronym_audit_file: ""
     max_acronym_tags: 15        # Most-frequent first. 0 = unlimited.
 
@@ -837,22 +879,25 @@ metadata:
 
 
 # ============================================================================
-# SECTION 13: DOCX TO MARKDOWN (standalone — Misc/docx2md.py)
+# SECTION 13: DOCX TO MARKDOWN (Step 7 — scripts/docx2md.py)
 # ============================================================================
-# Standalone tool for converting .docx files to clean markdown optimised for
-# RAG pipelines. Not part of the main pipeline — run separately.
+# Converts .docx files to clean markdown with YAML frontmatter, optimised for
+# RAG pipelines. Part of the main pipeline (Step 7).
 #
 # USAGE:
-#   python Misc/docx2md.py --config dps_config.yaml
-#   python Misc/docx2md.py --config dps_config.yaml input output/markdown
-#   python Misc/docx2md.py input output/markdown
-#
-# Input: Uses the main pipeline's input.directory setting (Section 1) by default.
-# Output: Writes to output/markdown/ (configurable below).
+#   Via pipeline:  python run_pipeline.py --step 7
+#   Standalone:    python scripts/docx2md.py --config dps_config.xlsx input/ output/7\ -\ markdown/
 
 docx2md:
+  # --- Pure Conversion vs Optimized input ---
+  # true  = "Pure Conversion" — read directly from input/ (no transformations)
+  # false = "Optimized" — read from the output of another pipeline step
+  pure_conversion: false
+  optimized_source_step: "heading_fixes"   # Step output to read from when not pure
+  # Options: "heading_fixes" (Step 4), "split_documents" (Step 5), "metadata" (Step 6)
+
   # Where converted .md files are written (relative to config file location)
-  output_directory: "./output/markdown"
+  output_directory: "./output/7 - markdown"
 
   # --- Image handling ---
   # "extract"     → save images to disk + insert markdown references
@@ -914,11 +959,13 @@ docx2md:
     - name: "PublishedURL"
       source: "doc_url"
       default: ""
-    # Acronyms found in this document, pulled from the acronym finder Excel output.
-    # Run Misc/Acronym Finder/acronym_finder.py first to generate the Excel file.
-    # - name: "acronyms"
-    #   source: "excel_lookup_list:./output/acronym_audit.xlsx:Per Document:Document:Acronym"
-    #   default: ""
+    # Acronyms found in this document, pulled from the confirmed acronym definitions.
+    # Run Step 1 (Acronym Finder) first, review results, then curate
+    # input/Acronym_Definitions.xlsx with confirmed acronyms only.
+    # Matches Document column against current filename — only that doc's acronyms are included.
+    - name: "acronyms"
+      source: "excel_lookup_list:./input/Acronym_Definitions.xlsx:Per Document:Document:Acronym"
+      default: ""
     # --- Add your own fields below this line ---
     # - name: "organization"
     #   source: "static:Acme Corp"
@@ -926,3 +973,148 @@ docx2md:
     #   source: "core:subject"
     # - name: "keywords"
     #   source: "core:keywords"
+
+
+# ============================================================================
+# SECTION 14: DOCX TO JSONL (Step 8 — scripts/docx2jsonl.py)
+# ============================================================================
+# Converts .docx files to chunked JSONL for RAG/vector DB ingestion.
+# Each line is a JSON record with text, metadata, heading context, and tags.
+#
+# USAGE:
+#   Via pipeline:  python run_pipeline.py --step 8
+#   Standalone:    python scripts/docx2jsonl.py --config dps_config.xlsx input/ output/8\ -\ jsonl/
+
+docx2jsonl:
+  # --- Pure Conversion vs Optimized input ---
+  # true  = "Pure Conversion" — read directly from input/ (no transformations)
+  # false = "Optimized" — read from the output of another pipeline step
+  pure_conversion: false
+  optimized_source_step: "heading_fixes"   # Step output to read from when not pure
+
+  # Where converted .jsonl.txt files are written
+  output_directory: "./output/8 - jsonl"
+
+  # --- Chunking settings ---
+  max_chunk_chars: 1500        # Maximum characters per chunk
+  overlap_words: 30            # Words to overlap between consecutive chunks
+  min_chunk_chars: 100         # Merge trailing chunks smaller than this into previous
+
+  # --- Acronym definitions ---
+  # Path to confirmed acronym definitions Excel (same file used by docx2md).
+  # Reads "Per Document" sheet, matches Document column against current filename.
+  # Only that document's acronyms are embedded in JSONL chunks.
+  # Leave "" to skip acronym tagging.
+  acronym_definitions_file: "./input/Acronym_Definitions.xlsx"
+
+  # --- Tag mapping ---
+  # Optional Excel file mapping documents → tags. Leave "" to skip.
+  tag_file: ""
+
+
+# ============================================================================
+# SECTION 15: ACRONYM FINDER (Step 1 — scripts/acronym_finder.py)
+# ============================================================================
+# Scans all .docx files for acronym candidates and generates an audit Excel.
+# Run this first, then review results and curate Acronym_Definitions.xlsx.
+
+acronym_finder:
+  output_file: "acronym_audit.xlsx"
+
+  search:
+    min_length: 2
+    max_length: 8
+    scan_tables: true
+    scan_headers_footers: true
+    scan_textboxes: true
+    min_global_occurrences: 1
+    min_doc_occurrences: 1
+
+  patterns:
+    pure_caps: true
+    caps_with_numbers: true
+    caps_with_hyphens: true
+    caps_with_slashes: true
+    parenthetical_defs: true
+
+  ignore_list:
+    # -- Common English words that appear as all-caps --
+    - "THE"
+    - "AND"
+    - "FOR"
+    - "NOT"
+    - "BUT"
+    - "ALL"
+    - "ARE"
+    - "CAN"
+    - "HAS"
+    - "HER"
+    - "WAS"
+    - "ONE"
+    - "OUR"
+    - "OUT"
+    - "YOU"
+    - "USE"
+    - "MAY"
+    - "SHALL"
+    - "MUST"
+    - "WILL"
+    - "WITH"
+    - "THIS"
+    - "THAT"
+    - "FROM"
+    - "THEY"
+    - "BEEN"
+    - "HAVE"
+    - "EACH"
+    - "MAKE"
+    - "WHEN"
+    - "DOES"
+    - "INTO"
+    - "THEM"
+    - "THEN"
+    - "THAN"
+    - "ONLY"
+    - "OVER"
+    - "SUCH"
+    - "ALSO"
+    - "SOME"
+    - "THESE"
+    - "OTHER"
+    - "WHICH"
+    - "THEIR"
+    - "THERE"
+    - "WOULD"
+    - "ABOUT"
+    - "AFTER"
+    - "COULD"
+    - "WHERE"
+    - "SHOULD"
+    - "THOSE"
+    # -- Roman numerals --
+    - "II"
+    - "III"
+    - "IV"
+    - "VI"
+    - "VII"
+    - "VIII"
+    - "IX"
+    - "XI"
+    - "XII"
+    # -- Formatting / doc artifacts --
+    - "PAGE"
+    - "DATE"
+    - "DRAFT"
+    - "FINAL"
+    - "NOTE"
+    - "TABLE"
+    - "FIGURE"
+    - "REV"
+    - "VER"
+    - "NA"
+    - "TBD"
+    - "TODO"
+    - "YES"
+    - "NO"
+    # -- Add your own below --
+    # - "YOURTERM"

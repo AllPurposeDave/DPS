@@ -19,6 +19,8 @@ Requirements:
     pip install python-docx pyyaml openpyxl
 """
 
+__version__ = "1.0.0"
+
 import argparse
 import csv
 import glob
@@ -141,7 +143,6 @@ class CrossRefInfo:
     pattern_matched: str
     paragraph_index: int
     parent_section: str
-    is_hyperlink: bool
 
 @dataclass
 class DocumentProfile:
@@ -208,7 +209,7 @@ class DocumentProfile:
     has_password_protection: bool
 
     # Classification
-    doc_type: str  # A, B, C, D, E
+    doc_type: str  # A, B, C, D, or "Error" for unreadable files
     doc_type_reason: str
 
     # Profiling flags
@@ -293,7 +294,56 @@ def load_config(config_path: str) -> dict:
         print("=" * 60)
         sys.exit(1)
 
+    # --- Schema validation ---------------------------------------------------
+    missing = _validate_config_keys(cfg)
+    if missing:
+        print("=" * 60)
+        print("ERROR: Config file is missing required settings.")
+        print(f"  File: {config_path}")
+        print()
+        for key_path in missing:
+            print(f"  MISSING: {key_path}")
+        print()
+        print("FIX: Run 'python generate_config_template.py' to create a fresh config,")
+        print("     or add the missing keys to your existing config file.")
+        print("=" * 60)
+        sys.exit(1)
+
     return cfg
+
+
+def _validate_config_keys(cfg: dict) -> list:
+    """Check that all required config key paths exist. Returns list of missing paths."""
+    required = [
+        "headings.builtin_styles",
+        "headings.custom_heading_styles",
+        "headings.fake_heading_min_font_size",
+        "headings.fake_heading_max_chars",
+        "sections",
+        "tables.classification",
+        "classification.type_a.min_table_content_pct",
+        "classification.type_b.max_table_content_pct",
+        "classification.type_c.procedure_keywords",
+        "classification.type_d.min_appendix_content_pct",
+        "priority_scoring.weights",
+        "cross_references.profiler_patterns",
+        "input.directory",
+        "input.pattern",
+        "input.recursive",
+        "output",
+        "thresholds.max_characters",
+        "thresholds.paragraphs_per_page",
+    ]
+    missing = []
+    for key_path in required:
+        parts = key_path.split(".")
+        node = cfg
+        for part in parts:
+            if not isinstance(node, dict) or part not in node:
+                missing.append(key_path)
+                break
+            node = node[part]
+    return missing
 
 
 # ============================================================================
@@ -440,12 +490,14 @@ def classify_table(table, config: dict) -> tuple:
     """
     Classify a table by examining its first row (assumed to be the header).
 
-    Returns: (classification_str, header_row_list, has_merged_cells, char_count)
+    Returns: (classification_str, header_row_list, has_merged_cells, char_count, word_count, all_cell_text)
       - classification_str: one of control_matrix / applicability_table /
         reference_table / crosswalk_table / role_responsibility / unclassified
       - header_row_list: list of cell text strings from the first row
       - has_merged_cells: True if any cells span multiple rows or columns
       - char_count: total characters across all cells (used for table_content_pct)
+      - word_count: total words across all cells
+      - all_cell_text: concatenated text from all cells (for key term search)
 
     HOW CLASSIFICATION WORKS:
       The first row is matched against keyword lists in profiler_config.yaml
@@ -477,11 +529,18 @@ def classify_table(table, config: dict) -> tuple:
     header_row = []
     has_merged = False
     char_count = 0
+    word_count = 0
+    cell_texts = []
 
-    # --- Count all characters across every cell (for table_content_pct) ------
+    # --- Count all characters and words, collect text from every cell --------
     for row in table.rows:
         for cell in row.cells:
-            char_count += len(cell.text)
+            text = cell.text
+            char_count += len(text)
+            stripped = text.strip()
+            if stripped:
+                word_count += len(stripped.split())
+                cell_texts.append(stripped)
 
     # --- Detect merged cells -------------------------------------------------
     # Merged cells in python-docx share the same underlying XML element (_tc).
@@ -524,7 +583,8 @@ def classify_table(table, config: dict) -> tuple:
             best_score = score
             best_match = cls_name
 
-    return (best_match, header_row, has_merged, char_count)
+    all_cell_text = "\n".join(cell_texts)
+    return (best_match, header_row, has_merged, char_count, word_count, all_cell_text)
 
 
 def pattern_to_readable_label(pattern: str) -> str:
@@ -553,6 +613,30 @@ def detect_cross_references(text: str, config: dict) -> list:
             readable_label = pattern_to_readable_label(pattern)
             results.append((match.group(), readable_label))
     return results
+
+
+def count_nested_tables(doc) -> int:
+    """
+    Count tables that appear inside other table cells (nested tables).
+
+    A nested table is a <w:tbl> element whose parent chain includes another
+    <w:tbl>. These are harder to process and may need manual flattening.
+    Requires lxml (ships with python-docx). Returns 0 if detection fails.
+    """
+    try:
+        ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+        body = doc.element.body
+        count = 0
+        for tbl in body.iter(f'{ns}tbl'):
+            parent = tbl.getparent()
+            while parent is not None:
+                if parent.tag == f'{ns}tbl':
+                    count += 1
+                    break
+                parent = parent.getparent()
+        return count
+    except Exception:
+        return 0
 
 
 def detect_formatting_anomalies(doc_path: str, doc) -> dict:
@@ -680,37 +764,38 @@ def detect_formatting_anomalies(doc_path: str, doc) -> dict:
     return anomalies
 
 
+def _count_procedure_keywords(full_text: str, config: dict) -> int:
+    """Count how many procedure-related keywords appear in the document text."""
+    text_lower = full_text.lower()
+    hits = 0
+    for kw in config['classification']['type_c']['procedure_keywords']:
+        if kw.lower() in text_lower:
+            hits += 1
+    return hits
+
+
 def classify_document_type(profile: dict, config: dict) -> tuple:
     """
-    Auto-classify a document into one of five types based on its content ratios.
+    Auto-classify a document into one of four types based on its content ratios.
 
     Returns: (type_letter, reason_string)
-      - type_letter: "A", "B", "C", "D", or "E"
+      - type_letter: "A", "B", "C", or "D"
       - reason_string: human-readable explanation shown in the Excel inventory
 
-    THE FIVE TYPES (from Solo Operation Workflow):
+    THE FOUR TYPES:
       A = Table-Heavy Control Docs     (>40% content in tables)
       B = Prose-Heavy Intent Docs      (<10% content in tables)
       C = Hybrid Docs                  (between A and B, often with procedures)
       D = Appendix-Dominant Docs       (>60% content in appendix sections)
-      E = Unclassified / manual review needed
 
     HOW CLASSIFICATION WORKS:
       1. Check appendix % first (D beats everything else if dominant enough).
       2. Check table % for A (table-heavy).
       3. Check table % for B (prose-heavy), but scan for procedure keywords
          that would upgrade it to C.
-      4. Anything between A and B thresholds becomes C.
-      5. Anything that doesn't fit → E (requires your manual review).
+      4. Anything between A and B thresholds becomes C (hybrid).
 
     FAILURE MODES:
-
-      Document classified as E (unclassified) but you know what type it is →
-        The thresholds in profiler_config.yaml may not match this document's
-        actual content distribution. Check the "Type Reason" column in the
-        Excel inventory — it shows the actual percentages.
-        FIX: You can override the type manually in the Excel spreadsheet.
-        Do NOT force-fit; per the workflow, Type E gets its own calibration run.
 
       Document classified as B but has a large procedure section →
         The procedure keyword scan only fires if 2+ keywords match. If your
@@ -740,33 +825,18 @@ def classify_document_type(profile: dict, config: dict) -> tuple:
         return ("A", f"Table-heavy: {table_pct:.1f}% table content (threshold: {cls['type_a']['min_table_content_pct']}%)")
 
     # --- Type B: prose-heavy, unless procedure keywords push it to C ---------
+    full_text = profile.get('_full_text', '')
+    procedure_hits = _count_procedure_keywords(full_text, config)
+
     if table_pct <= cls['type_b']['max_table_content_pct']:
-        full_text = profile.get('_full_text', '').lower()
-        procedure_hits = 0
-        for kw in cls['type_c']['procedure_keywords']:
-            if kw.lower() in full_text:
-                procedure_hits += 1
         if procedure_hits >= 2:
             return ("C", f"Hybrid: low table content ({table_pct:.1f}%) but {procedure_hits} procedure keywords detected")
         return ("B", f"Prose-heavy: {table_pct:.1f}% table content (threshold: {cls['type_b']['max_table_content_pct']}%)")
 
-    # --- Between A and B thresholds: Type C or E ----------------------------
-    # (table_pct is between 10% and 40% — neither prose-heavy nor table-heavy)
-    full_text = profile.get('_full_text', '').lower()
-    procedure_hits = 0
-    for kw in cls['type_c']['procedure_keywords']:
-        if kw.lower() in full_text:
-            procedure_hits += 1
+    # --- Between A and B thresholds: Type C (hybrid) -------------------------
     if procedure_hits >= 2:
         return ("C", f"Hybrid: {table_pct:.1f}% table content, {procedure_hits} procedure keywords detected")
-
-    if table_pct > cls['type_b']['max_table_content_pct'] and table_pct < cls['type_a']['min_table_content_pct']:
-        return ("C", f"Hybrid: {table_pct:.1f}% table content (between A and B thresholds)")
-
-    # --- Type E: doesn't fit any category ------------------------------------
-    # Per the workflow: do NOT force-fit into A-D. Run a separate calibration
-    # cycle for Type E documents before processing them.
-    return ("E", f"Unclassified: table_pct={table_pct:.1f}%, appendix_pct={appendix_pct:.1f}%. Review manually.")
+    return ("C", f"Hybrid: {table_pct:.1f}% table content (between A and B thresholds)")
 
 
 def compute_priority_score(profile: dict, config: dict) -> float:
@@ -894,7 +964,7 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
             nested_table_count=0, table_types={}, cross_ref_count=0, cross_refs=[],
             cross_ref_patterns={}, has_text_boxes=False, has_tracked_changes=False,
             has_comments=False, has_images=False, has_embedded_objects=False,
-            has_password_protection=True, doc_type="E", doc_type_reason="Failed to open (encrypted/password-protected)",
+            has_password_protection=True, doc_type="Error", doc_type_reason="Failed to open (encrypted/password-protected)",
             priority_score=0, priority_rank=0, search_term_hits={},
             errors=[f"Cannot open file: {filepath}. File is encrypted or password-protected."]
         )
@@ -913,7 +983,7 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
             nested_table_count=0, table_types={}, cross_ref_count=0, cross_refs=[],
             cross_ref_patterns={}, has_text_boxes=False, has_tracked_changes=False,
             has_comments=False, has_images=False, has_embedded_objects=False,
-            has_password_protection=False, doc_type="E", doc_type_reason=f"Error: {str(e)}",
+            has_password_protection=False, doc_type="Error", doc_type_reason=f"Error: {str(e)}",
             priority_score=0, priority_rank=0, search_term_hits={},
             errors=[str(e)]
         )
@@ -1031,15 +1101,14 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
     total_table_words = 0
     merged_count = 0
     type_counts = {}
+    all_table_texts = []
 
     for tidx, table in enumerate(doc.tables):
-        cls_name, header_row, has_merged, tbl_chars = classify_table(table, config)
+        cls_name, header_row, has_merged, tbl_chars, tbl_words, tbl_text = classify_table(table, config)
         total_table_chars += tbl_chars
-        for row in table.rows:
-            for cell in row.cells:
-                cell_text = cell.text.strip()
-                if cell_text:
-                    total_table_words += len(cell_text.split())
+        total_table_words += tbl_words
+        if tbl_text:
+            all_table_texts.append(tbl_text)
         if has_merged:
             merged_count += 1
         type_counts[cls_name] = type_counts.get(cls_name, 0) + 1
@@ -1059,9 +1128,7 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
     table_pct = round((total_table_chars / total_chars * 100), 1) if total_chars > 0 else 0
 
     # ----- Key term search -----
-    table_text = "\n".join(
-        cell.text for table in doc.tables for row in table.rows for cell in row.cells
-    )
+    table_text = "\n".join(all_table_texts)
     search_term_hits = search_key_terms(full_text, table_text, config)
 
     # ----- Cross-references -----
@@ -1081,9 +1148,11 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
                 pattern_matched=pattern,
                 paragraph_index=i,
                 parent_section=parent,
-                is_hyperlink=False,
             ))
             crossref_pattern_counts[pattern] = crossref_pattern_counts.get(pattern, 0) + 1
+
+    # ----- Nested tables -----
+    nested_count = count_nested_tables(doc)
 
     # ----- Formatting anomalies -----
     anomalies = detect_formatting_anomalies(filepath, doc)
@@ -1191,7 +1260,7 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
         total_table_chars=total_table_chars,
         table_content_pct=table_pct,
         tables_with_merged_cells=merged_count,
-        nested_table_count=0,
+        nested_table_count=nested_count,
         table_types=type_counts,
         cross_ref_count=len(all_crossrefs),
         cross_refs=[vars(c) for c in all_crossrefs],
@@ -1279,13 +1348,13 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
     WHAT TO DO WITH THE SPREADSHEET:
       1. Open it in Excel (or upload to SharePoint and open in Excel Online).
       2. Start with the Summary tab for an overview.
-      3. On the Document Inventory tab:
-         - Column C (Type): your A/B/C/D/E classification
-         - Column D (Priority Score): higher = more work needed = process first
-         - Column G (Over 36k Limit): YES = must split before uploading to SharePoint
-         - Column I (Merged Cell Tables): any count > 0 = complex table handling needed
-         - Column T (Missing Sections): sections that don't exist in the doc
-         - Column U (Tracked Changes): YES = accept/reject in Word before processing
+      3. On the Document Inventory tab (check header row for exact positions):
+         - Type: your A/B/C/D classification
+         - Priority Score: higher = more work needed = process first
+         - Over 36k Limit: YES = must split before uploading to SharePoint
+         - Merged Cell Tables: any count > 0 = complex table handling needed
+         - Missing Sections: sections that don't exist in the doc
+         - Tracked Changes: YES = accept/reject in Word before processing
       4. Add a "Usage Frequency" column manually (0-10 per doc, based on how often
          people ask about this policy). Use this to re-sort if needed.
       5. Add a "Processing Status" column as you work through each document.
@@ -1361,6 +1430,9 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
     for term in search_terms:
         columns.append((f"Term: {term}", 10))
 
+    # Build column name → 1-based index map for conditional formatting
+    col_map = {name: idx for idx, (name, _) in enumerate(columns, 1)}
+
     # Write headers
     for col_idx, (col_name, width) in enumerate(columns, 1):
         cell = ws.cell(row=1, column=col_idx, value=col_name)
@@ -1379,7 +1451,7 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
         "B": PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid"),
         "C": PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid"),
         "D": PatternFill(start_color="E4DFEC", end_color="E4DFEC", fill_type="solid"),
-        "E": PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
+        "Error": PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
     }
 
     for row_idx, p in enumerate(profiles, 2):
@@ -1438,32 +1510,32 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
             cell.border = thin_border
             cell.alignment = Alignment(vertical="center")
 
-        # Conditional formatting
-        type_cell = ws.cell(row=row_idx, column=3)
-        type_cell.fill = type_fills.get(p.doc_type, type_fills["E"])
+        # Conditional formatting (uses col_map for correct column indices)
+        type_cell = ws.cell(row=row_idx, column=col_map["Type"])
+        type_cell.fill = type_fills.get(p.doc_type, type_fills["A"])
 
         if p.over_size_limit:
-            ws.cell(row=row_idx, column=7).fill = fail_fill
+            ws.cell(row=row_idx, column=col_map["Over 36k Limit"]).fill = fail_fill
         if p.fake_heading_count > 5:
-            ws.cell(row=row_idx, column=12).fill = warn_fill
+            ws.cell(row=row_idx, column=col_map["Fake Headings"]).fill = warn_fill
         if p.tables_with_merged_cells > 0:
-            ws.cell(row=row_idx, column=9).fill = warn_fill
+            ws.cell(row=row_idx, column=col_map["Merged Cell Tables"]).fill = warn_fill
         if p.missing_sections:
-            ws.cell(row=row_idx, column=20).fill = warn_fill
+            ws.cell(row=row_idx, column=col_map["Missing Sections"]).fill = warn_fill
 
         # Profiling flag highlights (yellow for flagged)
         if p.control_dense:
-            ws.cell(row=row_idx, column=33).fill = warn_fill
+            ws.cell(row=row_idx, column=col_map["Control Dense"]).fill = warn_fill
         if p.heading_variance:
-            ws.cell(row=row_idx, column=34).fill = warn_fill
+            ws.cell(row=row_idx, column=col_map["Heading Variance"]).fill = warn_fill
         if p.table_dense:
-            ws.cell(row=row_idx, column=37).fill = warn_fill
+            ws.cell(row=row_idx, column=col_map["Table Dense"]).fill = warn_fill
         if p.has_password_protection:
-            ws.cell(row=row_idx, column=30).fill = fail_fill
+            ws.cell(row=row_idx, column=col_map["Password Protected"]).fill = fail_fill
 
         # Highlight search term hits with green fill
         hit_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-        static_col_count = 39  # number of static columns before search terms
+        static_col_count = len(columns) - len(search_terms)
         for t_idx, term in enumerate(search_terms):
             count = p.search_term_hits.get(term, 0)
             if count > 0:
@@ -1475,13 +1547,14 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
     ws2.column_dimensions['B'].width = 15
 
     summary_data = [
+        ("Profiler Version", __version__),
         ("Total Documents", len(profiles)),
         ("", ""),
         ("Type A (Table-Heavy)", len([p for p in profiles if p.doc_type == "A"])),
         ("Type B (Prose-Heavy)", len([p for p in profiles if p.doc_type == "B"])),
         ("Type C (Hybrid)", len([p for p in profiles if p.doc_type == "C"])),
         ("Type D (Appendix-Dominant)", len([p for p in profiles if p.doc_type == "D"])),
-        ("Type E (Unclassified)", len([p for p in profiles if p.doc_type == "E"])),
+        ("Error (Failed to Open)", len([p for p in profiles if p.doc_type == "Error"])),
         ("", ""),
         ("Over 36k Character Limit", len([p for p in profiles if p.over_size_limit])),
         ("Has Fake Headings", len([p for p in profiles if p.fake_heading_count > 0])),
@@ -1632,8 +1705,13 @@ def write_json(profiles: list, output_path: str):
         # Remove large internal fields
         d.pop('_full_text', None)
         data.append(d)
+    output = {
+        "profiler_version": __version__,
+        "document_count": len(profiles),
+        "profiles": data,
+    }
     with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2, default=str)
+        json.dump(output, f, indent=2, default=str)
 
 
 # ============================================================================
@@ -1669,9 +1747,10 @@ def main():
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    # Find the best default config: dps_config.yaml (unified) or profiler_config.yaml (legacy)
+    # Find the best default config: dps_config.xlsx (primary) or dps_config_fallback.yaml
     default_config = 'profiler_config.yaml'
-    for candidate in ['dps_config.yaml', '../dps_config.yaml']:
+    for candidate in ['dps_config.xlsx', '../dps_config.xlsx',
+                      'dps_config_fallback.yaml', '../dps_config_fallback.yaml']:
         if os.path.isfile(candidate):
             default_config = candidate
             break
@@ -1679,7 +1758,7 @@ def main():
     parser.add_argument(
         '--config', '-c',
         default=default_config,
-        help='Path to YAML config file (default: dps_config.yaml or profiler_config.yaml)'
+        help='Path to config file (default: dps_config.xlsx or dps_config_fallback.yaml)'
     )
     parser.add_argument(
         '--input', '-i',
@@ -1698,7 +1777,7 @@ def main():
     # -------------------------------------------------------------------------
     print()
     print("=" * 60)
-    print("  Policy Document Profiler")
+    print(f"  Policy Document Profiler v{__version__}")
     print("  Copilot KB Optimization — Document Inventory Generator")
     print("=" * 60)
 
@@ -1913,14 +1992,14 @@ def main():
     print("\n" + "=" * 60)
     print("  RESULTS SUMMARY")
     print("=" * 60)
-    type_counts = {t: len([p for p in profiles if p.doc_type == t]) for t in "ABCDE"}
+    type_counts = {t: len([p for p in profiles if p.doc_type == t]) for t in ["A", "B", "C", "D", "Error"]}
     print(f"  Total documents profiled : {len(profiles)}")
     print(f"  Type A  Table-Heavy      : {type_counts['A']}")
     print(f"  Type B  Prose-Heavy      : {type_counts['B']}")
     print(f"  Type C  Hybrid           : {type_counts['C']}")
     print(f"  Type D  Appendix-Dom     : {type_counts['D']}")
-    print(f"  Type E  Unclassified     : {type_counts['E']}"
-          + ("  ← needs manual review" if type_counts['E'] else ""))
+    if type_counts['Error']:
+        print(f"  Error   Failed to Open   : {type_counts['Error']}  ← check password/corruption")
     print()
     over_limit = len([p for p in profiles if p.over_size_limit])
     tracked    = len([p for p in profiles if p.has_tracked_changes])
@@ -1953,10 +2032,10 @@ def main():
     print("     → Start with the 'Summary' tab for an overview")
     print("     → 'Document Inventory' tab is pre-sorted by priority score")
     print()
-    if type_counts['E']:
-        print(f"  2. REQUIRED: {type_counts['E']} Type E document(s) need manual classification.")
-        print("     → See 'Type Reason' column for why they didn't auto-classify")
-        print("     → Do NOT force-fit into A-D; run a calibration cycle for Type E docs")
+    if type_counts['Error']:
+        print(f"  2. ACTION NEEDED: {type_counts['Error']} document(s) could not be opened.")
+        print("     → See 'Type Reason' column for the error details")
+        print("     → Check for password protection or file corruption")
         print()
     if over_limit:
         print(f"  3. REQUIRED: {over_limit} document(s) exceed the 36k character limit.")

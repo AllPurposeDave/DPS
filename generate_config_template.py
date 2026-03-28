@@ -4,7 +4,7 @@ Generate dps_config.xlsx — the Excel-based configuration template for DPS.
 
 Usage:
   python generate_config_template.py                        # fresh template with defaults
-  python generate_config_template.py --from-yaml dps_config.yaml  # populate from existing YAML
+  python generate_config_template.py --from-yaml dps_config_fallback.yaml  # populate from existing YAML
   python generate_config_template.py -o my_config.xlsx      # custom output path
 
 The generated workbook has one sheet per configuration section, with
@@ -162,12 +162,15 @@ def _build_readme(wb):
         "",
         "PIPELINE ORDER:",
         "  Step 0  policy_profiler.py         — Scan & classify all docs",
-        "  Step 1  extract_controls.py        — Pull structured control data",
-        "  Step 2  cross_reference_extractor.py — Capture cross-refs",
-        "  Step 3  heading_style_fixer.py     — Fix fake headings",
-        "  Step 4  section_splitter.py        — Split docs at H1 boundaries",
-        "  Step 5  add_metadata.py            — Stamp sub-docs with metadata",
-        "  Step 6  validate_controls.py       — Validate controls in splits",
+        "  Step 1  acronym_finder.py          — Scan for acronym candidates, generates an acronym audit workbook for human review and finalization. The confirmed set of acronyms are then fed into the metadata tagging stage",
+        "  Step 2  extract_controls.py        — Pull structured controls from docx into an excel using regex and heuristics",
+        "  Step 3  cross_reference_extractor.py — Capture cross-refs. This includes 'refer to section', URLs in documents, and internal document links to headings",
+        "  Step 4  heading_style_fixer.py     — Fix false headings (Text that is bold and appears to be heading but is not a heading format for .docx)",
+        "  Step 5  section_splitter.py        — Split docs at H1 boundaries after the desired char limit",
+        "  Step 6  add_metadata.py            — Stamp sub-docs with metadata",
+        "  Step 7  docx2md.py                 — Convert word documents to Markdown",
+        "  Step 8  docx2jsonl.py              — Convert word documents to JSONL",
+        "  Step 9  validate_controls.py       — Validate controls in split versions of docs",
         "",
         "HOW TO RUN:",
         "  Full pipeline:  python run_pipeline.py",
@@ -239,9 +242,14 @@ def _build_output_sheet(wb, cfg: dict):
     _add_setting(ws, "profiler.crossrefs_file", prof.get("crossrefs_file", "crossref_inventory.csv"),
                  "One row per cross-reference")
 
-    _add_subheader(ws, "Step 1 — Controls")
+    _add_subheader(ws, "Step 1 — Acronyms")
+    acr = out.get("acronyms", {})
+    _add_setting(ws, "acronyms.directory", acr.get("directory", "1 - acronyms"), "Sub-folder name")
+    _add_setting(ws, "acronyms.output_file", acr.get("output_file", "acronym_audit.xlsx"), "Audit Excel output")
+
+    _add_subheader(ws, "Step 2 — Controls")
     ctrl = out.get("controls", {})
-    _add_setting(ws, "controls.directory", ctrl.get("directory", "1 - controls"), "Sub-folder name")
+    _add_setting(ws, "controls.directory", ctrl.get("directory", "2 - controls"), "Sub-folder name")
     _add_setting(ws, "controls.output_file", ctrl.get("output_file", "controls_output.csv"), "CSV output")
     _add_setting(ws, "controls.output_file_xlsx", ctrl.get("output_file_xlsx", "controls_output.xlsx"),
                  "Excel output")
@@ -249,32 +257,40 @@ def _build_output_sheet(wb, cfg: dict):
                  "Resume progress tracker")
     _add_setting(ws, "controls.error_log", ctrl.get("error_log", "errors.log"), "Error log file")
 
-    _add_subheader(ws, "Step 2 — Cross References")
+    _add_subheader(ws, "Step 3 — Cross References")
     xref = out.get("cross_references", {})
-    _add_setting(ws, "cross_references.directory", xref.get("directory", "2 - cross_references"), "Sub-folder name")
+    _add_setting(ws, "cross_references.directory", xref.get("directory", "3 - cross_references"), "Sub-folder name")
     _add_setting(ws, "cross_references.output_file", xref.get("output_file", "cross_references.csv"), "CSV output")
 
-    _add_subheader(ws, "Step 3 — Heading Fixes")
+    _add_subheader(ws, "Step 4 — Heading Fixes")
     hfix = out.get("heading_fixes", {})
-    _add_setting(ws, "heading_fixes.directory", hfix.get("directory", "3 - heading_fixes"), "Sub-folder name")
+    _add_setting(ws, "heading_fixes.directory", hfix.get("directory", "4 - heading_fixes"), "Sub-folder name")
     _add_setting(ws, "heading_fixes.changes_file", hfix.get("changes_file", "heading_changes.csv"),
                  "Changes log CSV")
 
-    _add_subheader(ws, "Step 4 — Split Documents")
+    _add_subheader(ws, "Step 5 — Split Documents")
     splt = out.get("split_documents", {})
-    _add_setting(ws, "split_documents.directory", splt.get("directory", "4 - split_documents"), "Sub-folder name")
+    _add_setting(ws, "split_documents.directory", splt.get("directory", "5 - split_documents"), "Sub-folder name")
     _add_setting(ws, "split_documents.manifest_file", splt.get("manifest_file", "split_manifest.csv"),
                  "Split manifest CSV")
 
-    _add_subheader(ws, "Step 5 — Metadata")
+    _add_subheader(ws, "Step 6 — Metadata")
     meta = out.get("metadata", {})
-    _add_setting(ws, "metadata.directory", meta.get("directory", "5 - metadata"), "Sub-folder name")
+    _add_setting(ws, "metadata.directory", meta.get("directory", "6 - metadata"), "Sub-folder name")
     _add_setting(ws, "metadata.manifest_file", meta.get("manifest_file", "metadata_manifest.csv"),
                  "Metadata manifest CSV")
 
-    _add_subheader(ws, "Step 6 — Validation")
+    _add_subheader(ws, "Step 7 — Markdown")
+    md = out.get("markdown", {})
+    _add_setting(ws, "markdown.directory", md.get("directory", "7 - markdown"), "Sub-folder name")
+
+    _add_subheader(ws, "Step 8 — JSONL")
+    jl = out.get("jsonl", {})
+    _add_setting(ws, "jsonl.directory", jl.get("directory", "8 - jsonl"), "Sub-folder name")
+
+    _add_subheader(ws, "Step 9 — Validation")
     val = out.get("validation", {})
-    _add_setting(ws, "validation.directory", val.get("directory", "6 - validation"), "Sub-folder name")
+    _add_setting(ws, "validation.directory", val.get("directory", "9 - validation"), "Sub-folder name")
     _add_setting(ws, "validation.output_file", val.get("output_file", "control_validation.csv"), "CSV output")
     _add_setting(ws, "validation.review_file", val.get("review_file", "validation_review.xlsx"),
                  "Human review workbook")
@@ -404,6 +420,36 @@ def _build_text_deletions_sheet(wb, cfg: dict):
     ws.cell(row=ws.max_row, column=1).font = DESC_FONT
     for phrase in (td.get("phrases") or []):
         ws.append([phrase, "", ""])
+
+    _add_subheader(ws, "Sections to Delete")
+    ws.append(["## Delete an entire section: heading + all content until the next heading of same or higher level.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(["## Match is case-insensitive substring on the heading text. Originals are never modified.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(["## Example: 'Appendix A' deletes the Appendix A heading and everything below it until the next H1/H2.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+
+    # Column headers for the section deletion sub-table
+    section_header_row = ws.max_row + 1
+    ws.append(["Section Heading", "Delete (TRUE/FALSE)", "Description"])
+    for cell in ws[ws.max_row]:
+        cell.font = SUBHEADER_FONT
+        cell.fill = SUBHEADER_FILL
+        cell.border = THIN_BORDER
+
+    for entry in (td.get("section_deletions") or []):
+        heading = entry.get("heading", "")
+        delete = entry.get("delete", True)
+        desc = entry.get("description", "")
+        ws.append([heading, delete, desc])
+
+    # Leave a few empty rows for user additions
+    for _ in range(5):
+        ws.append(["", "", ""])
+
+    # Bool validation for Delete column (B) in section deletion rows
+    data_start = section_header_row + 1
+    _add_bool_validation(ws, "B", data_start, ws.max_row)
 
     _finalize_sheet(ws)
 
@@ -803,18 +849,24 @@ def _build_pipeline_sheet(wb, cfg: dict):
     defaults = [
         (0, "Step 0 - Document Profiler", "policy_profiler.py", True,
          "Scan all docs, extract metadata, classify types, score priority, count words"),
-        (1, "Step 1 - Control Extractor", "extract_controls.py", True,
+        (1, "Step 1 - Acronym Finder", "acronym_finder.py", True,
+         "Scan all docs for acronym candidates and generate audit Excel"),
+        (2, "Step 2 - Control Extractor", "extract_controls.py", True,
          "Extract structured control data from compliance docs"),
-        (2, "Step 2 - Cross-Reference Extractor", "cross_reference_extractor.py", True,
+        (3, "Step 3 - Cross-Reference Extractor", "cross_reference_extractor.py", True,
          "Capture all cross-refs BEFORE any structural changes"),
-        (3, "Step 3 - Heading Style Fixer", "heading_style_fixer.py", True,
+        (4, "Step 4 - Heading Style Fixer", "heading_style_fixer.py", True,
          "Convert fake bold headings to real Word Heading styles"),
-        (4, "Step 4 - Section Splitter", "section_splitter.py", True,
+        (5, "Step 5 - Section Splitter", "section_splitter.py", True,
          "Split fixed docs at H1 boundaries into sub-documents"),
-        (5, "Step 5 - Metadata Injector", "add_metadata.py", True,
+        (6, "Step 6 - Metadata Injector", "add_metadata.py", True,
          "Add identity metadata to sub-documents"),
-        (6, "Step 6 - Control Validator", "validate_controls.py", True,
-         "Validate all Step 1 controls are present in Step 4 split documents"),
+        (7, "Step 7 - DOCX to Markdown", "docx2md.py", True,
+         "Convert .docx files to clean Markdown with YAML frontmatter"),
+        (8, "Step 8 - DOCX to JSONL", "docx2jsonl.py", True,
+         "Convert .docx files to chunked JSONL for RAG/vector DB ingestion"),
+        (9, "Step 9 - Control Validator", "validate_controls.py", True,
+         "Validate all Step 2 controls are present in Step 5 split documents"),
     ]
 
     if steps:
@@ -921,8 +973,17 @@ def _build_docx2md_sheet(wb, cfg: dict):
 
     _style_headers(ws, ["Setting", "Value", "Description"])
 
+    _add_subheader(ws, "Input Mode")
+    _add_setting(ws, "pure_conversion", d2m.get("pure_conversion", False),
+                 "TRUE = Pure Conversion (read from input/), FALSE = Optimized (read from step output)")
+    _add_setting(ws, "optimized_source_step", d2m.get("optimized_source_step", "heading_fixes"),
+                 'Step output to read when not pure: "heading_fixes", "split_documents", "metadata"')
+    for r in range(2, ws.max_row + 1):
+        if ws.cell(row=r, column=1).value == "pure_conversion":
+            _add_bool_validation(ws, "B", r, r)
+
     _add_subheader(ws, "Output")
-    _add_setting(ws, "output_directory", d2m.get("output_directory", "./output/markdown"),
+    _add_setting(ws, "output_directory", d2m.get("output_directory", "./output/7 - markdown"),
                  "Where converted .md files are written")
 
     _add_subheader(ws, "Image Handling")
@@ -1010,6 +1071,102 @@ def _build_docx2md_sheet(wb, cfg: dict):
     _finalize_sheet(ws)
 
 
+def _build_docx2jsonl_sheet(wb, cfg: dict):
+    ws = wb.create_sheet("Docx2jsonl")
+    d2j = cfg.get("docx2jsonl", {})
+
+    _style_headers(ws, ["Setting", "Value", "Description"])
+
+    _add_subheader(ws, "Input Mode")
+    _add_setting(ws, "pure_conversion", d2j.get("pure_conversion", False),
+                 "TRUE = Pure Conversion (read from input/), FALSE = Optimized (read from step output)")
+    _add_setting(ws, "optimized_source_step", d2j.get("optimized_source_step", "heading_fixes"),
+                 'Step output to read when not pure: "heading_fixes", "split_documents", "metadata"')
+    for r in range(2, ws.max_row + 1):
+        if ws.cell(row=r, column=1).value == "pure_conversion":
+            _add_bool_validation(ws, "B", r, r)
+
+    _add_subheader(ws, "Output")
+    _add_setting(ws, "output_directory", d2j.get("output_directory", "./output/8 - jsonl"),
+                 "Where converted .jsonl.txt files are written")
+
+    _add_subheader(ws, "Chunking")
+    _add_setting(ws, "max_chunk_chars", d2j.get("max_chunk_chars", 1500),
+                 "Maximum characters per chunk")
+    _add_setting(ws, "overlap_words", d2j.get("overlap_words", 30),
+                 "Words to overlap between consecutive chunks")
+    _add_setting(ws, "min_chunk_chars", d2j.get("min_chunk_chars", 100),
+                 "Merge trailing chunks smaller than this into previous")
+
+    _add_subheader(ws, "Acronym Definitions")
+    _add_setting(ws, "acronym_definitions_file", d2j.get("acronym_definitions_file", "./input/Acronym_Definitions.xlsx"),
+                 "Path to confirmed acronym definitions Excel (Per Document sheet)")
+
+    _add_subheader(ws, "Tag Mapping")
+    _add_setting(ws, "tag_file", d2j.get("tag_file", ""),
+                 "Optional Excel file mapping documents to tags (leave empty to skip)")
+
+    _finalize_sheet(ws)
+
+
+def _build_acronym_finder_sheet(wb, cfg: dict):
+    ws = wb.create_sheet("Acronym Finder")
+    af = cfg.get("acronym_finder", {})
+
+    _style_headers(ws, ["Setting", "Value", "Description"])
+
+    _add_subheader(ws, "Output")
+    _add_setting(ws, "output_file", af.get("output_file", "acronym_audit.xlsx"),
+                 "Filename for the audit Excel report")
+
+    _add_subheader(ws, "Search Settings")
+    search = af.get("search", {})
+    _add_setting(ws, "search.min_length", search.get("min_length", 2),
+                 "Minimum acronym length (2 = 'AC')")
+    _add_setting(ws, "search.max_length", search.get("max_length", 8),
+                 "Maximum acronym length")
+    _add_setting(ws, "search.scan_tables", search.get("scan_tables", True),
+                 "Include acronyms found inside tables")
+    _add_setting(ws, "search.scan_headers_footers", search.get("scan_headers_footers", True),
+                 "Include acronyms found in headers/footers")
+    _add_setting(ws, "search.scan_textboxes", search.get("scan_textboxes", True),
+                 "Include acronyms found in text boxes")
+    _add_setting(ws, "search.min_global_occurrences", search.get("min_global_occurrences", 1),
+                 "Min occurrences across ALL docs to appear in results")
+    _add_setting(ws, "search.min_doc_occurrences", search.get("min_doc_occurrences", 1),
+                 "Min occurrences within a single doc to appear")
+
+    for r in range(2, ws.max_row + 1):
+        val = ws.cell(row=r, column=1).value
+        if val in ("search.scan_tables", "search.scan_headers_footers", "search.scan_textboxes"):
+            _add_bool_validation(ws, "B", r, r)
+
+    _add_subheader(ws, "Detection Patterns")
+    patterns = af.get("patterns", {})
+    _add_setting(ws, "patterns.pure_caps", patterns.get("pure_caps", True), "ABC, NIST, GCC")
+    _add_setting(ws, "patterns.caps_with_numbers", patterns.get("caps_with_numbers", True), "AC-2, 800-53")
+    _add_setting(ws, "patterns.caps_with_hyphens", patterns.get("caps_with_hyphens", True), "FedRAMP, ATO-P")
+    _add_setting(ws, "patterns.caps_with_slashes", patterns.get("caps_with_slashes", True), "IT/OT, CI/CD")
+    _add_setting(ws, "patterns.parenthetical_defs", patterns.get("parenthetical_defs", True),
+                 '"Multi-Factor Authentication (MFA)"')
+
+    for r in range(2, ws.max_row + 1):
+        val = ws.cell(row=r, column=1).value
+        if val and val.startswith("patterns."):
+            _add_bool_validation(ws, "B", r, r)
+
+    _add_subheader(ws, "Ignore List (one per row)")
+    ws.append(['## Acronyms and uppercase words to skip entirely', "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    for item in af.get("ignore_list", []):
+        ws.append([item, "", ""])
+    # Add some empty rows for user additions
+    for _ in range(5):
+        ws.append(["", "", ""])
+
+    _finalize_sheet(ws)
+
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 def generate_config_workbook(cfg: dict, output_path: str):
@@ -1035,6 +1192,8 @@ def generate_config_workbook(cfg: dict, output_path: str):
     _build_pipeline_sheet(wb, cfg)
     _build_metadata_sheet(wb, cfg)
     _build_docx2md_sheet(wb, cfg)
+    _build_docx2jsonl_sheet(wb, cfg)
+    _build_acronym_finder_sheet(wb, cfg)
 
     wb.save(output_path)
     print(f"  Config template saved to: {output_path}")
@@ -1044,7 +1203,7 @@ def generate_config_workbook(cfg: dict, output_path: str):
 def main():
     parser = argparse.ArgumentParser(description="Generate dps_config.xlsx template")
     parser.add_argument("--from-yaml", "-y", default=None,
-                        help="Populate values from existing dps_config.yaml")
+                        help="Populate values from existing YAML config (e.g. dps_config_fallback.yaml)")
     parser.add_argument("-o", "--output", default="dps_config.xlsx",
                         help="Output path (default: dps_config.xlsx)")
     args = parser.parse_args()

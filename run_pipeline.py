@@ -6,8 +6,8 @@ DPS — Document Processing System — Pipeline Runner
 One command to run the entire pipeline, or pick individual steps.
 
 HOW IT WORKS:
-    1. Reads dps_config.xlsx (or dps_config.yaml) for all paths and settings
-    2. Runs each enabled step in order (0 → 5)
+    1. Reads dps_config.xlsx (or dps_config_fallback.yaml) for all paths and settings
+    2. Runs each enabled step in order (0 → 9)
     3. Each step's script reads from the input/ folder (or previous step's output)
     4. All outputs land in numbered sub-folders under output/
 
@@ -17,15 +17,19 @@ USAGE:
     python run_pipeline.py --step 1-3         Run Steps 1 through 3
     python run_pipeline.py --step 2,4         Run Steps 2 and 4
     python run_pipeline.py --list             Show all steps and their status
-    python run_pipeline.py --config alt.yaml  Use a different config file
+    python run_pipeline.py --config alt.xlsx  Use a different config file
 
 PIPELINE ORDER:
     Step 0  Document Profiler          → output/0 - profiler/
-    Step 1  Control Extractor          → output/1 - controls/
-    Step 2  Cross-Reference Extractor  → output/2 - cross_references/
-    Step 3  Heading Style Fixer        → output/3 - heading_fixes/
-    Step 4  Section Splitter           → output/4 - split_documents/
-    Step 5  Metadata Injector          → output/5 - metadata/
+    Step 1  Acronym Finder             → output/1 - acronyms/
+    Step 2  Control Extractor          → output/2 - controls/
+    Step 3  Cross-Reference Extractor  → output/3 - cross_references/
+    Step 4  Heading Style Fixer        → output/4 - heading_fixes/
+    Step 5  Section Splitter           → output/5 - split_documents/
+    Step 6  Metadata Injector          → output/6 - metadata/
+    Step 7  DOCX to Markdown           → output/7 - markdown/
+    Step 8  DOCX to JSONL              → output/8 - jsonl/
+    Step 9  Control Validator           → output/9 - validation/
 
 REQUIREMENTS:
     pip install -r requirements.txt
@@ -47,7 +51,7 @@ def load_config(config_path: str) -> dict:
     """Load and validate the config file (supports .xlsx and .yaml)."""
     if not os.path.isfile(config_path):
         print(f"ERROR: Config file not found: {config_path}")
-        print("Expected dps_config.xlsx (or dps_config.yaml) in the project root.")
+        print("Expected dps_config.xlsx (or dps_config_fallback.yaml) in the project root.")
         print("FIX: Run 'python generate_config_template.py' to create dps_config.xlsx.")
         sys.exit(1)
 
@@ -81,6 +85,18 @@ def parse_step_arg(step_str: str) -> list[int]:
     return sorted(steps)
 
 
+def _build_converter_args(config, abs_config, input_dir, out_fn, config_key, out_key):
+    """Build args for docx2md/docx2jsonl with Pure Conversion vs Optimized support."""
+    converter_cfg = config.get(config_key, {})
+    pure = converter_cfg.get("pure_conversion", False)
+    if pure:
+        effective_input = input_dir
+    else:
+        source_step = converter_cfg.get("optimized_source_step", "heading_fixes")
+        effective_input = out_fn(source_step)
+    return ["--config", abs_config, effective_input, out_fn(out_key)]
+
+
 def get_step_definitions(config: dict, config_path: str) -> list[dict]:
     """
     Build the full list of pipeline steps with their commands and directories.
@@ -108,48 +124,72 @@ def get_step_definitions(config: dict, config_path: str) -> list[dict]:
         },
         {
             "number": 1,
-            "name": "Step 1 — Control Extractor",
+            "name": "Step 1 — Acronym Finder",
+            "description": "Scan all docs for acronym candidates and generate audit Excel",
+            "script": os.path.join(scripts_dir, "acronym_finder.py"),
+            "args": ["--config", abs_config, "--input", input_dir, "--output", out("acronyms")],
+            "enabled": True,
+        },
+        {
+            "number": 2,
+            "name": "Step 2 — Control Extractor",
             "description": "Extract structured control data from compliance docs",
             "script": os.path.join(scripts_dir, "extract_controls.py"),
             "args": ["--config", abs_config, input_dir, out("controls")],
             "enabled": True,
         },
         {
-            "number": 2,
-            "name": "Step 2 — Cross-Reference Extractor",
+            "number": 3,
+            "name": "Step 3 — Cross-Reference Extractor",
             "description": "Capture all cross-refs BEFORE any structural changes",
             "script": os.path.join(scripts_dir, "cross_reference_extractor.py"),
             "args": ["--config", abs_config, input_dir, out("cross_references")],
             "enabled": True,
         },
         {
-            "number": 3,
-            "name": "Step 3 — Heading Style Fixer",
+            "number": 4,
+            "name": "Step 4 — Heading Style Fixer",
             "description": "Convert fake bold headings to real Word Heading styles",
             "script": os.path.join(scripts_dir, "heading_style_fixer.py"),
             "args": ["--config", abs_config, input_dir, out("heading_fixes")],
             "enabled": True,
         },
         {
-            "number": 4,
-            "name": "Step 4 — Section Splitter",
+            "number": 5,
+            "name": "Step 5 — Section Splitter",
             "description": "Split fixed docs at H1 boundaries into sub-documents",
             "script": os.path.join(scripts_dir, "section_splitter.py"),
             "args": ["--config", abs_config, out("heading_fixes"), out("split_documents")],
             "enabled": True,
         },
         {
-            "number": 5,
-            "name": "Step 5 — Metadata Injector",
+            "number": 6,
+            "name": "Step 6 — Metadata Injector",
             "description": "Add identity metadata (name, URL, scope, intent, tags) to sub-documents",
             "script": os.path.join(scripts_dir, "add_metadata.py"),
             "args": ["--config", abs_config, out("split_documents"), out("metadata")],
             "enabled": True,
         },
         {
-            "number": 6,
-            "name": "Step 6 — Control Validator",
-            "description": "Validate all Step 1 controls are present in Step 4 split documents",
+            "number": 7,
+            "name": "Step 7 — DOCX to Markdown",
+            "description": "Convert .docx files to clean Markdown with YAML frontmatter",
+            "script": os.path.join(scripts_dir, "docx2md.py"),
+            "args": _build_converter_args(config, abs_config, input_dir, out, "docx2md", "markdown"),
+            "enabled": True,
+        },
+        {
+            "number": 8,
+            "name": "Step 8 — DOCX to JSONL",
+            "description": "Convert .docx files to chunked JSONL for RAG/vector DB ingestion",
+            "script": os.path.join(scripts_dir, "docx2jsonl.py"),
+            "args": _build_converter_args(config, abs_config, input_dir, out, "docx2jsonl", "jsonl"),
+            "enabled": True,
+        },
+        {
+            "number": 9,
+            "name": "Step 9 — Control Validator",
+            "description": "Validate all Step 2 controls are present in Step 5 split documents",
             "script": os.path.join(scripts_dir, "validate_controls.py"),
             "args": ["--config", abs_config],
             "enabled": True,

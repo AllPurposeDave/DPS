@@ -9,12 +9,12 @@
 5. [Pipeline Steps](#pipeline-steps)
 6. [Configuration Reference](#configuration-reference)
 7. [Output Reference](#output-reference)
-8. [Utilities](#utilities)
-   - [DOCX to Markdown Converter](#docx-to-markdown-converter-miscdocx2mdpy)
-   - [Acronym Finder](#acronym-finder-miscacronym-finderacronym_finderpy)
+8. [File Lifecycle: What to Keep, What to Delete](#file-lifecycle-what-to-keep-what-to-delete)
+9. [Utilities](#utilities)
+   - [Acronym Intake Template Generator](#acronym-intake-template-miscacronym-findercreate_acronym_templatepy)
    - [Word Counter](#word-counter-scriptsword_counterpy)
    - [Control Attribute Analyzer](#control-attribute-analyzer-miscanalyze_control_attributespy)
-9. [Troubleshooting](#troubleshooting)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -22,21 +22,28 @@
 
 The **Document Processing System (DPS)** is a Python pipeline that transforms policy `.docx` files into chunk-friendly documents optimized for RAG (Retrieval-Augmented Generation) retrieval.
 
-The pipeline runs 7 sequential steps:
+The pipeline runs 10 sequential steps:
 
 | Step | Script | What It Does | Type |
 |------|--------|-------------|------|
 | 0 | `policy_profiler.py` | Scan & classify all documents | Read-only |
-| 1 | `extract_controls.py` | Extract structured control data | Read-only |
-| 2 | `cross_reference_extractor.py` | Capture cross-references | Read-only |
-| 3 | `heading_style_fixer.py` | Fix fake headings to real Word styles | Transformative |
-| 4 | `section_splitter.py` | Split documents at H1 boundaries into RAG-sized sub-documents | Transformative |
-| 5 | `add_metadata.py` | Stamp sub-documents with identity metadata | Transformative |
-| 6 | `validate_controls.py` | Validate controls exist in split output | Read-only |
+| 1 | `acronym_finder.py` | Scan for acronym candidates and generate audit Excel | Read-only |
+| 2 | `extract_controls.py` | Extract structured control data | Read-only |
+| 3 | `cross_reference_extractor.py` | Capture cross-references | Read-only |
+| 4 | `heading_style_fixer.py` | Fix fake headings to real Word styles | Transformative |
+| 5 | `section_splitter.py` | Split documents at H1 boundaries into RAG-sized sub-documents | Transformative |
+| 6 | `add_metadata.py` | Stamp sub-documents with identity metadata | Transformative |
+| 7 | `docx2md.py` | Convert .docx to clean Markdown with YAML frontmatter | Conversion |
+| 8 | `docx2jsonl.py` | Convert .docx to chunked JSONL for RAG ingestion | Conversion |
+| 9 | `validate_controls.py` | Validate controls exist in split output | Read-only |
 
-**Read-only** steps (0, 1, 2, 6) only analyze documents and produce reports. Your original input files are never modified.
+**Read-only** steps (0, 1, 2, 3, 9) only analyze documents and produce reports. Your original input files are never modified.
 
-**Transformative** steps (3, 4, 5) create new `.docx` files with modifications. Originals in `input/` are still untouched — these steps write altered copies to their own output folders. Each transformative step feeds into the next: Step 3 produces `*_fixed.docx` files, Step 4 splits those into sub-documents, and Step 5 adds metadata to the sub-documents.
+**Transformative** steps (4, 5, 6) create new `.docx` files with modifications. Originals in `input/` are still untouched — these steps write altered copies to their own output folders. Each transformative step feeds into the next: Step 4 produces `*_fixed.docx` files, Step 5 splits those into sub-documents, and Step 6 adds metadata to the sub-documents.
+
+**Conversion** steps (7, 8) convert .docx files to other formats (Markdown and JSONL). They support two input modes:
+- **Pure Conversion**: Read directly from `input/` — no transformations applied.
+- **Optimized** (default): Read from a pipeline step's output (e.g. `heading_fixes` from Step 4). Configurable via `pure_conversion` and `optimized_source_step` settings.
 
 After all steps complete, a consolidated Excel report is generated with one sheet per step's CSV output.
 
@@ -78,7 +85,7 @@ That's it. The default config works out of the box for most policy document sets
 ### Basic Usage
 
 ```bash
-# Run all enabled steps (0 through 6)
+# Run all enabled steps (0 through 9)
 python run_pipeline.py
 
 # List all steps and their enabled/disabled status
@@ -163,18 +170,49 @@ Scans every document and produces a comprehensive inventory:
 | File | Contents |
 |------|----------|
 | `document_inventory.xlsx` | Master spreadsheet — one row per document with all metrics |
-| `document_profiles.json` | Machine-readable profiles (used by Step 5) |
+| `document_profiles.json` | Machine-readable profiles (used by Step 6) |
 | `section_inventory.csv` | One row per section per document |
 | `table_inventory.csv` | One row per table per document |
 | `crossref_inventory.csv` | One row per cross-reference candidate |
 
 ---
 
-### Step 1 — Control Extractor (Read-only)
+### Step 1 — Acronym Finder (Read-only)
+
+**Script:** `scripts/acronym_finder.py`
+**Input:** All `.docx` files from `input/`
+**Output:** `output/1 - acronyms/`
+
+Scans every document for acronym candidates and generates a multi-sheet Excel audit report. Run early — undefined acronyms in RAG chunks produce poor retrieval answers (a chunk saying "MFA is required per AC-2.1" with no expansion confuses the model).
+
+- Detects pure-caps acronyms (NIST, MFA), mixed-with-numbers (AC-2, 800-53), slash-separated (IT/OT), and parenthetical definitions
+- Flags acronyms with no parenthetical expansion found anywhere in the corpus (highlighted yellow)
+- Builds a cross-reference matrix showing which acronyms span which documents
+- Output Excel feeds into Steps 7 and 8 when acronym metadata is enabled
+
+**Key config section:** `acronym_finder` (Section 15 in `dps_config.xlsx`)
+
+**Output files:**
+
+| File | Contents |
+|------|----------|
+| `acronym_audit.xlsx` | Global Summary, Per Document, Undefined Acronyms, Cross-Reference Matrix, Config Used |
+
+**Using the output:**
+
+> **Important:** The `acronym_audit.xlsx` output is **unvalidated** — it contains raw candidates including false positives. Do not point Steps 6/7/8 directly at this file. Instead, review it and curate a verified `input/Acronym_Definitions.xlsx` (see workflow below).
+
+1. Open **Global Summary** — sort by "Total Occurrences" descending; top 20-30 are highest impact
+2. **Undefined Acronyms** sheet — each entry needs an expansion added to the source doc, or added to `ignore_list` in `dps_config.xlsx`
+3. Create `input/Acronym_Definitions.xlsx` by running the template generator, then paste and curate rows from the **Per Document** sheet (see [Acronym Intake Template](#acronym-intake-template-miscacronym-findercreate_acronym_templatepy) and [File Lifecycle](#file-lifecycle-what-to-keep-what-to-delete))
+
+---
+
+### Step 2 — Control Extractor (Read-only)
 
 **Script:** `scripts/extract_controls.py`
 **Input:** All `.docx` files from `input/`
-**Output:** `output/1 - controls/`
+**Output:** `output/2 - controls/`
 
 Extracts structured control data from compliance documents:
 
@@ -197,17 +235,17 @@ Extracts structured control data from compliance documents:
 
 **Output columns:** `source_file`, `section_header`, `control_id`, `control_name`, `baseline`, `control_description`, `supplemental_guidance`, `miscellaneous`, `extraction_source`, `purpose`, `scope`, `applicability`, `compliance_date`, `published_url`
 
-> **Published URL:** If `input/Doc_URL.xlsx` is populated with document names and URLs, Step 1 includes the matching URL in every control row. This is the same file used by Step 5 for metadata injection — one input file serves both steps. See [URL Resolution](#url-resolution) for setup details.
+> **Published URL:** If `input/Doc_URL.xlsx` is populated with document names and URLs, Step 2 includes the matching URL in every control row. This is the same file used by Step 6 for metadata injection — one input file serves both steps. See [URL Resolution](#url-resolution) for setup details.
 
 ---
 
-### Step 2 — Cross-Reference Extractor (Read-only)
+### Step 3 — Cross-Reference Extractor (Read-only)
 
 **Script:** `scripts/cross_reference_extractor.py`
 **Input:** All `.docx` files from `input/`
-**Output:** `output/2 - cross_references/`
+**Output:** `output/3 - cross_references/`
 
-> **Important:** Run this step BEFORE Steps 3-5, which modify document structure. Cross-references should be captured from the original documents.
+> **Important:** Run this step BEFORE Steps 4-6, which modify document structure. Cross-references should be captured from the original documents.
 
 Extracts three types of references:
 
@@ -227,15 +265,15 @@ Extracts three types of references:
 
 ---
 
-### Step 3 — Heading Style Fixer (Transformative)
+### Step 4 — Heading Style Fixer (Transformative)
 
 **Script:** `scripts/heading_style_fixer.py`
 **Input:** All `.docx` files from `input/`
-**Output:** `output/3 - heading_fixes/`
+**Output:** `output/4 - heading_fixes/`
 
 > **This step creates modified copies.** For each input document, a `*_fixed.docx` file is written to the output folder. Original input files are never changed.
 
-Standardizes heading styles so Step 4 (splitter) can find section boundaries:
+Standardizes heading styles so Step 5 (splitter) can find section boundaries:
 
 - Applies text deletions (configured phrases removed from all paragraphs and tables)
 - Converts fake bold headings to real Word Heading 1/2/3 styles
@@ -255,13 +293,13 @@ Standardizes heading styles so Step 4 (splitter) can find section boundaries:
 
 ---
 
-### Step 4 — Section Splitter (Transformative)
+### Step 5 — Section Splitter (Transformative)
 
 **Script:** `scripts/section_splitter.py`
-**Input:** `*_fixed.docx` files from `output/3 - heading_fixes/`
-**Output:** `output/4 - split_documents/`
+**Input:** `*_fixed.docx` files from `output/4 - heading_fixes/`
+**Output:** `output/5 - split_documents/`
 
-> **This step creates new sub-documents.** Each input document is split into multiple smaller `.docx` files. Step 4 reads from Step 3's output, not from `input/`.
+> **This step creates new sub-documents.** Each input document is split into multiple smaller `.docx` files. Step 5 reads from Step 4's output, not from `input/`.
 
 Splits documents at Heading 1 boundaries to produce RAG-optimized sub-documents. Each chunk is self-contained and sized to maximize retrieval precision:
 
@@ -286,13 +324,13 @@ Splits documents at Heading 1 boundaries to produce RAG-optimized sub-documents.
 
 ---
 
-### Step 5 — Metadata Injector (Transformative)
+### Step 6 — Metadata Injector (Transformative)
 
 **Script:** `scripts/add_metadata.py`
-**Input:** `.docx` files from `output/4 - split_documents/`
-**Output:** `output/5 - metadata/`
+**Input:** `.docx` files from `output/5 - split_documents/`
+**Output:** `output/6 - metadata/`
 
-> **This step creates final output documents.** Each sub-document gets a metadata block added. Step 5 reads from Step 4's output.
+> **This step creates final output documents.** Each sub-document gets a metadata block added. Step 6 reads from Step 5's output.
 
 Stamps each sub-document with identity metadata so Copilot/RAG always knows what document a chunk came from:
 
@@ -300,7 +338,7 @@ Stamps each sub-document with identity metadata so Copilot/RAG always knows what
 - **URL** — resolved from Excel lookup file or fallback template
 - **Scope** — extracted from profiler data (Step 0) or direct document scan
 - **Intent** — extracted from profiler data (Step 0) or direct document scan
-- **Tags** — generated from document type, sections found, acronyms, and static tags
+- **Tags** — generated from document type, sections found, acronyms (from `input/Acronym_Definitions.xlsx`, the same verified file used by Steps 7/8), and static tags
 
 Metadata placement options: top of document, top and bottom, or Word header on every page.
 
@@ -315,15 +353,40 @@ Metadata placement options: top of document, top and bottom, or Word header on e
 
 ---
 
-### Step 6 — Control Validator (Read-only)
+### Step 7 — DOCX to Markdown (Conversion)
+
+**Script:** `scripts/docx2md.py`
+**Input:** Configurable — `input/` (Pure Conversion) or `output/4 - heading_fixes/` (Optimized, default)
+**Output:** `output/7 - markdown/`
+
+Converts `.docx` files to clean Markdown with YAML frontmatter. Output is optimized for RAG ingestion. Supports two input modes:
+
+- **Optimized** (default): reads from Step 4's heading-fixed files for cleaner heading structure
+- **Pure Conversion**: reads directly from `input/`, bypassing all transformations
+
+For full configuration details see [Section 13: DOCX to Markdown](#section-13-docx-to-markdown-docx2md) in the Configuration Reference.
+
+---
+
+### Step 8 — DOCX to JSONL (Conversion)
+
+**Script:** `scripts/docx2jsonl.py`
+**Input:** Configurable — `input/` (Pure Conversion) or `output/4 - heading_fixes/` (Optimized, default)
+**Output:** `output/8 - jsonl/`
+
+Converts `.docx` files to chunked JSONL for RAG/vector DB ingestion. Each output file contains one JSON object per chunk with `text`, `PublishedURL`, `acronyms`, heading context, and configurable metadata. Supports the same Pure/Optimized input modes as Step 7.
+
+---
+
+### Step 9 — Control Validator (Read-only)
 
 **Script:** `scripts/validate_controls.py`
-**Input:** `output/1 - controls/controls_output.csv` + `output/4 - split_documents/` + `input/*.docx`
-**Output:** `output/6 - validation/`
+**Input:** `output/2 - controls/controls_output.csv` + `output/5 - split_documents/` + `input/*.docx`
+**Output:** `output/9 - validation/`
 
-**Prerequisites:** Steps 1, 3, and 4 must have run first.
+**Prerequisites:** Steps 2, 4, and 5 must have run first.
 
-Validates that every control extracted in Step 1 is present in the split documents from Step 4, and generates a human-review workbook to triage extraction quality.
+Validates that every control extracted in Step 2 is present in the split documents from Step 5, and generates a human-review workbook to triage extraction quality.
 
 **Validation statuses:**
 
@@ -348,11 +411,60 @@ Flags that reduce confidence: `EMPTY_DESCRIPTION`, `SHORT_DESCRIPTION`, `LONG_DE
 | File | Contents |
 |------|----------|
 | `control_validation.csv` | One row per control with validation status |
-| `validation_review.xlsx` | Two-sheet workbook: confidence-scored controls for human review + summary statistics |
+| `validation_review.xlsx` | Three-sheet workbook: confidence-scored controls for human review, summary statistics, and a template for adding missed controls |
+| `README.md` | Step-by-step reviewer instructions (regenerated each run) |
 
 **Output columns (control_validation.csv):** `control_id`, `source_file`, `source_section`, `found_in_split_docs`, `split_doc_filenames`, `parent_doc_match`, `status`
 
 **Validation Review workbook columns:** `Row #`, `Confidence`, `Flags`, `Control ID`, `Source File`, `Section Header`, `Extraction Source`, `Source Context`, `Extracted Description`, `Extracted Guidance`, `Baseline`, `Control Name`, `Validation Status` (dropdown), `Reviewer Notes`
+
+**Validation Status dropdown options:** `Correct`, `Wrong-FalsePositive`, `Wrong-Description`, `Wrong-Guidance`, `Wrong-Baseline`, `Wrong-Section`, `Missing-Content`, `Needs-Review`
+
+**"Add Missing Controls" sheet:** A blank template for reviewers to enter controls the extractor missed. Columns: `Control ID`, `Source File`, `Section Header`, `Control Description`, `Supplemental Guidance`, `Baseline`, `Control Name`, `Reviewer Notes`.
+
+### Validation Feedback Loop
+
+After a human reviews `validation_review.xlsx`, the feedback ingestion script reads the annotations and produces the authoritative control set plus improvement suggestions.
+
+**Script:** `scripts/ingest_review_feedback.py`
+
+```bash
+python scripts/ingest_review_feedback.py
+python scripts/ingest_review_feedback.py --config dps_config.xlsx
+```
+
+**Workflow:**
+
+1. **Run Step 9** to generate `validation_review.xlsx` (and the accompanying `README.md`)
+2. **Open the README** in the validation output folder for detailed review instructions
+3. **Review the workbook** in Excel:
+   - Set `Validation Status` (col M) for each control, starting with red rows
+   - Add `Reviewer Notes` (col N) describing corrections
+   - Use the **"Add Missing Controls"** sheet to enter any controls the extractor missed
+4. **Save the file** (keep the .xlsx name and format)
+5. **Run the feedback script** to produce outputs
+
+**Feedback outputs:**
+
+| File | Contents |
+|------|----------|
+| `confirmed_controls.csv` | The authoritative control set: correct + unreviewed controls + manually added missing controls, minus false positives. Same CSV schema as `controls_output.csv`. |
+| `feedback_report.txt` | Review coverage, status breakdown, excluded/added controls, flag accuracy analysis, per-document stats, and config improvement suggestions. |
+| `suggested_config_changes.yaml` | Machine-readable config patch with blacklist additions, suspect section additions, and pattern suggestions (only generated when clear patterns are detected). |
+
+**How confirmed_controls.csv is built:**
+
+- Controls marked **"Correct"** or **left unreviewed** are kept (unreviewed = assumed correct)
+- Controls marked **"Wrong-FalsePositive"** are excluded
+- Controls from the **"Add Missing Controls"** sheet are appended (with `extraction_source` set to `Manual-Review`)
+- All other statuses (Wrong-Description, Wrong-Guidance, etc.) are kept but flagged in the report
+
+**Config suggestions the script can detect:**
+
+- 3+ false positives sharing a control ID prefix → suggests adding to `control_extraction.blacklist`
+- 3+ false positives sharing a section header → suggests adding to `SUSPECT_SECTIONS`
+- Missing controls with IDs that don't match current regex → suggests new `control_id_pattern`
+- GUIDANCE_IN_DESC flag correlating with description errors → suggests reviewing `guidance_keywords`
 
 ---
 
@@ -418,20 +530,24 @@ Controls where results are written and filenames for each step's output.
 | `output.profiler.sections_file` | `"section_inventory.csv"` | Section inventory filename. |
 | `output.profiler.tables_file` | `"table_inventory.csv"` | Table inventory filename. |
 | `output.profiler.crossrefs_file` | `"crossref_inventory.csv"` | Cross-reference inventory filename. |
-| `output.controls.directory` | `"1 - controls"` | Sub-folder for Step 1 outputs. |
+| `output.acronyms.directory` | `"1 - acronyms"` | Sub-folder for Step 1 outputs. |
+| `output.acronyms.output_file` | `"acronym_audit.xlsx"` | Acronym audit workbook filename. |
+| `output.controls.directory` | `"2 - controls"` | Sub-folder for Step 2 outputs. |
 | `output.controls.output_file` | `"controls_output.csv"` | CSV output filename. |
 | `output.controls.output_file_xlsx` | `"controls_output.xlsx"` | Excel output filename. |
 | `output.controls.checkpoint_file` | `"checkpoint.json"` | Checkpoint filename for resume. |
 | `output.controls.error_log` | `"errors.log"` | Error log filename. |
-| `output.cross_references.directory` | `"2 - cross_references"` | Sub-folder for Step 2 outputs. |
+| `output.cross_references.directory` | `"3 - cross_references"` | Sub-folder for Step 3 outputs. |
 | `output.cross_references.output_file` | `"cross_references.csv"` | Cross-references CSV filename. |
-| `output.heading_fixes.directory` | `"3 - heading_fixes"` | Sub-folder for Step 3 outputs. |
+| `output.heading_fixes.directory` | `"4 - heading_fixes"` | Sub-folder for Step 4 outputs. |
 | `output.heading_fixes.changes_file` | `"heading_changes.csv"` | Heading changes log filename. |
-| `output.split_documents.directory` | `"4 - split_documents"` | Sub-folder for Step 4 outputs. |
+| `output.split_documents.directory` | `"5 - split_documents"` | Sub-folder for Step 5 outputs. |
 | `output.split_documents.manifest_file` | `"split_manifest.csv"` | Split manifest filename. |
-| `output.metadata.directory` | `"5 - metadata"` | Sub-folder for Step 5 outputs. |
+| `output.metadata.directory` | `"6 - metadata"` | Sub-folder for Step 6 outputs. |
 | `output.metadata.manifest_file` | `"metadata_manifest.csv"` | Metadata manifest filename. |
-| `output.validation.directory` | `"6 - validation"` | Sub-folder for Step 6 outputs. |
+| `output.markdown.directory` | `"7 - markdown"` | Sub-folder for Step 7 outputs. |
+| `output.jsonl.directory` | `"8 - jsonl"` | Sub-folder for Step 8 outputs. |
+| `output.validation.directory` | `"9 - validation"` | Sub-folder for Step 9 outputs. |
 | `output.validation.output_file` | `"control_validation.csv"` | Validation results filename. |
 | `output.validation.review_file` | `"validation_review.xlsx"` | Validation review workbook filename. |
 | `output.consolidated_report.enabled` | `true` | Generate a single `.xlsx` workbook with all CSVs after the pipeline completes. |
@@ -664,7 +780,7 @@ Search for specific terms across all documents in Step 0. Results appear as colu
 
 ### Section 11: Control Extraction
 
-Controls how Step 1 extracts structured control data from documents. All settings are on the **Control Extraction** sheet in `dps_config.xlsx`.
+Controls how Step 2 extracts structured control data from documents. All settings are on the **Control Extraction** sheet in `dps_config.xlsx`.
 
 The sheet is organized into 7 blocks (separated by blue `# Sub-header` rows):
 
@@ -809,7 +925,7 @@ On the **Pipeline** sheet, each row is a step with columns: Step | Name | Script
 
 ### Section 12: Metadata Injection
 
-Controls how Step 5 stamps sub-documents with identity metadata.
+Controls how Step 6 stamps sub-documents with identity metadata.
 
 #### Placement and Formatting
 
@@ -843,10 +959,10 @@ For `excel` source fields, also add the `excel_column` setting (e.g., `Owner`) �
 
 #### URL Resolution
 
-**One file, two steps:** The `input/Doc_URL.xlsx` file provides document URLs to both Step 1 (Published URL column in controls output) and Step 5 (URL field in metadata blocks). You only need to maintain one URL mapping file.
+**One file, two steps:** The `input/Doc_URL.xlsx` file provides document URLs to both Step 2 (Published URL column in controls output) and Step 6 (URL field in metadata blocks). You only need to maintain one URL mapping file.
 
-Resolution order (Step 5): Excel lookup → fallback template → "(URL not configured)"
-Resolution order (Step 1): Excel lookup → empty string
+Resolution order (Step 6): Excel lookup → fallback template → "(URL not configured)"
+Resolution order (Step 2): Excel lookup → empty string
 
 **Excel lookup file format**
 
@@ -863,9 +979,9 @@ A template `Doc_URL.xlsx` is included in the `input/` folder with two columns:
 
 **Recommended workflow:**
 
-1. Run Step 0 or Step 1 first to discover the exact document names in your input folder.
+1. Run Step 0 or Step 2 first to discover the exact document names in your input folder.
 2. Open `input/Doc_URL.xlsx` and enter each document name in the `Document_Name` column with its corresponding published URL.
-3. Re-run Step 1 to populate the `published_url` column in controls output, or run Step 5 to stamp URLs into metadata blocks.
+3. Re-run Step 2 to populate the `published_url` column in controls output, or run Step 6 to stamp URLs into metadata blocks.
 
 **How matching works**
 
@@ -884,7 +1000,7 @@ The default config points to `input/Doc_URL.xlsx`. These settings are on the **M
 | url.url_column | URL | Must match your Excel column header exactly |
 | url.sheet | 0 | 0 = first sheet, or use the sheet name as a string |
 
-**If matching fails**, Step 1 and Step 5 will print a warning listing the column headers actually found in your file — use that to spot header typos.
+**If matching fails**, Step 2 and Step 6 will print a warning listing the column headers actually found in your file — use that to spot header typos.
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -892,7 +1008,7 @@ The default config points to `input/Doc_URL.xlsx`. These settings are on the **M
 | `metadata.url.name_column` | `"Document_Name"` | Column header in the Excel file for document names. |
 | `metadata.url.url_column` | `"URL"` | Column header in the Excel file for URLs. |
 | `metadata.url.sheet` | `0` | Sheet name (string) or index (0 = first sheet). |
-| `metadata.url.fallback_template` | `""` | URL template when no Excel match is found (Step 5 only). Use `{filename}` as placeholder. Example: `"https://contoso.sharepoint.com/sites/Policies/Shared Documents/{filename}"` |
+| `metadata.url.fallback_template` | `""` | URL template when no Excel match is found (Step 6 only). Use `{filename}` as placeholder. Example: `"https://contoso.sharepoint.com/sites/Policies/Shared Documents/{filename}"` |
 
 #### Advanced Metadata Settings
 
@@ -902,7 +1018,8 @@ The default config points to `input/Doc_URL.xlsx`. These settings are on the **M
 | `metadata.max_intent_chars` | `300` | Maximum characters for intent text extraction. |
 | `metadata.tags.include_doc_type` | `true` | Add document type tag (e.g., "Type-B"). |
 | `metadata.tags.include_sections_found` | `true` | Add tags for detected sections (e.g., "has-scope", "has-controls"). |
-| `metadata.tags.acronym_audit_file` | `""` | Path to Acronym Finder output Excel. Reads "Per Document" sheet, matches by filename. Leave empty to skip. |
+| `metadata.tags.acronym_definitions_file` | `"./input/Acronym_Definitions.xlsx"` | Path to the human-verified Acronym Definitions file (same file used by Steps 7/8). Preferred source for acronym tags. |
+| `metadata.tags.acronym_audit_file` | `""` | Path to raw Acronym Finder output Excel. Used as fallback only when no definitions file is found. |
 | `metadata.tags.max_acronym_tags` | `15` | Maximum acronym tags per document (most-frequent first). `0` = unlimited. |
 | `metadata.tags.static_tags` | `[]` | Static tags added to ALL documents (e.g., `["InfoSec", "GCC-High"]`). |
 
@@ -910,7 +1027,7 @@ The default config points to `input/Doc_URL.xlsx`. These settings are on the **M
 
 ### Section 13: DOCX to Markdown (`docx2md`)
 
-All settings live under the `docx2md:` key in `dps_config.yaml`. This section controls the standalone `Misc/docx2md.py` converter — it has no effect on the main pipeline steps.
+All settings live under the `docx2md:` key in `dps_config.xlsx`. This section controls **Step 7** (`scripts/docx2md.py`) and its standalone invocation.
 
 #### General Settings
 
@@ -952,7 +1069,7 @@ metadata_fields:
 
 **`excel_lookup_list` format:**
 
-Reads all rows in `<sheet>` where `<key>` column matches the current `.docx` filename (tries exact filename and stem-without-extension), and returns all matching `<value>` column entries as a YAML list (e.g., `["MFA", "NIST", "RAG"]`).
+Reads all rows in `<sheet>` where `<key>` column matches the current `.docx` filename, and returns all matching `<value>` column entries as a YAML list (e.g., `["MFA", "NIST", "RAG"]`). Matching is case-insensitive and normalizes underscores, hyphens, and spaces — so `Policy_Doc.docx` matches an Excel entry of `Policy-Doc` or `policy doc`.
 
 ```yaml
 - name: "acronyms"
@@ -977,158 +1094,121 @@ output/
     table_inventory.csv            # One row per table per doc
     crossref_inventory.csv         # One row per cross-reference
 
-  1 - controls/
+  1 - acronyms/
+    acronym_audit.xlsx             # Multi-sheet acronym report (Global Summary, Per Document, etc.)
+
+  2 - controls/
     controls_output.csv            # One row per control
     controls_output.xlsx           # Same data in Excel
     checkpoint.json                # Resume progress tracker
     errors.log                     # Extraction errors
 
-  2 - cross_references/
+  3 - cross_references/
     cross_references.csv           # One row per cross-reference
 
-  3 - heading_fixes/
+  4 - heading_fixes/
     *_fixed.docx                   # Fixed documents (one per input)
     heading_changes.csv            # Change log
 
-  4 - split_documents/
+  5 - split_documents/
     [Name] - [Heading].docx        # Sub-documents
     split_manifest.csv             # Manifest of all splits
 
-  5 - metadata/
+  6 - metadata/
     [Name] - [Heading].docx        # Sub-documents with metadata
     metadata_manifest.csv          # What metadata was applied
 
-  6 - validation/
+  7 - markdown/
+    *.md                           # One Markdown file per .docx
+    docx2md_log_<timestamp>.xlsx   # Per-file conversion log
+
+  8 - jsonl/
+    *.jsonl.txt                    # One chunked JSONL file per .docx
+
+  9 - validation/
     control_validation.csv         # PASS/MISSING/RELOCATED per control
     validation_review.xlsx         # Confidence-scored controls for human review
 
-  DPS_Report_2026-03-23_143052.xlsx  # Consolidated workbook (all CSVs)
+  DPS_Report_<timestamp>.xlsx      # Consolidated workbook (all CSVs)
 ```
 
 The **consolidated report** (`DPS_Report_*.xlsx`) contains one styled sheet per step's CSV output, with blue headers, frozen top row, autofilter, and auto-sized columns.
 
 ---
 
-## Utilities
+## File Lifecycle: What to Keep, What to Delete
 
-### DOCX to Markdown Converter (`Misc/docx2md.py`)
+The pipeline produces two kinds of files: **human-validated input files** that require effort to create and should be preserved, and **pipeline-generated output files** that can be regenerated at any time.
 
-Standalone tool that converts `.docx` policy documents into clean, well-structured Markdown files with YAML frontmatter. Designed for RAG pipelines — output is optimized for ingestion, not human reading.
+### Human-Validated Files (Do Not Delete)
 
-**When to use:** After the main pipeline has processed your documents, run docx2md if your downstream system ingests Markdown instead of DOCX (e.g., a custom RAG indexer, a knowledge base, or a vector store). Also useful for archiving content in a portable text format.
+These files live in `input/` and represent curated, reviewed data consumed by multiple pipeline steps. Deleting them means repeating the human review process.
 
+| File | How It's Created | What Depends On It |
+|------|-----------------|-------------------|
+| **`input/*.docx`** | Source policy documents from your organization | Everything — the pipeline starts here |
+| **`input/Doc_URL.xlsx`** | You create this manually. Run Step 0 or 2 first to discover document names, then enter each name and its SharePoint URL. | Steps 2, 6, 7, 8 use it for Published URL in controls, metadata blocks, MD frontmatter, and JSONL chunks |
+| **`input/Acronym_Definitions.xlsx`** | You create this by reviewing Step 1's `acronym_audit.xlsx` output, removing false positives, and confirming definitions. The template generator (`Misc/Acronym Finder/create_acronym_template.py`) creates a blank starting file. | Steps 6, 7, 8 use it for acronym tags, MD frontmatter lists, and JSONL chunk metadata |
+| **`dps_config.xlsx`** | Generated once by `generate_config_template.py`, then tuned by you over multiple pipeline runs | All steps read this for their settings |
+
+**Backup strategy:** Back up `input/` and `dps_config.xlsx` before major changes. These files contain human judgment that cannot be regenerated.
+
+### Pipeline Output Files (Safe to Delete)
+
+Everything under `output/` is machine-generated. Re-running the relevant step recreates it. Delete freely to save space or start fresh.
+
+| Folder | Step | Safe to Delete? | Notes |
+|--------|------|----------------|-------|
+| `output/0 - profiler/` | Step 0 | Yes | Re-run `--step 0`. Step 6 reads `document_profiles.json` from here — re-run Step 0 before Step 6 if deleted. |
+| `output/1 - acronyms/` | Step 1 | Yes | Re-run `--step 1`. This is the **unvalidated** audit — your curated version is `input/Acronym_Definitions.xlsx`. |
+| `output/2 - controls/` | Step 2 | Yes | Re-run `--step 2`. Delete `checkpoint.json` to force a full re-extraction. |
+| `output/3 - cross_references/` | Step 3 | Yes | Re-run `--step 3`. |
+| `output/4 - heading_fixes/` | Step 4 | Yes | Re-run `--step 4`. Step 5 reads from here — re-run Step 4 before Step 5 if deleted. |
+| `output/5 - split_documents/` | Step 5 | Yes | Re-run `--step 5`. Steps 6 and 9 read from here. |
+| `output/6 - metadata/` | Step 6 | Yes | Re-run `--step 6`. Steps 7/8 can optionally read from here. |
+| `output/7 - markdown/` | Step 7 | Yes | Re-run `--step 7`. |
+| `output/8 - jsonl/` | Step 8 | Yes | Re-run `--step 8`. |
+| `output/9 - validation/` | Step 9 | Yes | Re-run `--step 9`. If you've reviewed `validation_review.xlsx` and run the feedback script, back up `confirmed_controls.csv` first — that file contains your review decisions. |
+| `output/DPS_Report_*.xlsx` | Pipeline | Yes | Re-run the pipeline to regenerate. |
+
+### How the Validated Files Are Created
+
+```
+1. Run Step 0             → Discover document names in your input folder
+2. Run Step 1             → Get raw acronym candidates (acronym_audit.xlsx)
+3. Create Doc_URL.xlsx    → Open input/Doc_URL.xlsx, enter document names + URLs
+                            from Step 0 output. One row per document.
+4. Create Acronym_Definitions.xlsx
+                          → Run the template generator, paste Per Document rows
+                            from Step 1's audit, remove junk entries, confirm
+                            real definitions. Save to input/Acronym_Definitions.xlsx.
+5. Run Steps 2-9          → Pipeline uses both validated files automatically
+```
+
+**Key point:** Steps 1 and 0 produce **unvalidated candidates**. You review them and create **validated input files**. Downstream steps (2, 6, 7, 8) consume the validated versions. The audit outputs are intermediate — useful for review but not authoritative.
+
+### Cleaning Up
+
+To delete all output and start fresh:
 ```bash
-python Misc/docx2md.py --config dps_config.yaml
-python Misc/docx2md.py --config dps_config.yaml ./input ./output/markdown
-python Misc/docx2md.py ./input ./output/markdown
+rm -rf output/
+python run_pipeline.py
 ```
 
-**Output:** One `.md` file per `.docx`, written to `output/markdown/` by default (configurable). Each file has a YAML frontmatter block at the top with configurable metadata fields.
-
-**Log file:** A timestamped Excel log (`docx2md_log_<timestamp>.xlsx`) is written after each run with per-file status (success/warning/error), elapsed time, heading levels used, and any warnings.
-
-#### Metadata Fields
-
-The YAML frontmatter is fully configurable. Default fields:
-
-| Field | Source | Description |
-|-------|--------|-------------|
-| `title` | `core:title` | Word document core property |
-| `source_file` | `filename` | Original `.docx` filename |
-| `author` | `core:author` | Word document author property |
-| `created` | `core:created` | Document creation date |
-| `modified` | `core:modified` | Last modified date |
-| `doc_id` | `filename_regex:...` | Extracted from filename via regex |
-| `converted` | `converted_date` | Timestamp of this conversion run |
-| `publishedURL` | `doc_url` | URL from `input/Doc_URL.xlsx` (same file as pipeline Step 1 & 5) |
-
-Fields are configured in `dps_config.yaml` under `docx2md.metadata_fields`. Each field has three keys:
-
-```yaml
-- name: "fieldName"       # key in the YAML frontmatter
-  source: "source_type"   # where the value comes from (see below)
-  default: ""             # fallback if source returns nothing
-```
-
-#### Source Types
-
-| Source | Format | Description |
-|--------|--------|-------------|
-| `filename` | `filename` | The `.docx` basename |
-| `converted_date` | `converted_date` | ISO timestamp of the conversion run |
-| `doc_url` | `doc_url` | URL from `input/Doc_URL.xlsx` — same lookup used by pipeline Steps 1 and 5 |
-| `core:<prop>` | `core:title`, `core:author`, etc. | Word core document properties |
-| `filename_regex:<pattern>` | `filename_regex:([A-Z]+-\d+)` | Regex capture group from the filename stem |
-| `static:<value>` | `static:InfoSec` | Hardcoded value on every document |
-| `excel_lookup_list:<file>:<sheet>:<key>:<value>` | See below | Multi-value lookup from any Excel file |
-
-#### Excel List Lookup (`excel_lookup_list`)
-
-Reads all rows in an Excel sheet where a key column matches the current document's filename, and returns the matching value column as a YAML list. Useful for pulling acronym lists, tag sets, or any per-doc multi-value data from a spreadsheet.
-
-**Format:**
-```yaml
-source: "excel_lookup_list:<excel_path>:<sheet_name>:<key_col_header>:<value_col_header>"
-```
-
-**Example — acronym tags from the Acronym Finder output:**
-```yaml
-- name: "acronyms"
-  source: "excel_lookup_list:./output/acronym_audit.xlsx:Per Document:Document:Acronym"
-  default: ""
-```
-
-Output in frontmatter:
-```yaml
-acronyms: ["API", "DPS", "MFA", "RAG"]
-```
-
-Key matching tries both `MyDoc.docx` (full filename) and `MyDoc` (stem without extension).
-
-#### Key Config Settings (`dps_config.yaml → docx2md`)
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `output_directory` | `./output/markdown` | Where `.md` files are written |
-| `include_metadata_frontmatter` | `true` | Write YAML frontmatter block |
-| `metadata_fields` | See above | List of field definitions |
-| `table_strategy` | `auto` | `pipe` = always pipe tables, `html` = always HTML, `auto` = HTML only for merged cells |
-| `image_handling` | `extract` | `extract` = extract images to a subfolder, `skip` = ignore images |
-| `extract_text_boxes` | `true` | Include floating text box content inline |
-| `clean_smart_quotes` | `true` | Replace curly quotes/dashes with ASCII equivalents |
-| `log_file_prefix` | `docx2md_log` | Prefix for the timestamped log Excel file |
+Your `input/` files (source .docx, Doc_URL.xlsx, Acronym_Definitions.xlsx) and `dps_config.xlsx` are untouched — the pipeline never writes to `input/` or modifies the config.
 
 ---
 
-### Acronym Finder (`Misc/Acronym Finder/acronym_finder.py`)
+## Utilities
 
-Scans all `.docx` input files for acronym candidates, flags undefined ones (no parenthetical expansion found), and outputs a multi-sheet Excel report.
+Utilities are standalone scripts that support the pipeline but are not pipeline steps. Run them manually as needed.
 
-**When to use:** Run before restructuring (alongside Step 0). Undefined acronyms in chunks produce bad RAG answers — a chunk saying "MFA is required per AC-2.1" with no expansion confuses the retrieval model. Fix undefined acronyms in source docs before transformation.
+### Acronym Intake Template (`Misc/Acronym Finder/create_acronym_template.py`)
 
-```bash
-cd "Misc/Acronym Finder"
-python acronym_finder.py                             # Uses acronym_config.yaml defaults
-python acronym_finder.py /path/to/my_config.yaml     # Custom config
-```
-
-**Output:** `output/acronym_audit.xlsx` with two key sheets:
-- **Global Summary** — all acronyms ranked by occurrence count; undefined ones highlighted yellow
-- **Per Document** — one row per acronym per document (used by docx2md `excel_lookup_list`)
-
-**What to do with results:**
-1. Sort Global Summary by "Total Occurrences" descending — top 20-30 are highest impact
-2. Yellow rows = undefined acronyms; each needs an expansion added to the source doc, or goes on the ignore list in `acronym_config.yaml`
-3. Feed undefined acronyms into Notebook 2 as a checklist — expand on first use within each section, not just first use in the document
-
-**Config:** `Misc/Acronym Finder/acronym_config.yaml` — set `input_folder`, tune the `ignore_list`, and adjust `min_global_occurrences` to filter low-frequency noise.
-
-#### Acronym Intake Template (`Misc/Acronym Finder/create_acronym_template.py`)
-
-Generates a blank, pre-formatted Excel template for manually entering acronym definitions and per-document acronym mappings.
+Generates a blank, pre-formatted Excel template for manually entering acronym definitions and per-document acronym mappings. Run this **once** after Step 1 (Acronym Finder) to create the file that Steps 7 and 8 consume.
 
 ```bash
-python "Misc/Acronym Finder/create_acronym_template.py" --config dps_config.yaml
+python "Misc/Acronym Finder/create_acronym_template.py"
 python "Misc/Acronym Finder/create_acronym_template.py" --output ./output/acronym_intake.xlsx
 ```
 
@@ -1139,15 +1219,25 @@ python "Misc/Acronym Finder/create_acronym_template.py" --output ./output/acrony
 | **Acronym Definitions** | Master glossary — fill in `Acronym`, `Full Name / Definition`, `Category`, `Notes` |
 | **Per Document** | Per-doc mapping — `Document` (exact `.docx` filename), `Acronym`, `Occurrences`, `Found In`, `Definition(s) Detected` |
 
-The **Per Document** sheet matches the structure of the acronym finder output exactly — you can paste rows from `acronym_audit.xlsx` directly into it, or fill it in manually.
+The **Per Document** sheet matches the column structure of the Step 1 output (`acronym_audit.xlsx`) exactly — paste rows from it directly, or fill in manually.
 
-**Connecting to docx2md:** Once the template is filled in, use the `excel_lookup_list` source in `dps_config.yaml` to pull acronyms into each document's frontmatter:
+**Typical workflow:**
+1. Run Step 1 (`python run_pipeline.py --step 1`) to get `output/1 - acronyms/acronym_audit.xlsx`
+2. Run this template generator to create a blank intake file
+3. Paste the **Per Document** rows from `acronym_audit.xlsx` into the template, then add/confirm definitions
+4. Save the filled file somewhere stable (e.g., `input/Acronym_Definitions.xlsx`)
+5. Point the pipeline at it in `dps_config.xlsx`:
+   - **Step 7 (docx2md):** use `excel_lookup_list` source in `docx2md.metadata_fields`:
+     ```yaml
+     - name: "acronyms"
+       source: "excel_lookup_list:./input/Acronym_Definitions.xlsx:Per Document:Document:Acronym"
+       default: ""
+     ```
+   - **Step 8 (docx2jsonl):** set `docx2jsonl.acronym_definitions_file: "./input/Acronym_Definitions.xlsx"`
 
-```yaml
-- name: "acronyms"
-  source: "excel_lookup_list:./output/acronym_intake_template.xlsx:Per Document:Document:Acronym"
-  default: ""
-```
+Both steps read the **Per Document** sheet, match by filename, and embed that document's confirmed acronyms into its output metadata.
+
+> **Note:** `Misc/Acronym Finder/acronym_config.yaml` was the config for the old standalone version of `acronym_finder.py`. It is now obsolete — all settings live in `dps_config.xlsx` under `acronym_finder:` (Section 15). You can delete it.
 
 ---
 
@@ -1169,15 +1259,15 @@ Outputs `word_counts.csv` with per-document and total word counts.
 
 ### Control Attribute Analyzer (`Misc/analyze_control_attributes.py`)
 
-Standalone diagnostic utility. Scans all input `.docx` files for every control ID match and captures formatting and context attributes for each hit. Use this to identify false positives and fine-tune your `control_id_patterns`, whitelist, and blacklist before running Step 1.
+Standalone diagnostic utility. Scans all input `.docx` files for every control ID match and captures formatting and context attributes for each hit. Use this to identify false positives and fine-tune your `control_id_patterns`, whitelist, and blacklist before running Step 2.
 
 ```bash
 python Misc/analyze_control_attributes.py
 python Misc/analyze_control_attributes.py --config dps_config.xlsx
-python Misc/analyze_control_attributes.py ./input ./output/1\ -\ controls
+python Misc/analyze_control_attributes.py ./input ./output/2\ -\ controls
 ```
 
-Outputs `control_attributes_analysis.csv` (written to the Step 1 controls output folder) with one row per control ID match. Columns include: `source_file`, `paragraph_index`, `control_id`, `match_position`, `paragraph_text`, `context_before`, `context_after`, `paragraph_bold`, `paragraph_italic`, `paragraph_underline`, `font_size_pt`, `font_name`, `paragraph_style`, `is_heading_style`, `paragraph_source` (Text or Table[row][col]), `sentence_contains_period`.
+Outputs `control_attributes_analysis.csv` (written to the Step 2 controls output folder) with one row per control ID match. Columns include: `source_file`, `paragraph_index`, `control_id`, `match_position`, `paragraph_text`, `context_before`, `context_after`, `paragraph_bold`, `paragraph_italic`, `paragraph_underline`, `font_size_pt`, `font_name`, `paragraph_style`, `is_heading_style`, `paragraph_source` (Text or Table[row][col]), `sentence_contains_period`.
 
 **Typical workflow:** Run this first, filter the CSV by `paragraph_source` and `paragraph_bold` to distinguish real controls from table cross-references, then adjust your config patterns accordingly.
 
@@ -1240,7 +1330,7 @@ Then copy your custom values from the old file into the fresh template.
 
 ### Pipeline step issues
 
-#### Zero controls extracted (Step 1)
+#### Zero controls extracted (Step 2)
 
 Your control IDs likely use a different format than the default regex patterns. Check your documents for the ID format, then add a matching pattern on the **Control Extraction** sheet under `# Control ID Patterns`. Test patterns at [regex101.com](https://regex101.com).
 
@@ -1251,7 +1341,7 @@ Common alternative patterns:
 | `\b[A-Z]{2,4}-\d{1,3}\b` | Simple: AC-1, IR-3 |
 | `\b[A-Z]{2,4}\.\d{1,3}\.\d{1,3}\b` | Dotted: AC.1.1, IR.3.2 |
 
-#### Too many fake headings detected (Step 0/3)
+#### Too many fake headings detected (Step 0/4)
 
 Fake heading detection flags bold text under a character limit. If you're getting false positives:
 - On the **Headings** sheet, raise `fake_heading_min_font_size` from `12` to `13` or `14`
@@ -1262,33 +1352,33 @@ Fake heading detection flags bold text under a character limit. If you're gettin
 
 Your documents likely use custom Word heading styles. In Word, click the heading and check the Styles pane for the style name, then on the **Headings** sheet add it to:
 - `# Custom Heading Styles` list (for profiler recognition)
-- `# Heading Style Map` (for Step 3 conversion — map your style name to `Heading 1`, `Heading 2`, or `Heading 3`)
+- `# Heading Style Map` (for Step 4 conversion — map your style name to `Heading 1`, `Heading 2`, or `Heading 3`)
 
-**Important:** Add the style in **both** places. Adding it to only one causes the profiler to recognize it but Step 3 won't convert it (or vice versa).
+**Important:** Add the style in **both** places. Adding it to only one causes the profiler to recognize it but Step 4 won't convert it (or vice versa).
 
 #### Word temp files being processed
 
 Word creates invisible `~$` lock files when a document is open. These are excluded by default via `input.exclude_patterns`. If you see errors about corrupted files, close the documents in Word before running the pipeline, or add the pattern to the exclude list on the **Input** sheet.
 
-#### Resuming a failed batch run (Step 1)
+#### Resuming a failed batch run (Step 2)
 
-If Step 1 fails mid-batch, it saves progress to `checkpoint.json`. Re-running Step 1 will skip already-processed files:
+If Step 2 fails mid-batch, it saves progress to `checkpoint.json`. Re-running Step 2 will skip already-processed files:
 
 ```bash
-python run_pipeline.py --step 1
+python run_pipeline.py --step 2
 ```
 
-To force a fresh run, delete `output/1 - controls/checkpoint.json` before running.
+To force a fresh run, delete `output/2 - controls/checkpoint.json` before running.
 
-#### Sub-documents are too large or too small (Step 4)
+#### Sub-documents are too large or too small (Step 5)
 
 On the **Thresholds** sheet, adjust `max_characters`:
 - **Too large:** Lower from `36000` to `18000` for tighter splits
 - **Too small:** Raise to `50000` or higher if your context window supports it
 
-#### Metadata shows "(Not detected)" for scope/intent (Step 5)
+#### Metadata shows "(Not detected)" for scope/intent (Step 6)
 
-Step 5 tries to get scope and intent from Step 0's profiler data first. If that's unavailable, it falls back to scanning the document directly. For best results:
+Step 6 tries to get scope and intent from Step 0's profiler data first. If that's unavailable, it falls back to scanning the document directly. For best results:
 1. Run Step 0 first so `document_profiles.json` exists
 2. Check that your documents have sections matching the keywords on the **Sections** sheet (scope and intent categories)
 
