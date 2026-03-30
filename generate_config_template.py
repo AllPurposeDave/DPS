@@ -1199,18 +1199,46 @@ def _build_docx2md_sheet(wb, cfg: dict):
         if ws.cell(row=r, column=1).value == "include_metadata_frontmatter":
             _add_bool_validation(ws, "B", r, r)
 
-    ws.append(["## Metadata fields: Name | Source | Default", "", ""])
-    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
-    for field in d2m.get("metadata_fields", [
-        {"name": "title", "source": "core:title", "default": ""},
-        {"name": "source_file", "source": "filename"},
-        {"name": "modified", "source": "core:modified", "default": ""},
-        {"name": "doc_id", "source": r"filename_regex:([A-Z]+-[A-Z]+-\d{4}-\d+)", "default": ""},
-        {"name": "converted", "source": "converted_date"},
-        {"name": "PublishedURL", "source": "doc_url", "default": ""},
-        {"name": "Acronyms", "source": "excel_lookup_dict:./input/Acronym_Definitions.xlsx:Acronym Definitions:Document:Acronym:Definition", "default": ""},
-    ]):
-        ws.append([field.get("name", ""), field.get("source", ""), field.get("default", "")])
+    # Metadata fields table — columns A-C are parsed by shared_utils; D-F are reference-only.
+    _METADATA_FIELD_DEFAULTS = [
+        {"name": "title",        "source": "core:title",        "default": "",
+         "source_type": "Word core property",    "source_of_truth": "Document Title field in .docx",                         "example_output": '"Access Control Policy"'},
+        {"name": "source_file",  "source": "filename",          "default": "",
+         "source_type": "Filename",              "source_of_truth": "The .docx filename on disk",                            "example_output": '"Access_Control_Policy_POL-AC-2026-001.docx"'},
+        {"name": "modified",     "source": "core:modified",     "default": "",
+         "source_type": "Word core property",    "source_of_truth": "Last Modified date in .docx",                           "example_output": '"2026-03-15"'},
+        {"name": "doc_id",       "source": r"filename_regex:([A-Z]+-[A-Z]+-\d{4}-\d+)", "default": "",
+         "source_type": "Filename regex",        "source_of_truth": "ID pattern extracted from filename",                    "example_output": '"POL-AC-2026-001"'},
+        {"name": "converted",    "source": "converted_date",    "default": "",
+         "source_type": "Runtime",               "source_of_truth": "Timestamp when conversion runs",                        "example_output": '"2026-03-30T14:22:05"'},
+        {"name": "PublishedURL", "source": "doc_url",           "default": "",
+         "source_type": "Excel lookup",          "source_of_truth": "input/Doc_URL.xlsx (via metadata.url.* config)",        "example_output": '"https://contoso.sharepoint.com/..."'},
+        {"name": "Acronyms",    "source": "excel_lookup_dict:./input/Acronym_Definitions.xlsx:Acronym Definitions:Document:Acronym:Definition", "default": "",
+         "source_type": "Excel lookup (dict)",   "source_of_truth": "input/Acronym_Definitions.xlsx > Acronym Definitions",  "example_output": '["AC = Access Control", "MFA = Multi-Factor Auth"]'},
+        {"name": "Tags",        "source": "excel_lookup_list:./input/Acronym_Definitions.xlsx:Custom Tags:Document_Name:Tags", "default": "",
+         "source_type": "Excel lookup (list)",   "source_of_truth": "input/Acronym_Definitions.xlsx > Custom Tags",          "example_output": '["access control", "CUI", "FedRAMP-High"]'},
+    ]
+
+    ws.append(["## Metadata fields: Name | Source | Default", "", "",
+               "Source Type", "Source of Truth", "Example Output"])
+    r = ws.max_row
+    ws.cell(row=r, column=1).font = DESC_FONT
+    for col in range(4, 7):
+        cell = ws.cell(row=r, column=col)
+        cell.font = SUBHEADER_FONT
+        cell.fill = SUBHEADER_FILL
+        cell.border = THIN_BORDER
+    for field in d2m.get("metadata_fields", _METADATA_FIELD_DEFAULTS):
+        # Match enrichment data from defaults by field name
+        enrichment = next((f for f in _METADATA_FIELD_DEFAULTS if f["name"] == field.get("name")), {})
+        ws.append([
+            field.get("name", ""),
+            field.get("source", ""),
+            field.get("default", ""),
+            enrichment.get("source_type", ""),
+            enrichment.get("source_of_truth", ""),
+            enrichment.get("example_output", ""),
+        ])
 
     _finalize_sheet(ws)
 

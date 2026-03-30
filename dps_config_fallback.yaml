@@ -1007,6 +1007,11 @@ docx2md:
     - name: "Acronyms"
       source: "excel_lookup_dict:./input/Acronym_Definitions.xlsx:Acronym Definitions:Document:Acronym:Definition"
       default: ""
+    # Per-document custom tags from the "Custom Tags" sheet in Acronym_Definitions.xlsx.
+    # Returns a list of comma-separated tags assigned to this document.
+    - name: "Tags"
+      source: "excel_lookup_list:./input/Acronym_Definitions.xlsx:Custom Tags:Document_Name:Tags"
+      default: ""
     # --- Add your own fields below this line ---
     # - name: "organization"
     #   source: "static:Acme Corp"
