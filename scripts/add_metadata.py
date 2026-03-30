@@ -163,8 +163,8 @@ def load_url_mapping(config: dict) -> dict[str, str]:
         print("  URLs will use the fallback template or show '(URL not configured)'.")
         return {}
 
-    name_col = url_cfg.get("name_column", "Document Name").lower()
-    url_col = url_cfg.get("url_column", "SharePoint URL").lower()
+    name_col = url_cfg.get("name_column", "Document_Name").lower()
+    url_col = url_cfg.get("url_column", "URL").lower()
     sheet_ref = url_cfg.get("sheet", 0)
 
     try:
@@ -234,22 +234,26 @@ def load_profiler_data(config: dict) -> dict:
 
     try:
         with open(json_path, "r", encoding="utf-8") as f:
-            profiles_list = json.load(f)
+            raw = json.load(f)
     except Exception as e:
         print(f"  WARNING: Could not read profiler JSON: {e}")
         return {}
 
+    # Support both formats: bare list or wrapper dict with "profiles" key
+    if isinstance(raw, list):
+        profiles_list = raw
+    elif isinstance(raw, dict) and "profiles" in raw:
+        profiles_list = raw["profiles"]
+    else:
+        print("  WARNING: Unexpected profiler JSON structure.")
+        return {}
+
     # Index by lowercase filename for easy lookup
     profiles = {}
-    if isinstance(profiles_list, list):
-        for p in profiles_list:
-            fname = p.get("filename", "")
-            if fname:
-                profiles[fname.lower()] = p
-    elif isinstance(profiles_list, dict):
-        # Maybe it's already a dict keyed by filename
-        for k, v in profiles_list.items():
-            profiles[k.lower()] = v
+    for p in profiles_list:
+        fname = p.get("filename", "")
+        if fname:
+            profiles[fname.lower()] = p
 
     print(f"  Loaded {len(profiles)} document profiles from Step 0 output.")
     return profiles
@@ -294,9 +298,9 @@ def load_split_manifest(config: dict) -> dict[str, str]:
     return mapping
 
 
-def load_acronym_data(config: dict) -> dict[str, list[str]]:
+def load_acronym_data(config: dict) -> dict:
     """
-    Load per-document acronyms for tag generation.
+    Load per-document acronyms for tag generation and acronym definitions.
 
     WHAT IT DOES:
         Prefers the human-verified Acronym Definitions file
@@ -305,15 +309,29 @@ def load_acronym_data(config: dict) -> dict[str, list[str]]:
         Acronym Finder audit output (metadata.tags.acronym_audit_file)
         only when no definitions file is available.
 
-        Reads the "Per Document" sheet from whichever file is found.
-        Returns a dict mapping normalized document names to lists of
-        acronyms sorted by frequency (most common first).
+        Reads the "Acronym Definitions" or "Per Document" sheet from
+        whichever file is found.  Also reads the "Custom Tags" sheet
+        (if present) for per-document custom tag assignments.
+
+        Returns a dict with four components:
+
+        - per_doc:       {doc_name: [acronym1, acronym2, ...]}
+                         All acronyms per document, sorted by frequency.
+        - definitions:   {doc_name: [(acronym, definition), ...]}
+                         Only acronyms that have a non-empty definition.
+        - doc_counts:    {acronym_upper: int}
+                         How many unique documents each acronym appears in.
+                         Used for uniqueness-based tag filtering.
+        - custom_tags:   {doc_name: [tag1, tag2, ...]}
+                         Per-document custom tags from the "Custom Tags" sheet.
 
     RETURNS:
-        Dict of {normalized_doc_name: [acronym1, acronym2, ...]}.
-        Empty dict if no file configured or not found.
+        Dict with keys "per_doc", "definitions", "doc_counts", "custom_tags".
+        Empty dict (with empty sub-dicts) if no file configured or not found.
     """
     import openpyxl
+
+    empty_result = {"per_doc": {}, "definitions": {}, "doc_counts": {}, "custom_tags": {}}
 
     meta_cfg = config.get("metadata", {})
     tags_cfg = meta_cfg.get("tags", {})
@@ -343,20 +361,25 @@ def load_acronym_data(config: dict) -> dict[str, list[str]]:
     if not chosen_path:
         if defs_file or audit_file:
             print("  NOTE: Acronym file(s) configured but not found. Acronym tags will be skipped.")
-        return {}
+        return empty_result
 
     try:
         wb = openpyxl.load_workbook(chosen_path, read_only=True, data_only=True)
     except Exception as e:
         print(f"  WARNING: Could not read acronym {source_label} file: {e}")
-        return {}
+        return empty_result
 
-    # Try to find the "Per Document" sheet
+    # Try to find "Acronym Definitions" sheet first, then "Per Document"
     sheet_name = None
     for name in wb.sheetnames:
-        if "per document" in name.lower():
+        if "acronym definitions" in name.lower():
             sheet_name = name
             break
+    if not sheet_name:
+        for name in wb.sheetnames:
+            if "per document" in name.lower():
+                sheet_name = name
+                break
 
     if not sheet_name:
         # Fall back to "Global Summary" or first sheet (audit file only)
@@ -376,29 +399,49 @@ def load_acronym_data(config: dict) -> dict[str, list[str]]:
         if cell.value:
             headers[str(cell.value).strip().lower()] = col_idx
 
-    # Look for filename and acronym columns
+    # Look for filename, acronym, count, definition, and status columns
     file_idx = None
     acro_idx = None
     count_idx = None
+    def_idx = None
+    status_idx = None
     for key, idx in headers.items():
-        if "file" in key or "document" in key or "doc" in key:
+        if file_idx is None and ("file" in key or "document" in key or "doc" in key):
             file_idx = idx
-        if "acronym" in key or "abbrev" in key:
+        if acro_idx is None and ("acronym" in key or "abbrev" in key):
             acro_idx = idx
-        if "count" in key or "occur" in key or "freq" in key:
+        if count_idx is None and ("count" in key or "occur" in key or "freq" in key):
             count_idx = idx
+        if def_idx is None and ("definition" in key or key == "def"):
+            def_idx = idx
+        if status_idx is None and key == "status":
+            status_idx = idx
 
     if file_idx is None or acro_idx is None:
         print(f"  WARNING: Could not find filename/acronym columns in '{sheet_name}' sheet.")
         wb.close()
-        return {}
+        return empty_result
 
-    # Collect acronyms per document with counts
-    doc_acronyms: dict[str, list[tuple[str, int]]] = {}
+    # Collect acronyms per document with counts and definitions.
+    # Rows marked "False Positive" in the Status column are skipped —
+    # this lets reviewers reject entries without deleting rows.
+    # Each entry: (acronym, count, definition_or_empty)
+    doc_acronyms: dict[str, list[tuple[str, int, str]]] = {}
+    fp_skipped = 0
     for row in ws.iter_rows(min_row=2, values_only=True):
+        # Skip instruction/helper rows (italic guidance text from acronym_finder)
         fname = row[file_idx] if file_idx < len(row) else None
+        if fname and str(fname).strip().startswith("("):
+            continue
         acro = row[acro_idx] if acro_idx < len(row) else None
         count = row[count_idx] if count_idx is not None and count_idx < len(row) else 1
+        definition = row[def_idx] if def_idx is not None and def_idx < len(row) else None
+        # Respect Status column: skip rows marked as false positives
+        if status_idx is not None:
+            status_val = row[status_idx] if status_idx < len(row) else None
+            if status_val and str(status_val).strip().lower() == "false positive":
+                fp_skipped += 1
+                continue
         if fname and acro:
             key = normalize_doc_name(str(fname).strip())
             if key not in doc_acronyms:
@@ -407,20 +450,79 @@ def load_acronym_data(config: dict) -> dict[str, list[str]]:
                 count = int(count)
             except (TypeError, ValueError):
                 count = 1
-            doc_acronyms[key].append((str(acro).strip(), count))
+            def_str = str(definition).strip() if definition else ""
+            doc_acronyms[key].append((str(acro).strip(), count, def_str))
+    if fp_skipped:
+        print(f"  Skipped {fp_skipped} acronym(s) marked as 'False Positive'.")
+
+    # --- Read "Custom Tags" sheet if present ---
+    custom_tags: dict[str, list[str]] = {}
+    custom_sheet = None
+    for name in wb.sheetnames:
+        if "custom tags" in name.lower():
+            custom_sheet = name
+            break
+    if custom_sheet:
+        ws_tags = wb[custom_sheet]
+        tag_headers = {}
+        for col_idx, cell in enumerate(next(ws_tags.iter_rows(min_row=1, max_row=1, values_only=False))):
+            if cell.value:
+                tag_headers[str(cell.value).strip().lower()] = col_idx
+
+        tag_name_idx = None
+        tag_tags_idx = None
+        for hkey, idx in tag_headers.items():
+            if tag_name_idx is None and ("document" in hkey or "doc" in hkey or "file" in hkey or "name" in hkey):
+                tag_name_idx = idx
+            if tag_tags_idx is None and "tag" in hkey:
+                tag_tags_idx = idx
+
+        if tag_name_idx is not None and tag_tags_idx is not None:
+            for row in ws_tags.iter_rows(min_row=2, values_only=True):
+                tname = row[tag_name_idx] if tag_name_idx < len(row) else None
+                ttags = row[tag_tags_idx] if tag_tags_idx < len(row) else None
+                if tname and ttags:
+                    tkey = normalize_doc_name(str(tname).strip())
+                    tlist = [t.strip() for t in str(ttags).split(",") if t.strip()]
+                    if tlist:
+                        custom_tags[tkey] = tlist
+        elif tag_headers:
+            print(f"  NOTE: '{custom_sheet}' sheet found but missing Document/Tags columns.")
 
     wb.close()
 
-    # Sort by count descending and extract just the acronym strings
-    result = {}
-    for key, acro_list in doc_acronyms.items():
-        acro_list.sort(key=lambda x: x[1], reverse=True)
-        result[key] = [a[0] for a in acro_list]
+    # Build the three result structures
+    per_doc: dict[str, list[str]] = {}
+    definitions: dict[str, list[tuple[str, str]]] = {}
+    # Track which documents each acronym appears in (for uniqueness)
+    acro_to_docs: dict[str, set[str]] = {}
 
-    total_acronyms = sum(len(v) for v in result.values())
-    print(f"  Loaded {total_acronyms} acronyms across {len(result)} documents "
-          f"from {source_label} file ({os.path.basename(chosen_path)}).")
-    return result
+    for doc_key, acro_list in doc_acronyms.items():
+        acro_list.sort(key=lambda x: x[1], reverse=True)
+        per_doc[doc_key] = [a[0] for a in acro_list]
+        # Definitions: only pairs where definition is non-empty
+        defs_for_doc = [(a[0], a[2]) for a in acro_list if a[2]]
+        if defs_for_doc:
+            definitions[doc_key] = defs_for_doc
+        # Track doc membership for each acronym (case-insensitive)
+        for acro_code, _count, _defn in acro_list:
+            upper = acro_code.upper()
+            if upper not in acro_to_docs:
+                acro_to_docs[upper] = set()
+            acro_to_docs[upper].add(doc_key)
+
+    doc_counts = {acro: len(docs) for acro, docs in acro_to_docs.items()}
+
+    total_acronyms = sum(len(v) for v in per_doc.values())
+    total_defined = sum(len(v) for v in definitions.values())
+    parts = [f"{total_acronyms} acronyms ({total_defined} with definitions)"]
+    if custom_tags:
+        parts.append(f"{len(custom_tags)} docs with custom tags")
+    print(f"  Loaded {', '.join(parts)} "
+          f"across {len(per_doc)} documents from {source_label} file "
+          f"({os.path.basename(chosen_path)}).")
+    return {"per_doc": per_doc, "definitions": definitions, "doc_counts": doc_counts,
+            "custom_tags": custom_tags}
 
 
 # ===========================================================================
@@ -483,13 +585,19 @@ def resolve_url(
         2. Falls back to the URL template with {filename} substitution.
         3. Returns "(URL not configured)" if neither works.
     """
-    # Normalize doc_name: convert underscores/hyphens to spaces, lowercase
-    doc_name_normalized = re.sub(r"[_\-]+", " ", doc_name).strip().lower()
+    # Normalize: strip .docx extension, remove _fixed suffix, convert
+    # underscores/hyphens to spaces, lowercase.  This lets "Foo_fixed.docx"
+    # match an Excel entry of "Foo.docx" or "Foo".
+    def _norm(s: str) -> str:
+        s = re.sub(r"\.docx$", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"_fixed$", "", s, flags=re.IGNORECASE)
+        return re.sub(r"[_\-]+", " ", s).strip().lower()
+
+    doc_name_normalized = _norm(doc_name)
 
     # 1. Excel lookup — substring match
     for excel_name, url in url_mapping.items():
-        # Normalize excel_name the same way for comparison
-        excel_name_normalized = re.sub(r"[_\-]+", " ", excel_name).strip().lower()
+        excel_name_normalized = _norm(excel_name)
         if excel_name_normalized in doc_name_normalized or doc_name_normalized in excel_name_normalized:
             return url, "excel"
 
@@ -675,7 +783,7 @@ def generate_tags(
     filename: str,
     profiler_data: dict,
     split_manifest: dict[str, str],
-    acronym_data: dict[str, list[str]],
+    acronym_data: dict,
     config: dict,
 ) -> str:
     """
@@ -685,15 +793,22 @@ def generate_tags(
         Combines tags from:
         1. Document type (A/B/C/D/E) from profiler
         2. Standard sections found (has-scope, has-controls, etc.)
-        3. Per-document acronyms from the Acronym Finder output
-        4. Static tags from config
+        3. Unique per-document acronyms (appear in ≤ max_tag_doc_count docs)
+        4. Per-document custom tags from Excel file (metadata.tags.custom_tags_file)
+        5. Static tags from config
+
+        Acronyms that appear in many documents are NOT included as tags
+        (they don't help discriminate during retrieval).  Those are
+        handled by the separate "acronyms" metadata field instead.
 
     RETURNS:
         Comma-separated string of unique tags.
 
     TWEAK:
         - Disable individual tag sources in config (metadata.tags.include_doc_type, etc.)
-        - Limit acronym tags with metadata.tags.max_acronym_tags
+        - Adjust uniqueness threshold via metadata.tags.max_tag_doc_count (default 3)
+        - Limit unique acronym tags with metadata.tags.max_acronym_tags
+        - Add per-document labels via metadata.tags.custom_tags_file
         - Add org-level labels via metadata.tags.static_tags
     """
     meta_cfg = config.get("metadata", {})
@@ -719,16 +834,31 @@ def generate_tags(
             if std and std != "none":
                 tags.append(f"has-{std}")
 
-    # 3. Acronym tags
-    if acronym_data:
+    # 3. Unique acronym tags (only those appearing in few documents)
+    per_doc = acronym_data.get("per_doc", {}) if isinstance(acronym_data, dict) else {}
+    doc_counts = acronym_data.get("doc_counts", {}) if isinstance(acronym_data, dict) else {}
+    if per_doc:
         max_tags = tags_cfg.get("max_acronym_tags", 15)
-        for key, acronyms in acronym_data.items():
+        max_doc_count = tags_cfg.get("max_tag_doc_count", 3)
+        for key, acronyms in per_doc.items():
             if match_doc_name(parent, key):
-                limited = acronyms[:max_tags] if max_tags > 0 else acronyms
+                unique_acronyms = [
+                    a for a in acronyms
+                    if doc_counts.get(a.upper(), 1) <= max_doc_count
+                ]
+                limited = unique_acronyms[:max_tags] if max_tags > 0 else unique_acronyms
                 tags.extend(limited)
                 break
 
-    # 4. Static tags
+    # 4. Per-document custom tags from Excel file
+    custom_tag_map = acronym_data.get("custom_tags", {}) if isinstance(acronym_data, dict) else {}
+    if custom_tag_map:
+        for key, custom_tags_list in custom_tag_map.items():
+            if match_doc_name(parent, key):
+                tags.extend(custom_tags_list)
+                break
+
+    # 5. Static tags
     static = tags_cfg.get("static_tags", [])
     if static:
         tags.extend(static)
@@ -743,6 +873,59 @@ def generate_tags(
             unique.append(tag)
 
     return ", ".join(unique)
+
+
+def generate_acronyms(
+    doc_name: str,
+    filename: str,
+    split_manifest: dict[str, str],
+    acronym_data: dict,
+    config: dict,
+) -> str:
+    """
+    Generate a comma-separated string of acronym = definition pairs.
+
+    WHAT IT DOES:
+        Returns ALL defined acronyms for this document as a glossary.
+        These help the LLM comprehend retrieved content — every defined
+        acronym is included regardless of how many documents it appears in.
+
+        Only acronyms with non-empty definitions are included.
+
+    RETURNS:
+        Comma-separated string of "ACRONYM = Definition" pairs.
+        Empty string if no definitions available.
+
+    TWEAK:
+        - Limit with metadata.tags.max_acronym_definitions (default: 0 = unlimited)
+    """
+    meta_cfg = config.get("metadata", {})
+    tags_cfg = meta_cfg.get("tags", {})
+    max_defs = tags_cfg.get("max_acronym_definitions", 0)
+
+    definitions = acronym_data.get("definitions", {}) if isinstance(acronym_data, dict) else {}
+    if not definitions:
+        return ""
+
+    # Determine parent document
+    parent = split_manifest.get(filename.lower(), filename)
+
+    for key, acro_defs in definitions.items():
+        if match_doc_name(parent, key):
+            # Deduplicate by acronym code (case-insensitive)
+            seen = set()
+            unique_pairs = []
+            for acro, defn in acro_defs:
+                acro_lower = acro.lower()
+                if acro_lower not in seen:
+                    seen.add(acro_lower)
+                    unique_pairs.append(f"{acro} = {defn}")
+
+            if max_defs > 0:
+                unique_pairs = unique_pairs[:max_defs]
+            return ", ".join(unique_pairs)
+
+    return ""
 
 
 def resolve_excel_field(
@@ -822,7 +1005,7 @@ def resolve_field_value(
     url_mapping: dict[str, str],
     profiler_data: dict,
     split_manifest: dict[str, str],
-    acronym_data: dict[str, list[str]],
+    acronym_data: dict,
     config: dict,
 ) -> tuple[str, str]:
     """
@@ -882,6 +1065,13 @@ def resolve_field_value(
             acronym_data, config,
         )
         return tags if tags else "(No tags generated)", "auto"
+
+    if key == "acronyms":
+        acronyms = generate_acronyms(
+            doc_name, filename, split_manifest,
+            acronym_data, config,
+        )
+        return acronyms if acronyms else "(No acronym definitions)", "auto"
 
     # Unknown key — return empty
     return f"(Unknown field key: {key})", "error"
@@ -1061,7 +1251,7 @@ def process_document(
     url_mapping: dict[str, str],
     profiler_data: dict,
     split_manifest: dict[str, str],
-    acronym_data: dict[str, list[str]],
+    acronym_data: dict,
     config: dict,
 ) -> Optional[dict]:
     """
@@ -1162,6 +1352,9 @@ def process_document(
         elif key == "tags":
             manifest["tags"] = value
             manifest["tag_count"] = len(value.split(", ")) if value and value != "(No tags generated)" else 0
+        elif key == "acronyms":
+            manifest["acronyms"] = value
+            manifest["acronym_count"] = len(value.split(", ")) if value and value != "(No acronym definitions)" else 0
 
     return manifest
 
@@ -1236,6 +1429,7 @@ def main():
     scope_detected = 0
     intent_detected = 0
     total_tags = 0
+    total_acronyms = 0
 
     for doc_path in files:
         result = process_document(
@@ -1255,6 +1449,7 @@ def main():
             if result.get("intent_source", "not_detected") != "not_detected":
                 intent_detected += 1
             total_tags += result.get("tag_count", 0)
+            total_acronyms += result.get("acronym_count", 0)
         else:
             files_failed += 1
 
@@ -1296,6 +1491,9 @@ def main():
     if "tags" in [f.get("key") for f in enabled_fields]:
         avg_tags = total_tags / files_ok if files_ok else 0
         print(f"  Avg tags per document:    {avg_tags:.1f}")
+    if "acronyms" in [f.get("key") for f in enabled_fields]:
+        avg_acronyms = total_acronyms / files_ok if files_ok else 0
+        print(f"  Avg acronym defs per doc: {avg_acronyms:.1f}")
     print()
     print(f"  Output written to: {os.path.abspath(output_dir)}")
     print(f"  Manifest written to: {manifest_path}")

@@ -86,11 +86,7 @@ def build_patterns(config: dict) -> dict:
     """Build all regex patterns from config, with sensible defaults."""
     ctrl_cfg = config.get("control_extraction", {})
 
-    # Support both legacy single-pattern and new multi-pattern config
-    id_patterns = ctrl_cfg.get("control_id_patterns", None)
-    if id_patterns is None:
-        legacy = ctrl_cfg.get("control_id_pattern", r'\b[A-Z]{2,4}[-.]?\d{1,3}[-.]\d{2,4}\b')
-        id_patterns = [legacy]
+    id_patterns = ctrl_cfg.get("control_id_patterns", [r'\b[A-Z]{2,4}[-.]?\d{1,3}[-.]\d{2,4}\b'])
 
     # Build combined regex from all patterns
     combined_pattern = "|".join(f"({p})" for p in id_patterns)
@@ -125,20 +121,38 @@ def build_patterns(config: dict) -> dict:
         all_metadata_words.extend(keywords)
 
     # Build metadata label strip regex.
-    # Handles compound headings like "Applicability and Scope" — after stripping
-    # the first keyword, also strip "and <keyword>" if it immediately follows.
+    # Handles compound headings like "Applicability and Scope" or
+    # "Applicability & Scope" — after stripping the first keyword, also strip
+    # "and <keyword>" or "& <keyword>" if it immediately follows.
     escaped_all = [re.escape(w) for w in all_metadata_words]
     kw_group = "|".join(escaped_all)
-    strip_pattern = r'(?i)^\s*(' + kw_group + r')(\s+and\s+(' + kw_group + r'))?\s*[:\-]?\s*'
+    strip_pattern = r'(?i)^\s*(' + kw_group + r')(\s+(?:and|&)\s+(' + kw_group + r'))?\s*[:\-]?\s*'
 
     # Build heading detection regexes from config
     hd_cfg = ctrl_cfg.get("heading_detection", {})
     section_kw = hd_cfg.get("section_keyword_pattern", r'^[Ss]ection\s+\d{1,2}')
     numbered_title = hd_cfg.get("numbered_title_pattern", r'^\d{1,2}\.?\d{0,2}\s+[A-Z][a-zA-Z\s]{3,50}$')
 
+    # --- Bold-filtering settings ---
+    # require_bold: when True, only control IDs appearing in bold runs are extracted
+    #   from normal body paragraphs. This prevents false positives from inline
+    #   references like "See also AC-1.002" in description text.
     require_bold = ctrl_cfg.get("require_bold_control_id", False)
+    # bold_fallback: if bold-only extraction finds ZERO controls in a document,
+    #   automatically retry without the bold requirement. Catches docs where
+    #   control IDs are never bold-formatted.
     bold_fallback = ctrl_cfg.get("bold_fallback_if_zero", True)
+    # tables_ignore_bold: table cells bypass the bold filter entirely. Table cells
+    #   often contain control IDs in non-bold text within structured grids.
     tables_ignore_bold = ctrl_cfg.get("tables_ignore_bold", True)
+    # headings_ignore_bold: Word heading-styled paragraphs (Heading 1/2/3/etc.)
+    #   bypass the bold filter. Control IDs placed in headings (e.g.,
+    #   "Control MON01.001 (L, M, H) - Authenticated Vulnerability Scanning")
+    #   inherit the heading style but are NOT bold-formatted in the run data.
+    #   Without this bypass, bold_fallback_if_zero won't help because other
+    #   controls (from tables or bold body text) ARE found, so the fallback
+    #   never triggers — silently dropping every heading-based control.
+    headings_ignore_bold = ctrl_cfg.get("headings_ignore_bold", True)
     anchor_start = ctrl_cfg.get("control_id_anchor_start", False)
     anchor_chars = ctrl_cfg.get("control_id_start_chars", 25)
     min_block_lines = ctrl_cfg.get("min_control_block_lines", 0)
@@ -148,6 +162,7 @@ def build_patterns(config: dict) -> dict:
         "require_bold_control_id": require_bold,
         "bold_fallback_if_zero": bold_fallback,
         "tables_ignore_bold": tables_ignore_bold,
+        "headings_ignore_bold": headings_ignore_bold,
         "control_id_anchor_start": anchor_start,
         "control_id_start_chars": anchor_chars,
         "min_control_block_lines": min_block_lines,
@@ -198,8 +213,147 @@ def setup_logging(output_dir: str):
 # SECTION: PARAGRAPH EXTRACTION
 # ============================================================
 
+def _classify_table(table):
+    """Classify a table by its header row to determine extraction strategy.
+
+    Returns one of:
+        "control"  — structured control-definition table (has Control ID + Title/Requirement/Description)
+        "skip"     — noise table (crosswalk, revision history) that should be excluded from extraction
+        "other"    — unrecognized structure; fall through to cell-by-cell extraction
+
+    How it works:
+        Reads the first row (header row) of the table and normalizes each cell to
+        lowercase.  Then checks for column-name combinations:
+
+        1. If the table has a column matching "control id" (or "org control id")
+           AND a column matching "title", "requirement", or "description", it is a
+           control-definition table → "control".
+
+        2. If the table has a "control id"-like column but NO title/description
+           column (e.g. only NIST / CIS / FedRAMP columns), it is a framework
+           crosswalk → "skip".
+
+        3. If the table has "version" + "date" + "changes" columns, it is a
+           revision history table whose "Changes" cells often mention control IDs
+           in prose ("Added MON04.001") → "skip".
+
+        4. Everything else → "other" (cell-by-cell extraction, same as before).
+    """
+    if not table.rows:
+        return "other"
+
+    headers = [cell.text.strip().lower() for cell in table.rows[0].cells]
+
+    has_control_id_col = any("control" in h and "id" in h for h in headers)
+    has_title_or_desc = any(
+        kw in h for h in headers for kw in ("title", "requirement", "description")
+    )
+    has_revision_cols = (
+        any("version" in h for h in headers)
+        and any("date" in h for h in headers)
+        and any("change" in h for h in headers)
+    )
+
+    if has_control_id_col and has_title_or_desc:
+        return "control"
+    if has_control_id_col and not has_title_or_desc:
+        # Crosswalk / mapping table — has control IDs but only framework columns
+        return "skip"
+    if has_revision_cols:
+        # Revision history — mentions control IDs in "Changes" prose
+        return "skip"
+    return "other"
+
+
+def _extract_structured_table_rows(table, control_id_regex):
+    """Extract structured control rows from a control-definition table.
+
+    Reads the header row to find column indices for:
+        - control_id:   first column whose header contains "control" and "id"
+        - title:        column whose header contains "title"
+        - description:  column whose header contains "requirement" or "description"
+
+    For each data row, if the control ID cell matches the control_id_regex,
+    a pre-formed control block dict is returned with properly separated fields.
+    This avoids the cell-by-cell flattening that would otherwise merge Title,
+    Description, NIST mapping, Status, and Owner into one blob of text.
+
+    Returns a list of dicts with keys: control_id, control_name, baseline,
+    control_description, supplemental_guidance, miscellaneous, section_header, source.
+    """
+    if len(table.rows) < 2:
+        return []
+
+    headers = [cell.text.strip().lower() for cell in table.rows[0].cells]
+
+    # Find column indices
+    id_col = None
+    title_col = None
+    desc_col = None
+    for i, h in enumerate(headers):
+        if id_col is None and "control" in h and "id" in h:
+            id_col = i
+        elif title_col is None and "title" in h:
+            title_col = i
+        elif desc_col is None and ("requirement" in h or "description" in h):
+            desc_col = i
+
+    if id_col is None:
+        return []
+
+    rows = []
+    for row in table.rows[1:]:
+        cells = [cell.text.strip() for cell in row.cells]
+        id_text = cells[id_col] if id_col < len(cells) else ""
+
+        # The control ID cell may include baseline like "MON03.001 (L, M, H)"
+        id_match = control_id_regex.search(id_text)
+        if not id_match:
+            continue
+
+        # Flatten findall tuple if needed
+        match_result = control_id_regex.findall(id_text)
+        if match_result and isinstance(match_result[0], tuple):
+            control_id = next(g for g in match_result[0] if g)
+        else:
+            control_id = match_result[0] if match_result else id_text
+
+        # Parse baseline from the ID cell (e.g. "MON03.001 (L, M, H)" → "L,M,H")
+        baseline_match = _BASELINE_RE.search(id_text)
+        baseline = baseline_match.group(1).replace(" ", "") if baseline_match else ""
+
+        title = cells[title_col].strip() if title_col is not None and title_col < len(cells) else ""
+        description = cells[desc_col].strip() if desc_col is not None and desc_col < len(cells) else ""
+
+        rows.append({
+            "control_id": control_id,
+            "control_name": clean_text(title),
+            "baseline": baseline,
+            "control_description": clean_text(description),
+            "supplemental_guidance": "",
+            "miscellaneous": "",
+            "section_header": "",
+            "source": "Table",
+        })
+
+    return rows
+
+
 def extract_paragraphs_from_docx(filepath):
-    """Open a .docx file and return a list of paragraph metadata dicts."""
+    """Open a .docx file and return paragraphs plus structured table controls.
+
+    Returns (paragraphs, structured_table_controls) where:
+        - paragraphs: list of paragraph dicts for find_control_blocks()
+        - structured_table_controls: list of pre-formed control block dicts
+          extracted from tables with recognized Control ID column structure
+
+    Table handling strategy:
+        - "control" tables  → structured extraction (column-aware), cells excluded
+                               from paragraph list to prevent duplicates
+        - "skip" tables     → excluded entirely (crosswalk, revision history noise)
+        - "other" tables    → cell-by-cell extraction into paragraph list (original
+                               behavior, catches controls in non-standard tables)
+    """
     document = Document(str(filepath))
     paragraphs = []
 
@@ -213,18 +367,43 @@ def extract_paragraphs_from_docx(filepath):
         style_name = paragraph.style.name if paragraph.style else ""
         paragraphs.append({"text": text, "bold": first_run_bold, "bold_text": bold_text, "style": style_name, "source": "Text"})
 
-    # Also extract from table cells
-    for table in document.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                text = cell.text.strip()
-                if text:
-                    bold_text = "".join(
-                        r.text for para in cell.paragraphs for r in para.runs if r.bold
-                    )
-                    paragraphs.append({"text": text, "bold": False, "bold_text": bold_text, "style": "", "source": "Table"})
+    # --- Table extraction with classification ---
+    structured_table_controls = []
 
-    return paragraphs
+    for table in document.tables:
+        table_type = _classify_table(table)
+
+        if table_type == "control":
+            # Structured extraction: column-aware, returns pre-formed control dicts.
+            # We need the control_id_regex but don't have patterns here — use a broad
+            # pattern. The real regex filtering happens later in find_control_blocks
+            # and apply_filters. For structured tables we just need to find the ID.
+            # Import the compiled regex from the caller via a simple broad match.
+            broad_id_re = re.compile(r'\b[A-Z]{2,4}[-.]?\d{1,3}[-.]?\d{1,4}\b')
+            structured_table_controls.extend(
+                _extract_structured_table_rows(table, broad_id_re)
+            )
+            # Do NOT add these cells to the paragraph list — they are fully handled.
+
+        elif table_type == "skip":
+            # Crosswalk or revision history — exclude entirely to prevent
+            # false-positive control extraction from framework mappings or
+            # changelog prose like "Added MON04.001".
+            pass
+
+        else:
+            # Unrecognized table structure — fall through to cell-by-cell extraction
+            # so controls in non-standard tables are still captured.
+            for row in table.rows:
+                for cell in row.cells:
+                    text = cell.text.strip()
+                    if text:
+                        bold_text = "".join(
+                            r.text for para in cell.paragraphs for r in para.runs if r.bold
+                        )
+                        paragraphs.append({"text": text, "bold": False, "bold_text": bold_text, "style": "", "source": "Table"})
+
+    return paragraphs, structured_table_controls
 
 
 # ============================================================
@@ -396,12 +575,27 @@ _CONTROL_NAME_RE = re.compile(
 
 
 def parse_baseline_and_name(text, control_id):
-    """Extract baseline indicators and control name from the text following a control ID.
+    """Extract baseline indicators and control name from the text surrounding a control ID.
 
-    Looks for patterns like:
-        AC-1.001 (L, M, H) - Access Control Policy
-        AC-1.001 (L, M, H)
-        AC-1.001 - Access Control Policy
+    Handles multiple heading formats found in real compliance documents:
+
+        Format 1 — dash-separated, baseline after ID:
+            "AC-1.001 (L, M, H) - Access Control Policy"
+
+        Format 2 — dash-separated, no baseline:
+            "AC-1.001 - Access Control Policy"
+
+        Format 3 — space-separated, baseline at end (no dash):
+            "MON02.001 SIEM Log Ingestion and Correlation (L, M, H)"
+            The name is everything between the ID and the trailing baseline.
+
+        Format 4 — name BEFORE the ID:
+            "Log Retention Requirements  Control MON02.002  (L, M, H)"
+            Common when authors put the title first. The word "Control" or
+            "Control ID" is stripped as a noise prefix.
+
+        Format 5 — dash-separated, baseline at end of name:
+            "Control ID MON01.002 - Vulnerability Remediation SLAs (L, M, H)"
 
     Returns (baseline, control_name) — both empty strings if not found.
     """
@@ -415,37 +609,72 @@ def parse_baseline_and_name(text, control_id):
     baseline = ""
     control_name = ""
 
-    # Try to match baseline first
+    # Try to match baseline immediately after ID: "ID (L, M, H) ..."
     bl_match = _BASELINE_RE.match(after_id)
     if bl_match:
         baseline = bl_match.group(1).replace(" ", "")  # normalize to "L,M,H"
         after_id = after_id[bl_match.end():]
 
-    # Try to match control name (after baseline or directly after ID)
+    # Try to match control name after a dash separator: "... - Control Name"
     name_match = _CONTROL_NAME_RE.match(after_id)
     if name_match:
         control_name = name_match.group(1).strip()
-        # Handle "Control Name (L, M, H)" — baseline at end of name instead of after ID
+        # Handle trailing baseline inside the name: "Name (L, M, H)"
         if not baseline:
             trailing_bl = _BASELINE_RE.search(control_name)
             if trailing_bl:
                 baseline = trailing_bl.group(1).replace(" ", "")
                 control_name = control_name[:trailing_bl.start()].strip()
 
+    # No dash separator — try space-separated name with trailing baseline:
+    #   "MON02.001 SIEM Log Ingestion and Correlation (L, M, H)"
+    # The name is all the text between the ID and the "(L, M, H)" at the end.
+    if not control_name and not name_match:
+        remaining = after_id.strip()
+        if remaining:
+            trailing_bl = _BASELINE_RE.search(remaining)
+            if trailing_bl:
+                # Text before the baseline is the name
+                candidate_name = remaining[:trailing_bl.start()].strip()
+                if candidate_name and not baseline:
+                    baseline = trailing_bl.group(1).replace(" ", "")
+                if candidate_name:
+                    control_name = candidate_name
+            elif remaining and not remaining[0] in '(.':
+                # No baseline, no dash — treat remaining text as name if it looks
+                # like a title (starts with a letter, not punctuation).
+                # This catches "MON02.001 SIEM Log Ingestion and Correlation"
+                control_name = remaining
+
     # Handle name BEFORE the ID: "Access Control Policy ACC10.111 - (L, M, H)"
+    # Also: "Log Retention Requirements  Control MON02.002  (L,M, H)"
     if not control_name and id_pos > 0:
         before_id = re.sub(r'[\s\-\u2013\u2014]+$', '', text[:id_pos]).strip()
         if before_id:
-            control_name = before_id
+            # Strip noise prefixes: "Control" or "Control ID" that authors
+            # place before the ID (e.g. "Control MON02.002").
+            before_id = re.sub(r'(?i)\bcontrol\s*(id)?\s*$', '', before_id).strip()
+            if before_id:
+                control_name = before_id
 
     return (baseline, control_name)
 
 
 def _strip_control_prefix(text, control_id):
-    """Remove the control ID, baseline, and control name from the start of a line.
+    """Remove the control ID, baseline, control name, and any before-ID prefix.
 
-    Given text like "AC-1.001 (L, M, H) - Access Control Policy The organization shall...",
-    returns "The organization shall...".
+    Strips everything that parse_baseline_and_name would identify as metadata,
+    leaving only the description body text.
+
+    Examples:
+        "AC-1.001 (L, M, H) - Access Control Policy The org shall..."
+            → "The org shall..."
+        "MON02.001 SIEM Log Ingestion and Correlation (L, M, H)"
+            → "" (entire line is ID + name + baseline)
+        "Log Retention Requirements  Control MON02.002  (L,M, H)"
+            → "" (entire line is name + ID + baseline)
+        "Control MON01.001 (L, M, H) - Authenticated Vulnerability Scanning"
+            → "" (entire line is prefix + ID + baseline + name)
     """
     id_pos = text.find(control_id)
     if id_pos == -1:
@@ -459,11 +688,20 @@ def _strip_control_prefix(text, control_id):
     if bl_match:
         after = after[bl_match.end():]
 
-    # Strip control name separator and name like "- Access Control Policy"
+    # Strip dash-separated control name: "- Access Control Policy"
     name_match = _CONTROL_NAME_RE.match(after)
     if name_match:
         after = after[name_match.end():]
+    else:
+        # Space-separated name with trailing baseline:
+        #   "SIEM Log Ingestion and Correlation (L, M, H)"
+        # Strip everything up to and including the trailing baseline.
+        trailing_bl = _BASELINE_RE.search(after)
+        if trailing_bl:
+            after = after[trailing_bl.end():]
 
+    # Also strip any before-ID prefix text (e.g. "Control" or "Log Retention...")
+    # by starting from after the ID rather than from the original text start.
     return after.strip()
 
 
@@ -476,6 +714,7 @@ def find_control_blocks(paragraphs, patterns):
     control_id_regex = patterns["control_id"]
     require_bold = patterns.get("require_bold_control_id", False)
     tables_ignore_bold = patterns.get("tables_ignore_bold", True)
+    headings_ignore_bold = patterns.get("headings_ignore_bold", True)
     anchor_start = patterns.get("control_id_anchor_start", False)
     anchor_chars = patterns.get("control_id_start_chars", 25)
     min_block_lines = patterns.get("min_control_block_lines", 0)
@@ -497,14 +736,33 @@ def find_control_blocks(paragraphs, patterns):
         if not text:
             continue
 
-        # Determine whether bold filtering applies to this paragraph.
-        # tables_ignore_bold: table cells always extract regardless of bold setting.
+        # --- Bold filtering decision ---
+        # Three paragraph sources can contain control IDs:
+        #   1. Normal body text  — bold filter APPLIES (prevents inline ref noise)
+        #   2. Table cells       — bold filter SKIPPED (tables_ignore_bold)
+        #   3. Heading-styled    — bold filter SKIPPED (headings_ignore_bold)
+        #
+        # Why headings need a bypass: Word heading styles (Heading 1/2/3) do not
+        # store text as bold in the run-level XML, even if the heading renders
+        # bold visually. So paragraph.runs[0].bold is False and bold_text is "".
+        # Without this bypass, controls like "Control MON01.001 (L, M, H) -
+        # Authenticated Vulnerability Scanning" in a Heading 3 paragraph are
+        # silently dropped.
+        #
+        # Note: is_section_header() (called above) already returns (False, "")
+        # for any paragraph containing a control ID, so heading-styled paragraphs
+        # WITH control IDs flow through to here rather than being consumed as
+        # section headers.
         is_table = (source == "Table")
-        use_bold = require_bold and not (tables_ignore_bold and is_table)
+        style = paragraph_dict.get("style", "")
+        is_heading = ("Heading" in style)
+        use_bold = (require_bold
+                    and not (tables_ignore_bold and is_table)
+                    and not (headings_ignore_bold and is_heading))
 
-        # When require_bold_control_id is enabled, only match control IDs that
-        # appear in bold runs. This prevents false positives from control IDs
-        # referenced by name inside description or guidance text.
+        # When bold filtering is active, only match control IDs that appear in
+        # bold runs. This prevents false positives from control IDs referenced
+        # by name inside description or guidance text (e.g., "See also AC-1.002").
         if use_bold:
             bold_text = paragraph_dict.get("bold_text", "")
             bold_matches = control_id_regex.findall(bold_text)
@@ -758,12 +1016,32 @@ def resolve_url(filename: str, url_mapping: dict) -> str:
 # ============================================================
 
 def process_single_document(filepath, patterns, config, url_mapping=None):
-    """Run the full extraction pipeline on a single .docx file."""
+    """Run the full extraction pipeline on a single .docx file.
+
+    Two extraction paths run and their results are merged:
+
+        1. Structured table extraction — for tables with a recognized
+           "Control ID" + "Title"/"Requirement"/"Description" column layout.
+           Returns pre-formed control dicts with properly separated fields.
+           Crosswalk and revision-history tables are skipped entirely.
+
+        2. Paragraph-based extraction — scans body text (and cells from
+           unrecognized tables) for control IDs using regex + bold filtering.
+           Catches controls in headings, prose, and non-standard table layouts.
+
+    Deduplication: if both paths find the same control_id, the structured
+    table row wins because it has clean column-separated name/description.
+    Paragraph-based rows for IDs already found in structured tables are dropped.
+    """
     filepath = Path(filepath)
     source_file = filepath.name
-    paragraphs = extract_paragraphs_from_docx(filepath)
 
-    if not paragraphs:
+    # extract_paragraphs_from_docx now returns two things:
+    #   paragraphs — flat list for paragraph-based extraction
+    #   structured_table_controls — pre-formed dicts from column-aware table parsing
+    paragraphs, structured_table_controls = extract_paragraphs_from_docx(filepath)
+
+    if not paragraphs and not structured_table_controls:
         print(f"  WARNING: {source_file} has 0 paragraphs, skipping.")
         return []
 
@@ -776,6 +1054,10 @@ def process_single_document(filepath, patterns, config, url_mapping=None):
     print(f"  Metadata found -- Purpose: {purpose_found} | "
           f"Scope: {scope_found} | Applicability: {applicability_found}")
 
+    if structured_table_controls:
+        print(f"  Structured table controls: {len(structured_table_controls)}")
+
+    # --- Paragraph-based extraction (body text + unrecognized table cells) ---
     control_blocks = find_control_blocks(paragraphs, patterns)
 
     # bold_fallback_if_zero: if bold-only extraction found nothing, retry
@@ -788,18 +1070,26 @@ def process_single_document(filepath, patterns, config, url_mapping=None):
         if control_blocks:
             print(f"  Bold fallback: re-extracted {len(control_blocks)} controls without bold requirement")
 
-    print(f"  Controls extracted: {len(control_blocks)}")
+    # --- Merge: structured table rows take priority, then paragraph-based ---
+    # Structured rows have clean column-separated data; paragraph rows for the
+    # same ID would have polluted descriptions (NIST/Status/Owner concatenated).
+    structured_ids = {b["control_id"] for b in structured_table_controls}
+    paragraph_only_blocks = [b for b in control_blocks if b["control_id"] not in structured_ids]
+
+    merged_blocks = structured_table_controls + paragraph_only_blocks
+    print(f"  Controls extracted: {len(merged_blocks)} "
+          f"({len(structured_table_controls)} from tables, {len(paragraph_only_blocks)} from text)")
 
     # Apply whitelist/blacklist filtering
-    control_blocks = apply_filters(control_blocks, config)
+    merged_blocks = apply_filters(merged_blocks, config)
     ctrl_cfg = config.get("control_extraction", {})
     if ctrl_cfg.get("whitelist") or ctrl_cfg.get("blacklist"):
-        print(f"  Controls after filtering: {len(control_blocks)}")
+        print(f"  Controls after filtering: {len(merged_blocks)}")
 
     published_url = resolve_url(source_file, url_mapping or {})
 
     rows = []
-    for block in control_blocks:
+    for block in merged_blocks:
         row = ControlRow(
             source_file=source_file,
             section_header=block["section_header"],

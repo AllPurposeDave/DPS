@@ -810,6 +810,19 @@ def get_heading_level(style) -> Optional[int]:
     return None
 
 
+def build_custom_style_map(config: dict) -> dict:
+    """Build a lowercase-keyed custom style map from config.
+
+    Maps custom Word style names (lowercased) to heading levels.
+    Used by docx2md.py and docx2jsonl.py for heading detection.
+    """
+    hcfg = config.get("headings", {})
+    cmap = hcfg.get("custom_style_map", {})
+    if cmap:
+        return {k.strip().lower(): v for k, v in cmap.items()}
+    return {}
+
+
 def find_parent_heading(paragraphs, index: int) -> str:
     """
     Walk backward from paragraph at `index` to find the nearest
@@ -874,10 +887,6 @@ def sanitize_filename(text: str, max_len: int = 50) -> str:
         clean = clean[:max_len].rstrip()
     return clean
 
-
-def paragraph_char_count(paragraph) -> int:
-    """Return the character count of a paragraph's text."""
-    return len(paragraph.text)
 
 
 def ensure_output_dir(output_dir: str) -> None:

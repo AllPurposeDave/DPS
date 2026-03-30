@@ -11,8 +11,8 @@ Feeds into: Notebook 1 (profiling), Notebook 2 (transformation),
 
 Usage:
     python run_pipeline.py --step 0                           # unified pipeline
-    python scripts/policy_profiler.py --config dps_config.yaml  # standalone with unified config
-    python scripts/policy_profiler.py --config profiler_config.yaml --input ./docs/
+    python scripts/policy_profiler.py --config dps_config.xlsx     # standalone with Excel config
+    python scripts/policy_profiler.py --config dps_config_fallback.yaml --input ./docs/
     python scripts/policy_profiler.py --help
 
 Requirements:
@@ -52,7 +52,7 @@ def check_environment():
 
     WHAT THIS CHECKS:
       - python-docx  : reads .docx files
-      - pyyaml       : reads the profiler_config.yaml settings file
+      - pyyaml       : reads YAML fallback config if Excel not available
       - openpyxl     : writes the Excel inventory spreadsheet
 
     IF YOU SEE "MISSING PACKAGE" ERRORS:
@@ -359,7 +359,7 @@ def detect_heading_info(paragraph, config: dict) -> tuple:
       - level=1,2,3,4 matches Word's Heading 1 / Heading 2 / etc.
       - is_builtin=True  → paragraph uses a standard Word heading style
       - is_custom=True   → paragraph uses an org-specific custom style
-                           (add those names to profiler_config.yaml under
+                           (add those names to dps_config.xlsx under
                             headings: custom_heading_styles)
       - is_fake=True     → paragraph is NOT a real heading style, but it
                            looks like one (bold + short + large font).
@@ -375,7 +375,7 @@ def detect_heading_info(paragraph, config: dict) -> tuple:
 
       "0 fake headings" but the doc clearly uses bold headers →
         The font size may be at or below fake_heading_min_font_size (default 12).
-        FIX: Lower fake_heading_min_font_size to 11 in profiler_config.yaml.
+        FIX: Lower fake_heading_min_font_size to 11 in dps_config.xlsx.
         Also check: if the bold text's font size is not explicitly set in Word
         (i.e., it inherits from the paragraph style), run.font.size returns None.
         The code handles this by still flagging it if it's bold + short (≤100 chars).
@@ -383,7 +383,7 @@ def detect_heading_info(paragraph, config: dict) -> tuple:
       Headings show as "fake" but they're real org-specific headings →
         Your org's Word template uses a custom style name not in the default list.
         FIX: In Word, click the heading paragraph, look at the Styles pane (Home tab).
-        Note the exact style name. Add it to profiler_config.yaml under:
+        Note the exact style name. Add it to dps_config.xlsx under:
           headings:
             custom_heading_styles:
               - "Your Exact Style Name Here"
@@ -408,7 +408,7 @@ def detect_heading_info(paragraph, config: dict) -> tuple:
 
     # --- Step 2: Check org-specific custom heading styles ---------------------
     # If your org's Word template uses non-standard style names, add them to
-    # profiler_config.yaml → headings → custom_heading_styles.
+    # dps_config.xlsx → headings → custom_heading_styles.
     for cs in custom:
         if style_name.lower() == cs.lower():
             level_match = re.search(r'\d', style_name)
@@ -500,7 +500,7 @@ def classify_table(table, config: dict) -> tuple:
       - all_cell_text: concatenated text from all cells (for key term search)
 
     HOW CLASSIFICATION WORKS:
-      The first row is matched against keyword lists in profiler_config.yaml
+      The first row is matched against keyword lists in dps_config.xlsx
       under tables: classification. The type with the most keyword hits wins.
       A minimum column count is also enforced per type.
 
@@ -510,7 +510,7 @@ def classify_table(table, config: dict) -> tuple:
         Either the header row keywords don't match, or the table has no header row
         (data starts in row 1 with no column labels).
         FIX (keyword mismatch): Add the actual header text as a keyword in
-        profiler_config.yaml under tables: classification: [type]: keywords.
+        dps_config.xlsx under tables: classification: [type]: keywords.
         FIX (no header row): The profiler can only read what's there. This is
         flagged in the tables_inventory.csv so you can handle it manually.
 
@@ -800,14 +800,14 @@ def classify_document_type(profile: dict, config: dict) -> tuple:
       Document classified as B but has a large procedure section →
         The procedure keyword scan only fires if 2+ keywords match. If your
         org uses different terminology (e.g., "playbook" instead of "procedure"),
-        add those terms to profiler_config.yaml under:
+        add those terms to dps_config.xlsx under:
           classification: type_c: procedure_keywords
 
       Document classified as D but most of the "appendix" is actually body content →
         A section heading matched the appendix fuzzy patterns (e.g., "References"
         or "Definitions" mid-document). Check the section_inventory.csv to see
         which section triggered the appendix match.
-        FIX: Add a more specific heading pattern to profiler_config.yaml under
+        FIX: Add a more specific heading pattern to dps_config.xlsx under
         sections: appendix to avoid over-matching.
     """
     cls = config['classification']
@@ -845,7 +845,7 @@ def compute_priority_score(profile: dict, config: dict) -> float:
     = should be processed earlier in your project.
 
     HOW THE SCORE WORKS:
-      Each signal adds weighted points. Defaults (from profiler_config.yaml):
+      Each signal adds weighted points. Defaults (from dps_config.xlsx):
         table_count        × 2.0   (more tables = more flattening work)
         cross_ref_count    × 1.5   (each cross-ref needs inline restatement)
         fake_heading_count × 1.0   (each fake heading needs style correction)
@@ -854,16 +854,16 @@ def compute_priority_score(profile: dict, config: dict) -> float:
         merged_cells       × 1.0   (merged cell tables need special handling)
         over_size_limit    + 3.0   (flat bonus: doc MUST be split regardless)
 
-      usage_frequency (optional): if you add scores in profiler_config.yaml under
+      usage_frequency (optional): if you add scores in dps_config.xlsx under
         priority_scoring: usage_frequency: { "PolicyName.docx": 9 }
         that score is multiplied by 2.0 and added. This is the strongest signal.
 
     TO ADJUST PRIORITY WEIGHTING:
-      Edit the weights in profiler_config.yaml → priority_scoring → weights.
+      Edit the weights in dps_config.xlsx → priority_scoring → weights.
       You do NOT need to touch this code.
 
     TO ADD USAGE FREQUENCY SCORES (recommended):
-      In profiler_config.yaml, under priority_scoring: usage_frequency:
+      In dps_config.xlsx, under priority_scoring: usage_frequency:
         "Access Control Policy.docx": 9
         "Acceptable Use Policy.docx": 7
       Scale: 0 (nobody asks about it) to 10 (most-queried policy).
@@ -936,7 +936,7 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
         Page count is estimated as paragraph_count / paragraphs_per_page (default 30).
         Dense policy docs with long paragraphs will look like fewer pages; docs with
         lots of short bullet items will look like more.
-        FIX: Adjust paragraphs_per_page in profiler_config.yaml.
+        FIX: Adjust paragraphs_per_page in dps_config.xlsx.
         To calibrate: open one of your docs in Word, note the real page count,
         count the paragraphs (Ctrl+End and check status bar), then set
         paragraphs_per_page = paragraph_count / actual_page_count.
@@ -1125,7 +1125,8 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
             char_count=tbl_chars,
         ))
 
-    table_pct = round((total_table_chars / total_chars * 100), 1) if total_chars > 0 else 0
+    true_total_chars = total_chars + total_table_chars
+    table_pct = round((total_table_chars / true_total_chars * 100), 1) if true_total_chars > 0 else 0
 
     # ----- Key term search -----
     table_text = "\n".join(all_table_texts)
@@ -1206,7 +1207,7 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
     # ----- Build intermediate dict for classification -----
     profile_dict = {
         'table_content_pct': table_pct,
-        'appendix_section_pct': round(appendix_chars / total_chars * 100, 1) if total_chars > 0 else 0,
+        'appendix_section_pct': round(appendix_chars / true_total_chars * 100, 1) if true_total_chars > 0 else 0,
         '_full_text': full_text,
         'table_count': len(doc.tables),
         'cross_ref_count': len(all_crossrefs),
@@ -1250,11 +1251,11 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
         section_count=len(sections_info),
         largest_section_name=largest_sec.heading_text if largest_sec else "",
         largest_section_chars=largest_sec.char_count if largest_sec else 0,
-        largest_section_pct=round(largest_sec.char_count / total_chars * 100, 1) if largest_sec and total_chars > 0 else 0,
+        largest_section_pct=round(largest_sec.char_count / true_total_chars * 100, 1) if largest_sec and true_total_chars > 0 else 0,
         controls_section_chars=controls_chars,
-        controls_section_pct=round(controls_chars / total_chars * 100, 1) if total_chars > 0 else 0,
+        controls_section_pct=round(controls_chars / true_total_chars * 100, 1) if true_total_chars > 0 else 0,
         appendix_section_chars=appendix_chars,
-        appendix_section_pct=round(appendix_chars / total_chars * 100, 1) if total_chars > 0 else 0,
+        appendix_section_pct=round(appendix_chars / true_total_chars * 100, 1) if true_total_chars > 0 else 0,
         table_count=len(doc.tables),
         tables=[vars(t) for t in tables_info],
         total_table_chars=total_table_chars,
@@ -1742,13 +1743,13 @@ def main():
         description=(
             "Policy Document Profiler — scans .docx files and produces an\n"
             "Excel inventory ranked by Copilot optimization priority.\n\n"
-            "Run with no arguments to use profiler_config.yaml defaults.\n"
+            "Run with no arguments to use dps_config.xlsx defaults.\n"
             "Run with --help to see all options."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    # Find the best default config: dps_config.xlsx (primary) or dps_config_fallback.yaml
-    default_config = 'profiler_config.yaml'
+    # Find the best default config: dps_config.xlsx (primary) or YAML fallback
+    default_config = 'dps_config.xlsx'
     for candidate in ['dps_config.xlsx', '../dps_config.xlsx',
                       'dps_config_fallback.yaml', '../dps_config_fallback.yaml']:
         if os.path.isfile(candidate):
@@ -1794,19 +1795,15 @@ def main():
     # can see exactly where the script is looking, regardless of which folder
     # your terminal is in when you run the script.
     # -------------------------------------------------------------------------
-    # Resolve paths — handle both unified dps_config.yaml and legacy profiler_config.yaml
+    # Resolve paths
     input_dir = os.path.abspath(args.input or config['input']['directory'])
 
     if args.output:
         output_dir = os.path.abspath(args.output)
-    elif 'profiler' in config.get('output', {}):
-        # Unified config: output.directory + output.profiler.directory
-        output_root = config['output'].get('directory', './output')
-        profiler_subdir = config['output']['profiler'].get('directory', '0 - profiler')
-        output_dir = os.path.abspath(os.path.join(output_root, profiler_subdir))
     else:
-        # Legacy config: output.directory directly
-        output_dir = os.path.abspath(config['output']['directory'])
+        output_root = config['output'].get('directory', './output')
+        profiler_subdir = config['output'].get('profiler', {}).get('directory', '0 - profiler')
+        output_dir = os.path.abspath(os.path.join(output_root, profiler_subdir))
 
     # Pipeline issues root = parent of the profiler output dir (i.e., ./output/)
     pipeline_output_root = os.path.dirname(output_dir)
@@ -1829,9 +1826,9 @@ def main():
         print("           or pass the full path with --input:")
         print(f'           python policy_profiler.py --input "C:/full/path/to/docs"')
         print()
-        print("  (b) The path in profiler_config.yaml is wrong.")
-        print("      FIX: Open profiler_config.yaml and update input: directory")
-        print("           to the full path where your .docx files live.")
+        print("  (b) The path in your config file is wrong.")
+        print("      FIX: Open dps_config.xlsx and update the Input sheet's")
+        print("           'directory' setting to the full path where your .docx files live.")
         print()
         print("  (c) The folder hasn't been created yet.")
         print("      FIX: Create the folder and put your .docx files in it.")
@@ -1845,7 +1842,7 @@ def main():
         print(f"ERROR: Cannot create output folder: {output_dir}")
         print(f"  Detail: {e}")
         print("  FIX: Check that you have write permission to that location,")
-        print("       or change output: directory in profiler_config.yaml.")
+        print("       or change the Output sheet's 'directory' setting in dps_config.xlsx.")
         sys.exit(1)
 
     # -------------------------------------------------------------------------
@@ -1953,8 +1950,7 @@ def main():
     # -------------------------------------------------------------------------
     print("\n  Writing output files...")
 
-    # Handle both unified config (output.profiler.*) and legacy config (output.*)
-    profiler_out = config['output'].get('profiler', config['output'])
+    profiler_out = config['output'].get('profiler', {})
     inv_path  = os.path.join(output_dir, profiler_out.get('inventory_file', 'document_inventory.xlsx'))
     json_path = os.path.join(output_dir, profiler_out.get('json_file', 'document_profiles.json'))
     sec_path  = os.path.join(output_dir, profiler_out.get('sections_file', 'section_inventory.csv'))

@@ -95,9 +95,17 @@ def load_reviewed_workbook(xlsx_path: str) -> tuple[list[dict], list[dict]]:
             for i, val in enumerate(row):
                 if i < len(headers) and headers[i]:
                     row_dict[headers[i]] = val if val is not None else ""
-            # Skip empty rows and the example placeholder row
+            # Skip empty rows and the placeholder example row.
+            # The placeholder is identified by having BOTH the example control
+            # ID and the example description — not just the ID alone, since a
+            # real control could legitimately be AC-2.3.
             cid = str(row_dict.get("Control ID", "")).strip()
-            if cid and cid != "AC-2.3":  # skip placeholder example
+            desc = str(row_dict.get("Control Description", "")).strip().lower()
+            is_placeholder = (
+                cid == "AC-2.3"
+                and ("example" in desc or "placeholder" in desc or not desc)
+            )
+            if cid and not is_placeholder:
                 missing_rows.append(row_dict)
 
     wb.close()
@@ -296,8 +304,7 @@ def analyze_error_patterns(
         # Check if missing control IDs match the current regex patterns
         ctrl_cfg = config.get("control_extraction", {})
         id_patterns = ctrl_cfg.get("control_id_patterns",
-                                    [ctrl_cfg.get("control_id_pattern",
-                                                   r'\b[A-Z]{2,4}[-.]?\d{1,3}[-.]\d{2,4}\b')])
+                                    [r'\b[A-Z]{2,4}[-.]?\d{1,3}[-.]\d{2,4}\b'])
         combined_re = re.compile("|".join(f"({p})" for p in id_patterns))
 
         unmatched_ids = []

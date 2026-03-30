@@ -40,6 +40,7 @@ from docx import Document
 from docx.oxml.ns import qn
 
 from shared_utils import (
+    build_custom_style_map,
     ensure_output_dir,
     get_heading_level,
     is_heading_style,
@@ -95,15 +96,6 @@ def _build_heading_patterns(config: dict):
     return h1, h2, h3
 
 
-def _build_custom_style_map(config: dict) -> dict:
-    """Build lowercase-key custom style map from config."""
-    hcfg = config.get("headings", {})
-    cmap = hcfg.get("custom_style_map", {})
-    if cmap:
-        return {k.strip().lower(): v for k, v in cmap.items()}
-    return {}
-
-
 def _determine_heading_level(text: str, re_h1, re_h2, re_h3, default_level: int = 2) -> int:
     """Return the numeric heading level (1-3) for a fake heading."""
     stripped = text.strip()
@@ -146,10 +138,12 @@ def _resolve_url_for_jsonl(url_mapping: dict, doc_name: str, config: dict) -> st
     return url if url != "(URL not configured)" else ""
 
 
-def load_tag_mapping(tag_file: str) -> dict[str, list[str]]:
-    """Load per-document tags from a Tag Config Excel file.
+def load_tag_mapping(tag_file: str, sheet_name: str | None = None) -> dict[str, list[str]]:
+    """Load per-document tags from an Excel file.
 
-    Expected columns: Document_Name | Tags (comma-separated).
+    Reads the specified sheet (or 'Custom Tags' sheet, or first sheet) and
+    looks for Document_Name and Tags columns.  Tags are comma-separated.
+
     Returns {lowercase_doc_name: [tag1, tag2, ...]}.
     """
     import openpyxl
@@ -161,9 +155,25 @@ def load_tag_mapping(tag_file: str) -> dict[str, list[str]]:
 
     try:
         wb = openpyxl.load_workbook(tag_file, read_only=True, data_only=True)
-        ws = wb.worksheets[0]
     except Exception as e:
         print(f"  WARNING: Could not read tag file: {e}")
+        return {}
+
+    # Find the right sheet
+    ws = None
+    if sheet_name and sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+    else:
+        # Look for "Custom Tags" sheet
+        for name in wb.sheetnames:
+            if "custom tags" in name.lower():
+                ws = wb[name]
+                break
+    if ws is None:
+        if sheet_name:
+            # Explicit sheet requested but not found
+            print(f"  NOTE: Sheet '{sheet_name}' not found in {os.path.basename(tag_file)}.")
+        wb.close()
         return {}
 
     # Find column indices from header row
@@ -172,12 +182,19 @@ def load_tag_mapping(tag_file: str) -> dict[str, list[str]]:
         if cell.value:
             headers[str(cell.value).strip().lower()] = col_idx
 
-    name_idx = headers.get("document_name")
-    tags_idx = headers.get("tags")
+    # Flexible column matching
+    name_idx = None
+    tags_idx = None
+    for key, idx in headers.items():
+        if name_idx is None and ("document" in key or "doc" in key or "file" in key or "name" in key):
+            name_idx = idx
+        if tags_idx is None and "tag" in key:
+            tags_idx = idx
 
     if name_idx is None or tags_idx is None:
-        print(f"  WARNING: Tag file must have 'Document_Name' and 'Tags' columns.")
+        print(f"  WARNING: Tag sheet must have a document name column and a 'Tags' column.")
         print(f"  Found columns: {list(headers.keys())}")
+        wb.close()
         return {}
 
     mapping = {}
@@ -190,10 +207,12 @@ def load_tag_mapping(tag_file: str) -> dict[str, list[str]]:
                 tags = [t.strip() for t in str(tags_val).split(",") if t.strip()]
             else:
                 tags = []
-            mapping[name_key] = tags
+            if tags:
+                mapping[name_key] = tags
 
     wb.close()
-    print(f"  Loaded tags for {len(mapping)} documents from {os.path.basename(tag_file)}")
+    if mapping:
+        print(f"  Loaded tags for {len(mapping)} documents from {os.path.basename(tag_file)}")
     return mapping
 
 
@@ -218,12 +237,13 @@ def _resolve_tags(tag_mapping: dict, doc_name: str) -> list[str]:
     return []
 
 
-def load_acronym_mapping(acronym_file: str) -> dict[str, list[str]]:
-    """Load per-document acronyms from confirmed Acronym Definitions Excel.
+def load_acronym_mapping(acronym_file: str) -> dict[str, dict[str, str]]:
+    """Load per-document acronyms with definitions from confirmed Acronym Definitions Excel.
 
-    Reads the 'Per Document' sheet with columns: Document | Acronym | ...
-    Returns {lowercase_doc_name: [acronym1, acronym2, ...]}.
-    Only acronyms for that specific document are included.
+    Reads the 'Acronym Definitions' or 'Per Document' sheet.
+    Columns: Document | Acronym | Definition | ...
+    Returns {lowercase_doc_name: {acronym: definition, ...}}.
+    Only acronyms with non-empty definitions are included.
     """
     import openpyxl
 
@@ -236,12 +256,17 @@ def load_acronym_mapping(acronym_file: str) -> dict[str, list[str]]:
         print(f"  WARNING: Could not read acronym definitions file: {e}")
         return {}
 
-    # Look for "Per Document" sheet
+    # Look for "Acronym Definitions" sheet first, then "Per Document"
     target_sheet = None
     for name in wb.sheetnames:
-        if "per document" in name.lower():
+        if "acronym definitions" in name.lower():
             target_sheet = name
             break
+    if not target_sheet:
+        for name in wb.sheetnames:
+            if "per document" in name.lower():
+                target_sheet = name
+                break
     if not target_sheet:
         wb.close()
         return {}
@@ -256,36 +281,71 @@ def load_acronym_mapping(acronym_file: str) -> dict[str, list[str]]:
 
     doc_idx = headers.get("document")
     acr_idx = headers.get("acronym")
+    # Look for definition and status columns
+    def_idx = None
+    status_idx = None
+    for key, idx in headers.items():
+        if def_idx is None and ("definition" in key or key == "def"):
+            def_idx = idx
+        if status_idx is None and key == "status":
+            status_idx = idx
 
     if doc_idx is None or acr_idx is None:
         wb.close()
         return {}
 
-    mapping: dict[str, list[str]] = {}
+    mapping: dict[str, dict[str, str]] = {}
+    fp_skipped = 0
+    no_def_skipped = 0
     for row in ws.iter_rows(min_row=2, values_only=True):
         doc_val = row[doc_idx] if doc_idx < len(row) else None
+        # Skip instruction/helper rows (parenthetical guidance text)
+        if doc_val and str(doc_val).strip().startswith("("):
+            continue
         acr_val = row[acr_idx] if acr_idx < len(row) else None
+        def_val = row[def_idx] if def_idx is not None and def_idx < len(row) else None
+        # Respect Status column: skip rows marked as false positives
+        if status_idx is not None:
+            status_val = row[status_idx] if status_idx < len(row) else None
+            if status_val and str(status_val).strip().lower() == "false positive":
+                fp_skipped += 1
+                continue
         if doc_val and acr_val:
             doc_key = normalize_doc_name(str(doc_val).strip())
             acronym = str(acr_val).strip()
-            mapping.setdefault(doc_key, []).append(acronym)
+            definition = str(def_val).strip() if def_val else ""
+            if definition:  # Only include acronyms with definitions
+                if doc_key not in mapping:
+                    mapping[doc_key] = {}
+                mapping[doc_key][acronym] = definition
+            else:
+                no_def_skipped += 1
 
     wb.close()
     if mapping:
-        print(f"  Loaded acronym definitions for {len(mapping)} documents from {os.path.basename(acronym_file)}")
+        total = sum(len(v) for v in mapping.values())
+        parts = [f"{total} acronym definitions for {len(mapping)} documents"]
+        if fp_skipped:
+            parts.append(f"{fp_skipped} false positives skipped")
+        if no_def_skipped:
+            parts.append(f"{no_def_skipped} without definitions skipped")
+        print(f"  Loaded {', '.join(parts)} from {os.path.basename(acronym_file)}")
     return mapping
 
 
-def _resolve_acronyms(acronym_mapping: dict, doc_name: str) -> list[str]:
-    """Resolve acronyms for a document name using shared matching logic."""
+def _resolve_acronyms(acronym_mapping: dict, doc_name: str) -> dict[str, str]:
+    """Resolve acronym definitions for a document name using shared matching logic.
+
+    Returns a dict of {acronym: definition} for the matched document.
+    """
     if not acronym_mapping:
-        return []
+        return {}
 
     for key, acronyms in acronym_mapping.items():
         if match_doc_name(doc_name, key):
             return acronyms
 
-    return []
+    return {}
 
 
 # ============================================================================
@@ -367,7 +427,7 @@ class DocxToJsonl:
 
         # Heading detection config
         self.re_h1, self.re_h2, self.re_h3 = _build_heading_patterns(config)
-        self.custom_style_map = _build_custom_style_map(config)
+        self.custom_style_map = build_custom_style_map(config)
         hcfg = config.get("headings", {})
         self.default_heading_level = hcfg.get("default_heading_level", 2)
         self.fake_heading_max_chars = hcfg.get("fake_heading_max_chars_fixer", 120)
@@ -443,7 +503,7 @@ class DocxToJsonl:
             chunk["source_file"] = self.filename
             chunk["PublishedURL"] = url
             chunk["tags"] = tags
-            chunk["acronyms"] = _resolve_acronyms(self.acronym_mapping, self.filename)
+            chunk["Acronyms"] = _resolve_acronyms(self.acronym_mapping, self.filename)
             chunk["chunk_index"] = idx
             chunk["total_chunks"] = total
 
@@ -817,9 +877,12 @@ def main():
         if tag_file:
             tag_file = resolve_path(config, tag_file)
     if not tag_file:
-        default_tag_path = os.path.join(_PROJECT_ROOT, "input", "Doc_Tags.xlsx")
-        if os.path.isfile(default_tag_path):
-            tag_file = default_tag_path
+        # Default: read "Custom Tags" sheet from Acronym Definitions file
+        acronym_defs_path = d2j.get("acronym_definitions_file", "")
+        if not acronym_defs_path:
+            acronym_defs_path = config.get("metadata", {}).get("tags", {}).get("acronym_definitions_file", "")
+        if acronym_defs_path:
+            tag_file = resolve_path(config, acronym_defs_path)
     tag_mapping = load_tag_mapping(tag_file) if tag_file else {}
 
     # Load acronym definitions (per-document matching)
@@ -838,11 +901,14 @@ def main():
 
     print(f"\nProcessing {len(docx_files)} document(s)...\n")
 
-    # Process each file
+    # Process each file — track metadata match rates for summary
     results = []
     success_count = 0
     error_count = 0
     total_chunks = 0
+    docs_no_tags = []
+    docs_no_acronyms = []
+    docs_no_url = []
 
     for filepath in docx_files:
         filename = os.path.basename(filepath)
@@ -870,6 +936,16 @@ def main():
                 success_count += 1
                 chunks = result["stats"]["chunks"]
                 total_chunks += chunks
+                # Track metadata match misses for the summary
+                tags = _resolve_tags(tag_mapping, filename)
+                acronyms = _resolve_acronyms(acronym_mapping, filename)
+                url = _resolve_url_for_jsonl(url_mapping, filename, config)
+                if tag_mapping and not tags:
+                    docs_no_tags.append(filename)
+                if acronym_mapping and not acronyms:
+                    docs_no_acronyms.append(filename)
+                if url_mapping and not url:
+                    docs_no_url.append(filename)
                 print(f"{chunks} chunks ({result['elapsed']}s)")
                 if result["warnings"]:
                     for w in result["warnings"]:
@@ -884,6 +960,32 @@ def main():
     print(f"Complete: {success_count} succeeded, {error_count} failed")
     print(f"Total chunks generated: {total_chunks}")
     print(f"Output directory: {output_dir}")
+
+    # Warn about documents that didn't match any metadata mappings.
+    # This is the most common human error — document names in the Excel
+    # don't match the filenames being processed (typos, underscores vs
+    # spaces, missing extensions, etc.).
+    if docs_no_tags:
+        print(f"\n  NOTE: {len(docs_no_tags)} document(s) had no matching custom tags:")
+        for d in docs_no_tags[:5]:
+            print(f"    - {d}")
+        if len(docs_no_tags) > 5:
+            print(f"    ... and {len(docs_no_tags) - 5} more")
+        print("    Check Document_Name values in your Custom Tags sheet.")
+    if docs_no_acronyms:
+        print(f"\n  NOTE: {len(docs_no_acronyms)} document(s) had no matching acronym definitions:")
+        for d in docs_no_acronyms[:5]:
+            print(f"    - {d}")
+        if len(docs_no_acronyms) > 5:
+            print(f"    ... and {len(docs_no_acronyms) - 5} more")
+        print("    Check Document column in your Acronym Definitions sheet.")
+    if docs_no_url:
+        print(f"\n  NOTE: {len(docs_no_url)} document(s) had no URL match:")
+        for d in docs_no_url[:5]:
+            print(f"    - {d}")
+        if len(docs_no_url) > 5:
+            print(f"    ... and {len(docs_no_url) - 5} more")
+        print("    Check Document_Name column in Doc_URL.xlsx.")
     print("=" * 60)
 
 

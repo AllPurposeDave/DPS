@@ -40,6 +40,7 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 from shared_utils import (
+    build_custom_style_map,
     ensure_output_dir,
     get_heading_level,
     is_paragraph_bold,
@@ -52,18 +53,6 @@ from shared_utils import (
 )
 from add_metadata import load_url_mapping, resolve_url
 
-
-# ============================================================================
-# Heading helpers (ported from heading_style_fixer.py)
-# ============================================================================
-
-def _build_custom_style_map(config: dict) -> dict:
-    """Build lowercase-key custom style map from config."""
-    hcfg = config.get("headings", {})
-    cmap = hcfg.get("custom_style_map", {})
-    if cmap:
-        return {k.strip().lower(): v for k, v in cmap.items()}
-    return {}
 
 
 
@@ -104,11 +93,6 @@ def _build_frontmatter(doc, filepath: str, config: dict,
         return ""
 
     fields = list(d2m.get("metadata_fields", _default_metadata_fields()))
-
-    # Inject doc_url field if enabled and not already present
-    if d2m.get("include_doc_url", False) and url_mapping is not None:
-        if not any(f.get("name") == "doc_url" for f in fields):
-            fields.append({"name": "doc_url", "source": "doc_url", "default": ""})
 
     lines = ["---"]
 
@@ -203,6 +187,48 @@ def _resolve_metadata_value(doc, filepath: str, source: str, default: str,
                         results.append(str(val))
             return results if results else default
 
+        if source.startswith("excel_lookup_dict:") and config is not None:
+            # Format: excel_lookup_dict:<excel_path>:<sheet>:<key_col>:<acro_col>:<def_col>
+            # Reads all rows in <sheet> where <key_col> matches the current
+            # doc filename. Returns a list of "ACRONYM = Definition" strings.
+            # Only rows with a non-empty definition column are included.
+            params = source[len("excel_lookup_dict:"):].split(":", 4)
+            if len(params) != 5:
+                return default
+            xl_path_raw, sheet_name, key_col_name, acro_col_name, def_col_name = params
+            xl_path = resolve_path(config, xl_path_raw)
+            if not os.path.isfile(xl_path):
+                return default
+            import openpyxl
+            wb = openpyxl.load_workbook(xl_path, read_only=True, data_only=True)
+            if sheet_name not in wb.sheetnames:
+                wb.close()
+                return default
+            ws = wb[sheet_name]
+            rows = ws.iter_rows(values_only=True)
+            headers = list(next(rows, []))
+            try:
+                key_idx = headers.index(key_col_name)
+                acro_idx = headers.index(acro_col_name)
+                def_idx = headers.index(def_col_name)
+            except ValueError:
+                wb.close()
+                return default
+            fname = os.path.basename(filepath)
+            results = []
+            for row in rows:
+                cell_key = str(row[key_idx]) if row[key_idx] is not None else ""
+                if match_doc_name(fname, cell_key):
+                    acro = row[acro_idx]
+                    defn = row[def_idx]
+                    if acro is not None and defn is not None:
+                        acro_str = str(acro).strip()
+                        defn_str = str(defn).strip()
+                        if acro_str and defn_str:
+                            results.append(f"{acro_str} = {defn_str}")
+            wb.close()
+            return results if results else default
+
     except Exception:
         pass
     return default
@@ -238,7 +264,7 @@ class DocxToMarkdown:
         self.url_mapping = url_mapping or {}
 
         # Heading detection config
-        self.custom_style_map = _build_custom_style_map(config)
+        self.custom_style_map = build_custom_style_map(config)
 
         # Control ID heading promotion
         self.control_id_patterns: list[re.Pattern] = []
@@ -341,11 +367,6 @@ class DocxToMarkdown:
         """Build a readable metadata block for the bottom of the document."""
         d2m = self.d2m
         fields = list(d2m.get("metadata_fields", _default_metadata_fields()))
-
-        # Inject doc_url field if enabled and not already present
-        if d2m.get("include_doc_url", False) and self.url_mapping:
-            if not any(f.get("name") == "doc_url" for f in fields):
-                fields.append({"name": "doc_url", "source": "doc_url", "default": ""})
 
         lines = ["", "---", ""]
         for field in fields:

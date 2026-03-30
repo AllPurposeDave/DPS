@@ -1,0 +1,33 @@
+filename,section_heading,heading_level,heading_style,is_builtin_style,is_fake_heading,standard_section,char_count,paragraph_count,cross_ref_count
+Configuration_Management_Policy_POL-CM-2026-004.docx,(No headings),0,none,False,False,none,1381,26,2
+Continuous_Monitoring_Policy-MON-2026.docx,Purpose,1,Heading 1,True,False,purpose,718,3,0
+Continuous_Monitoring_Policy-MON-2026.docx,Applicability and Scope,1,Heading 1,True,False,scope,410,2,0
+Continuous_Monitoring_Policy-MON-2026.docx,Intent,1,Heading 1,True,False,intent,599,3,0
+Continuous_Monitoring_Policy-MON-2026.docx,Section 3 - Vulnerability Management Controls,1,Heading 1,True,False,controls,1539,8,0
+Continuous_Monitoring_Policy-MON-2026.docx,"Control MON01.001 (L, M, H) - Authenticated Vulnerability Scanning",3,Heading 3,True,False,none,590,3,0
+Continuous_Monitoring_Policy-MON-2026.docx,"Control ID MON01.002 - Vulnerability Remediation SLAs (L, M, H)",3,Heading 3,True,False,none,589,3,0
+Continuous_Monitoring_Policy-MON-2026.docx,Section 4 - Log Management,1,Heading 1,True,False,none,1884,12,0
+Continuous_Monitoring_Policy-MON-2026.docx,"MON02.001 SIEM Log Ingestion and Correlation (L, M, H)",3,Heading 3,True,False,none,687,5,0
+Continuous_Monitoring_Policy-MON-2026.docx,"Log Retention Requirements - Control MON02.002  (L,M, H)",3,Heading 3,True,False,controls,760,5,0
+Continuous_Monitoring_Policy-MON-2026.docx,Section 5 - Security Metrics and Reporting Controls,1,Heading 1,True,False,controls,280,2,0
+Continuous_Monitoring_Policy-MON-2026.docx,Enforcement,1,Heading 1,True,False,none,465,3,1
+Continuous_Monitoring_Policy-MON-2026.docx,References,1,Heading 1,True,False,appendix,303,8,0
+Continuous_Monitoring_Policy-MON-2026.docx,Appendix A - Vulnerability Severity Matrix and Remediation Guidance,1,Heading 1,True,False,appendix,1430,17,0
+Continuous_Monitoring_Policy-MON-2026.docx,Appendix A Controls - Internet-Facing System Requirements,2,Heading 2,True,False,controls,57,1,0
+Continuous_Monitoring_Policy-MON-2026.docx,Appendix B - Approved Vulnerability Scanning Tools,2,Heading 2,True,False,appendix,50,1,0
+Continuous_Monitoring_Policy-MON-2026.docx,Appendix C - Required Log Sources,2,Heading 2,True,False,appendix,805,9,0
+Continuous_Monitoring_Policy-MON-2026.docx,Appendix D - Metrics and Reporting Templates,2,Heading 2,True,False,appendix,250,2,0
+Continuous_Monitoring_Policy-MON-2026.docx,Appendix E - Revision History,2,Heading 2,True,False,appendix,30,2,0
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Purpose,1,Heading 1,True,False,purpose,439,3,0
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Applicability & Scope,1,Heading 1,True,False,scope,474,3,0
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Intent,1,Heading 1,True,False,intent,447,3,0
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Section 1: Controls,1,Heading 1,True,False,controls,173,2,0
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Enforcement,1,Heading 1,True,False,none,448,3,1
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,References,1,Heading 1,True,False,appendix,304,8,0
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Appendix A - Approved DLP Tool Inventory,1,Heading 1,True,False,appendix,174,2,0
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Appendix B - Email Content Inspection Rules,1,Heading 1,True,False,appendix,466,3,0
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Appendix C - Sensitivity Label Taxonomy,1,Heading 1,True,False,appendix,161,2,0
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Appendix D - DLP Exception Request Process,1,Heading 1,True,False,appendix,361,3,0
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Appendix E - DLP Alert Triage Procedures,1,Heading 1,True,False,appendix,397,2,0
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Appendix F - Secure Fax Authorization,1,Heading 1,True,False,appendix,332,2,0
+Data_Loss_Prevention_Standard_STD-DLP-2026-011.docx,Appendix G - Revision History,1,Heading 1,True,False,appendix,30,2,0

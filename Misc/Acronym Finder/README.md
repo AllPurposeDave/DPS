@@ -2,7 +2,7 @@
 
 ## What It Does
 
-Scans all `.docx` files in a folder and finds every acronym candidate. Outputs a formatted Excel report with 5 sheets:
+Scans all `.docx` files in a folder and finds every acronym candidate. Running this will output a intake_template in output folder. Validated acronyms go in that, and place it in the input folder. Outputs a formatted Excel report with 5 sheets:
 
 | Sheet | What's On It |
 |---|---|

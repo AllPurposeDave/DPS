@@ -63,10 +63,7 @@ CSV_COLUMNS = [
 def build_control_id_regex(config: dict) -> re.Pattern:
     """Build a combined regex from the control_id_patterns in config."""
     ctrl_cfg = config.get("control_extraction", {})
-    id_patterns = ctrl_cfg.get("control_id_patterns", None)
-    if id_patterns is None:
-        legacy = ctrl_cfg.get("control_id_pattern", r'\b[A-Z]{2,4}[-.]?\d{1,3}[-.]\d{2,4}\b')
-        id_patterns = [legacy]
+    id_patterns = ctrl_cfg.get("control_id_patterns", [r'\b[A-Z]{2,4}[-.]?\d{1,3}[-.]\d{2,4}\b'])
     combined = "|".join(f"({p})" for p in id_patterns)
     return re.compile(combined)
 

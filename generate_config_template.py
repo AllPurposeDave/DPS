@@ -144,42 +144,175 @@ def _finalize_sheet(ws):
 # ── Sheet builders ──────────────────────────────────────────────────────────
 
 def _build_readme(wb):
+    """Combined README — overview, quick-start checklist, sheet reference, and pipeline details."""
     ws = wb.create_sheet("README")
-    ws.append(["DPS Configuration Workbook"])
-    ws.cell(row=1, column=1).font = Font(name="Arial", bold=True, size=14, color="2F5496")
+    TITLE_FONT = Font(name="Arial", bold=True, size=14, color="2F5496")
+    SECTION_FONT = Font(name="Arial", bold=True, size=11, color="2F5496")
+    SECTION_FILL = PatternFill(start_color="D6E4F0", end_color="D6E4F0", fill_type="solid")
+    NOTE_FONT = Font(name="Arial", italic=True, size=9, color="666666")
+    BODY_FONT = Font(name="Arial", size=10)
+    BOLD_FONT = Font(name="Arial", bold=True, size=10)
+
+    def section_header(text):
+        ws.append([text, "", ""])
+        r = ws.max_row
+        for c in range(1, 4):
+            cell = ws.cell(row=r, column=c)
+            cell.font = SECTION_FONT
+            cell.fill = SECTION_FILL
+            cell.border = THIN_BORDER
+
+    def body_row(a="", b="", c=""):
+        ws.append([a, b, c])
+        r = ws.max_row
+        for col in range(1, 4):
+            ws.cell(row=r, column=col).font = BODY_FONT
+            ws.cell(row=r, column=col).alignment = WRAP_ALIGN
+
+    def note_row(text):
+        ws.append([text, "", ""])
+        ws.cell(row=ws.max_row, column=1).font = NOTE_FONT
+
+    # Title
+    ws.append(["DPS Configuration Workbook", "", ""])
+    ws.cell(row=1, column=1).font = TITLE_FONT
     ws.append([])
-    instructions = [
-        "This workbook controls every setting for the DPS pipeline.",
-        "",
-        "HOW TO USE:",
-        "  1. Each sheet controls one section of the configuration.",
-        "  2. Settings sheets have: Setting | Value | Description columns.",
-        "  3. List sheets have: Value | Description columns.",
-        "  4. Sub-headers (rows starting with #) separate groups — do NOT delete them.",
-        "  5. Boolean fields have TRUE/FALSE dropdowns.",
-        "  6. Empty Value cells use the built-in default.",
-        "  7. Add new list items by inserting rows in the appropriate section.",
-        "",
-        "PIPELINE ORDER:",
-        "  Step 0  policy_profiler.py         — Scan & classify all docs",
-        "  Step 1  acronym_finder.py          — Scan for acronym candidates, generates an acronym audit workbook for human review and finalization. The confirmed set of acronyms are then fed into the metadata tagging stage",
-        "  Step 2  extract_controls.py        — Pull structured controls from docx into an excel using regex and heuristics",
-        "  Step 3  cross_reference_extractor.py — Capture cross-refs. This includes 'refer to section', URLs in documents, and internal document links to headings",
-        "  Step 4  heading_style_fixer.py     — Fix false headings (Text that is bold and appears to be heading but is not a heading format for .docx)",
-        "  Step 5  section_splitter.py        — Split docs at H1 boundaries after the desired char limit",
-        "  Step 6  add_metadata.py            — Stamp sub-docs with metadata",
-        "  Step 7  docx2md.py                 — Convert word documents to Markdown",
-        "  Step 8  docx2jsonl.py              — Convert word documents to JSONL",
-        "  Step 9  validate_controls.py       — Validate controls in split versions of docs",
-        "",
-        "HOW TO RUN:",
-        "  Full pipeline:  python run_pipeline.py",
-        "  Single step:    python run_pipeline.py --step 0",
-        "  Range:          python run_pipeline.py --step 1-3",
+
+    # Overview
+    section_header("Overview")
+    body_row(
+        "This workbook is the central configuration file for the Document Processing System (DPS) pipeline.",
+    )
+    body_row(
+        "Each worksheet controls a specific area of pipeline behavior. Edit the Value column on any sheet "
+        "to customise settings; leave a cell blank to use the built-in default.",
+    )
+    ws.append([])
+
+    # Quick-Start Checklist
+    section_header("Quick-Start Checklist — Review Before First Run")
+    ws.append(["Setting", "Where to Find It", "Default"])
+    r = ws.max_row
+    for col in range(1, 4):
+        cell = ws.cell(row=r, column=col)
+        cell.font = BOLD_FONT
+        cell.border = THIN_BORDER
+
+    checklist = [
+        ("Input directory",      "Input sheet  >  'directory' row",       "./input"),
+        ("Output directory",     "Output sheet  >  'directory' row",      "./output"),
+        ("Steps to run",         "Pipeline sheet  >  'Enabled' column",   "All enabled"),
+        ("File pattern",         "Input sheet  >  'pattern' row",         "*.docx"),
+        ("Max chunk size",       "Thresholds sheet  >  'max_characters'", "36 000 chars (~20 pages)"),
     ]
-    for line in instructions:
-        ws.append([line])
-    ws.column_dimensions["A"].width = 80
+    for setting, location, default in checklist:
+        body_row(setting, location, default)
+
+    note_row("All other settings ship with sensible defaults. Adjust only when your environment requires it.")
+    ws.append([])
+
+    # How to Use This Workbook
+    section_header("How to Use This Workbook")
+    ws.append(["Guideline", "Details", ""])
+    r = ws.max_row
+    for col in range(1, 3):
+        ws.cell(row=r, column=col).font = BOLD_FONT
+        ws.cell(row=r, column=col).border = THIN_BORDER
+
+    guidelines = [
+        ("Column layout",       "Settings sheets use Setting | Value | Description columns. List sheets use Value | Description."),
+        ("Sub-headers",         "Rows starting with '#' are section dividers. Do not delete or modify them."),
+        ("Boolean fields",      "Use the TRUE / FALSE dropdown. Manual text entry is not accepted."),
+        ("Blank values",        "Leaving a Value cell empty tells the pipeline to use its built-in default."),
+        ("Adding list items",   "Insert a new row in the appropriate section and fill in the Value column."),
+    ]
+    for guideline, details in guidelines:
+        body_row(guideline, details)
+    ws.append([])
+
+    # Pipeline Execution Order
+    section_header("Pipeline Execution Order")
+    ws.append(["Step", "Script", "Description"])
+    r = ws.max_row
+    for col in range(1, 4):
+        ws.cell(row=r, column=col).font = BOLD_FONT
+        ws.cell(row=r, column=col).border = THIN_BORDER
+
+    steps = [
+        ("0 - Document Profiler",         "policy_profiler.py",          "Scans all documents, extracts metadata, classifies document types, scores priority, and counts words."),
+        ("1 - Acronym Finder",            "acronym_finder.py",           "Identifies acronym candidates and generates an audit workbook for human review. Confirmed acronyms feed into the metadata tagging stage."),
+        ("2 - Control Extractor",         "extract_controls.py",         "Extracts structured control data from compliance documents into Excel using regex and heuristics."),
+        ("3 - Cross-Reference Extractor", "cross_reference_extractor.py", "Captures cross-references including section references, URLs, and internal document heading links."),
+        ("4 - Heading Style Fixer",       "heading_style_fixer.py",      "Converts visually bold text that appears to be a heading into proper Word heading styles."),
+        ("5 - Section Splitter",          "section_splitter.py",         "Splits documents at Heading 1 boundaries once the character limit is exceeded."),
+        ("6 - Metadata Injector",         "add_metadata.py",            "Stamps each sub-document with identity and classification metadata."),
+        ("7 - DOCX to Markdown",          "docx2md.py",                 "Converts Word documents to clean Markdown with YAML front matter."),
+        ("8 - DOCX to JSONL",             "docx2jsonl.py",              "Converts Word documents to chunked JSONL for RAG / vector-database ingestion."),
+        ("9 - Control Validator",         "validate_controls.py",       "Validates that all controls extracted in Step 2 are present in the Step 5 split documents."),
+    ]
+    for step, script, desc in steps:
+        body_row(step, script, desc)
+    ws.append([])
+
+    # Sheet Reference
+    section_header("Sheet Reference")
+    body_row(
+        "Each worksheet below controls settings consumed by one or more pipeline scripts. "
+        "The Reference Script column indicates which script reads the sheet at runtime.",
+    )
+    ws.append(["Sheet Name", "Reference Script", "Purpose"])
+    r = ws.max_row
+    for col in range(1, 4):
+        ws.cell(row=r, column=col).font = BOLD_FONT
+        ws.cell(row=r, column=col).border = THIN_BORDER
+
+    sheets = [
+        ("Input",              "run_pipeline.py",              "Input folder, file pattern, and exclude patterns."),
+        ("Output",             "run_pipeline.py",              "Output folder structure and filenames for each step."),
+        ("Pipeline",           "run_pipeline.py",              "Enable or disable individual pipeline steps."),
+        ("Thresholds",         "section_splitter.py",          "Chunk-size limits and page-estimation parameters."),
+        ("Sections",           "policy_profiler.py",           "Keywords used to classify Purpose, Scope, and Controls sections."),
+        ("Headings",           "heading_style_fixer.py",       "Heading styles, custom style maps, and fake-heading detection rules."),
+        ("Text Deletions",     "heading_style_fixer.py",       "Phrases or entire sections to strip during processing."),
+        ("Cross References",   "cross_reference_extractor.py", "Cross-reference detection patterns."),
+        ("Tables",             "policy_profiler.py",           "Table-classification keywords."),
+        ("Classification",     "policy_profiler.py",           "Type A / B / C / D classification thresholds."),
+        ("Profiling Flags",    "policy_profiler.py",           "Flags for control-dense and heading-variance documents."),
+        ("Priority Scoring",   "policy_profiler.py",           "Weights for the priority-ranking algorithm."),
+        ("Search Terms",       "policy_profiler.py",           "Custom terms to surface in profiler output."),
+        ("Control Extraction", "extract_controls.py",          "Control-ID patterns, whitelist, and blacklist."),
+        ("Metadata",           "add_metadata.py",              "Metadata fields, URL lookup table, and tag-generation rules."),
+        ("Docx2md",            "docx2md.py",                   "Markdown conversion settings and front-matter field mapping."),
+        ("Docx2jsonl",         "docx2jsonl.py",                "JSONL chunking parameters."),
+        ("Acronym Finder",     "acronym_finder.py",            "Acronym detection patterns and ignore list."),
+    ]
+    for name, script, purpose in sheets:
+        body_row(name, script, purpose)
+
+    note_row("Most sheets work correctly with defaults. Edit only for custom heading styles, special control-ID formats, or organisation-specific requirements.")
+    ws.append([])
+
+    # Running the Pipeline
+    section_header("Running the Pipeline")
+    ws.append(["Command", "Description", ""])
+    r = ws.max_row
+    for col in range(1, 3):
+        ws.cell(row=r, column=col).font = BOLD_FONT
+        ws.cell(row=r, column=col).border = THIN_BORDER
+
+    commands = [
+        ("python run_pipeline.py",            "Execute the full pipeline (all enabled steps)."),
+        ("python run_pipeline.py --step 0",   "Run a single step by its number."),
+        ("python run_pipeline.py --step 1-3", "Run a contiguous range of steps."),
+    ]
+    for cmd, desc in commands:
+        body_row(cmd, desc)
+
+    # Column widths
+    ws.column_dimensions["A"].width = 38
+    ws.column_dimensions["B"].width = 45
+    ws.column_dimensions["C"].width = 50
+    ws.freeze_panes = "A2"
 
 
 def _build_input_sheet(wb, cfg: dict):
@@ -190,17 +323,17 @@ def _build_input_sheet(wb, cfg: dict):
 
     _add_subheader(ws, "Directory Settings")
     _add_setting(ws, "directory", inp.get("directory", "./input"),
-                 "Path to folder containing .docx files (absolute or relative)")
+                 "Path to folder containing .docx files (absolute or relative) [default: ./input]")
     _add_setting(ws, "pattern", inp.get("pattern", "*.docx"),
-                 "File glob pattern — almost always *.docx")
+                 "File glob pattern — almost always *.docx [default: *.docx]")
     _add_setting(ws, "recursive", inp.get("recursive", False),
-                 "Scan sub-folders? TRUE if docs are in sub-folders")
+                 "Scan sub-folders? TRUE if docs are in sub-folders [default: FALSE]")
 
     # Bool validation for recursive
     _add_bool_validation(ws, "B", ws.max_row, ws.max_row)
 
     _add_subheader(ws, "Exclude Patterns")
-    ws.append(["## Files matching ANY of these patterns are skipped (case-insensitive substring)", "", ""])
+    ws.append(["## Column A = pattern to exclude (one per row). Files matching ANY pattern are skipped", "", ""])
     ws.cell(row=ws.max_row, column=1).font = DESC_FONT
 
     # Switch to list layout for exclude patterns
@@ -226,81 +359,81 @@ def _build_output_sheet(wb, cfg: dict):
 
     _add_subheader(ws, "Root Output Directory")
     _add_setting(ws, "directory", out.get("directory", "./output"),
-                 "All step outputs go under this directory")
+                 "All step outputs go under this directory [default: ./output]")
 
     _add_subheader(ws, "Step 0 — Profiler")
     prof = out.get("profiler", {})
-    _add_setting(ws, "profiler.directory", prof.get("directory", "0 - profiler"), "Sub-folder name")
+    _add_setting(ws, "profiler.directory", prof.get("directory", "0 - profiler"), "Sub-folder name [default: 0 - profiler]")
     _add_setting(ws, "profiler.inventory_file", prof.get("inventory_file", "document_inventory.xlsx"),
-                 "Master spreadsheet")
+                 "Master spreadsheet [default: document_inventory.xlsx]")
     _add_setting(ws, "profiler.json_file", prof.get("json_file", "document_profiles.json"),
-                 "Machine-readable profiles")
+                 "Machine-readable profiles [default: document_profiles.json]")
     _add_setting(ws, "profiler.sections_file", prof.get("sections_file", "section_inventory.csv"),
-                 "One row per section per doc")
+                 "One row per section per doc [default: section_inventory.csv]")
     _add_setting(ws, "profiler.tables_file", prof.get("tables_file", "table_inventory.csv"),
-                 "One row per table per doc")
+                 "One row per table per doc [default: table_inventory.csv]")
     _add_setting(ws, "profiler.crossrefs_file", prof.get("crossrefs_file", "crossref_inventory.csv"),
-                 "One row per cross-reference")
+                 "One row per cross-reference [default: crossref_inventory.csv]")
 
     _add_subheader(ws, "Step 1 — Acronyms")
     acr = out.get("acronyms", {})
-    _add_setting(ws, "acronyms.directory", acr.get("directory", "1 - acronyms"), "Sub-folder name")
-    _add_setting(ws, "acronyms.output_file", acr.get("output_file", "acronym_audit.xlsx"), "Audit Excel output")
+    _add_setting(ws, "acronyms.directory", acr.get("directory", "1 - acronyms"), "Sub-folder name [default: 1 - acronyms]")
+    _add_setting(ws, "acronyms.output_file", acr.get("output_file", "acronym_audit.xlsx"), "Audit Excel output [default: acronym_audit.xlsx]")
 
     _add_subheader(ws, "Step 2 — Controls")
     ctrl = out.get("controls", {})
-    _add_setting(ws, "controls.directory", ctrl.get("directory", "2 - controls"), "Sub-folder name")
-    _add_setting(ws, "controls.output_file", ctrl.get("output_file", "controls_output.csv"), "CSV output")
+    _add_setting(ws, "controls.directory", ctrl.get("directory", "2 - controls"), "Sub-folder name [default: 2 - controls]")
+    _add_setting(ws, "controls.output_file", ctrl.get("output_file", "controls_output.csv"), "CSV output [default: controls_output.csv]")
     _add_setting(ws, "controls.output_file_xlsx", ctrl.get("output_file_xlsx", "controls_output.xlsx"),
-                 "Excel output")
+                 "Excel output [default: controls_output.xlsx]")
     _add_setting(ws, "controls.checkpoint_file", ctrl.get("checkpoint_file", "checkpoint.json"),
-                 "Resume progress tracker")
-    _add_setting(ws, "controls.error_log", ctrl.get("error_log", "errors.log"), "Error log file")
+                 "Resume progress tracker [default: checkpoint.json]")
+    _add_setting(ws, "controls.error_log", ctrl.get("error_log", "errors.log"), "Error log file [default: errors.log]")
 
     _add_subheader(ws, "Step 3 — Cross References")
     xref = out.get("cross_references", {})
-    _add_setting(ws, "cross_references.directory", xref.get("directory", "3 - cross_references"), "Sub-folder name")
-    _add_setting(ws, "cross_references.output_file", xref.get("output_file", "cross_references.csv"), "CSV output")
+    _add_setting(ws, "cross_references.directory", xref.get("directory", "3 - cross_references"), "Sub-folder name [default: 3 - cross_references]")
+    _add_setting(ws, "cross_references.output_file", xref.get("output_file", "cross_references.csv"), "CSV output [default: cross_references.csv]")
 
     _add_subheader(ws, "Step 4 — Heading Fixes")
     hfix = out.get("heading_fixes", {})
-    _add_setting(ws, "heading_fixes.directory", hfix.get("directory", "4 - heading_fixes"), "Sub-folder name")
+    _add_setting(ws, "heading_fixes.directory", hfix.get("directory", "4 - heading_fixes"), "Sub-folder name [default: 4 - heading_fixes]")
     _add_setting(ws, "heading_fixes.changes_file", hfix.get("changes_file", "heading_changes.csv"),
-                 "Changes log CSV")
+                 "Changes log CSV [default: heading_changes.csv]")
 
     _add_subheader(ws, "Step 5 — Split Documents")
     splt = out.get("split_documents", {})
-    _add_setting(ws, "split_documents.directory", splt.get("directory", "5 - split_documents"), "Sub-folder name")
+    _add_setting(ws, "split_documents.directory", splt.get("directory", "5 - split_documents"), "Sub-folder name [default: 5 - split_documents]")
     _add_setting(ws, "split_documents.manifest_file", splt.get("manifest_file", "split_manifest.csv"),
-                 "Split manifest CSV")
+                 "Split manifest CSV [default: split_manifest.csv]")
 
     _add_subheader(ws, "Step 6 — Metadata")
     meta = out.get("metadata", {})
-    _add_setting(ws, "metadata.directory", meta.get("directory", "6 - metadata"), "Sub-folder name")
+    _add_setting(ws, "metadata.directory", meta.get("directory", "6 - metadata"), "Sub-folder name [default: 6 - metadata]")
     _add_setting(ws, "metadata.manifest_file", meta.get("manifest_file", "metadata_manifest.csv"),
-                 "Metadata manifest CSV")
+                 "Metadata manifest CSV [default: metadata_manifest.csv]")
 
     _add_subheader(ws, "Step 7 — Markdown")
     md = out.get("markdown", {})
-    _add_setting(ws, "markdown.directory", md.get("directory", "7 - markdown"), "Sub-folder name")
+    _add_setting(ws, "markdown.directory", md.get("directory", "7 - markdown"), "Sub-folder name [default: 7 - markdown]")
 
     _add_subheader(ws, "Step 8 — JSONL")
     jl = out.get("jsonl", {})
-    _add_setting(ws, "jsonl.directory", jl.get("directory", "8 - jsonl"), "Sub-folder name")
+    _add_setting(ws, "jsonl.directory", jl.get("directory", "8 - jsonl"), "Sub-folder name [default: 8 - jsonl]")
 
     _add_subheader(ws, "Step 9 — Validation")
     val = out.get("validation", {})
-    _add_setting(ws, "validation.directory", val.get("directory", "9 - validation"), "Sub-folder name")
-    _add_setting(ws, "validation.output_file", val.get("output_file", "control_validation.csv"), "CSV output")
+    _add_setting(ws, "validation.directory", val.get("directory", "9 - validation"), "Sub-folder name [default: 9 - validation]")
+    _add_setting(ws, "validation.output_file", val.get("output_file", "control_validation.csv"), "CSV output [default: control_validation.csv]")
     _add_setting(ws, "validation.review_file", val.get("review_file", "validation_review.xlsx"),
-                 "Human review workbook")
+                 "Human review workbook [default: validation_review.xlsx]")
 
     _add_subheader(ws, "Consolidated Report")
     consol = out.get("consolidated_report", {})
     _add_setting(ws, "consolidated_report.enabled", consol.get("enabled", True),
-                 "Build single .xlsx workbook after all steps")
+                 "Build single .xlsx workbook after all steps [default: TRUE]")
     _add_setting(ws, "consolidated_report.filename_prefix", consol.get("filename_prefix", "DPS_Report"),
-                 "Prefix for timestamped filename")
+                 "Prefix for timestamped filename [default: DPS_Report]")
 
     # Bool validation for consolidated_report.enabled
     for r in range(2, ws.max_row + 1):
@@ -347,21 +480,21 @@ def _build_headings_sheet(wb, cfg: dict):
     _style_headers(ws, ["Setting", "Value", "Description"])
 
     _add_subheader(ws, "Built-in Heading Styles")
-    ws.append(["## Standard Word heading style names (list below)", "", ""])
+    ws.append(["## Column A = style name (one per row). Standard Word heading style names", "", ""])
     ws.cell(row=ws.max_row, column=1).font = DESC_FONT
     for style in hdg.get("builtin_styles", ["Heading 1", "Heading 2", "Heading 3", "Heading 4",
                                               "heading 1", "heading 2", "heading 3", "heading 4"]):
         ws.append([style, "", ""])
 
     _add_subheader(ws, "Custom Heading Styles")
-    ws.append(["## Your org's custom Word heading style names (list below)", "", ""])
+    ws.append(["## Column A = style name (one per row). Your org's custom heading style names", "", ""])
     ws.cell(row=ws.max_row, column=1).font = DESC_FONT
     for style in hdg.get("custom_heading_styles", ["Policy Heading 1", "Policy Heading 2",
                                                      "TOC Heading", "AppendixHeading"]):
         ws.append([style, "", ""])
 
     _add_subheader(ws, "Custom Style Map")
-    ws.append(["## Maps your org's custom styles to standard Heading 1/2/3 (Key → Value)", "", ""])
+    ws.append(["## Column A = custom style name, Column B = standard heading it maps to", "", ""])
     ws.cell(row=ws.max_row, column=1).font = DESC_FONT
     style_map = hdg.get("custom_style_map", {
         "policy heading 1": "Heading 1", "policy heading 2": "Heading 2",
@@ -378,11 +511,11 @@ def _build_headings_sheet(wb, cfg: dict):
 
     _add_subheader(ws, "Fake Heading Detection")
     _add_setting(ws, "fake_heading_min_font_size", hdg.get("fake_heading_min_font_size", 12),
-                 "Min font size (pt) for bold text to be a fake heading. Lower=more detected")
+                 "Min font size (pt) for bold text to be a fake heading. Lower=more detected [default: 12]")
     _add_setting(ws, "fake_heading_max_chars", hdg.get("fake_heading_max_chars", 200),
-                 "Max char length for profiler fake heading candidates")
+                 "Max char length for profiler fake heading candidates [default: 200]")
     _add_setting(ws, "fake_heading_max_chars_fixer", hdg.get("fake_heading_max_chars_fixer", 120),
-                 "Tighter limit for heading fixer (Step 3) conversion")
+                 "Tighter limit for heading fixer (Step 4) conversion [default: 120]")
 
     _add_subheader(ws, "Heading Level Patterns (Regex)")
     _add_setting(ws, "heading1_pattern", hdg.get("heading1_pattern", r"^(?:\d+\.0\s+|[IVXLC]+\.\s+)"),
@@ -392,7 +525,7 @@ def _build_headings_sheet(wb, cfg: dict):
     _add_setting(ws, "heading3_pattern", hdg.get("heading3_pattern", r"^\d+\.\d+\.\d+\s+"),
                  'Matches H3 numbering, e.g. "1.1.1 Sub-section"')
     _add_setting(ws, "default_heading_level", hdg.get("default_heading_level", 2),
-                 "Default level when no numbering pattern matches (1 or 2)")
+                 "Default level when no numbering pattern matches (1 or 2) [default: 2]")
 
     _finalize_sheet(ws)
 
@@ -405,9 +538,9 @@ def _build_text_deletions_sheet(wb, cfg: dict):
 
     _add_subheader(ws, "Settings")
     _add_setting(ws, "enabled", td.get("enabled", False),
-                 "Set TRUE to activate text deletion during Step 3")
+                 "Set TRUE to activate text deletion during Step 4 [default: FALSE]")
     _add_setting(ws, "case_sensitive", td.get("case_sensitive", True),
-                 "TRUE for exact case match, FALSE for case-insensitive")
+                 "TRUE for exact case match, FALSE for case-insensitive [default: TRUE]")
 
     # Bool validations
     for r in range(2, ws.max_row + 1):
@@ -462,9 +595,9 @@ def _build_cross_references_sheet(wb, cfg: dict):
 
     _add_subheader(ws, "Detection Settings")
     _add_setting(ws, "detect_hyperlink_crossrefs", xr.get("detect_hyperlink_crossrefs", True),
-                 "Detect hyperlinks whose text looks like a section/policy ref")
+                 "Detect hyperlinks whose text looks like a section/policy ref [default: TRUE]")
     _add_setting(ws, "detect_urls", xr.get("detect_urls", True),
-                 "Extract URLs from hyperlinks and bare text")
+                 "Extract URLs from hyperlinks and bare text [default: TRUE]")
 
     for r in range(2, ws.max_row + 1):
         val = ws.cell(row=r, column=1).value
@@ -504,7 +637,7 @@ def _build_cross_references_sheet(wb, cfg: dict):
             ws.append([phrase, ptype, ""])
 
     _add_subheader(ws, "Document Name Keywords")
-    ws.append(["## External patterns match doc names ending in these keywords", "", ""])
+    ws.append(["## Column A = keyword (one per row). External patterns match doc names ending in these", "", ""])
     ws.cell(row=ws.max_row, column=1).font = DESC_FONT
     for kw in xr.get("document_name_keywords", [
         "Policy", "Standard", "Plan", "Procedure", "Guide",
@@ -553,15 +686,15 @@ def _build_classification_sheet(wb, cfg: dict):
     _add_subheader(ws, "Type A — Table-Heavy")
     _add_setting(ws, "type_a.min_table_content_pct",
                  cls.get("type_a", {}).get("min_table_content_pct", 40),
-                 ">X% of content in tables → Type A")
+                 ">X% of content in tables → Type A [default: 40]")
 
     _add_subheader(ws, "Type B — Prose-Heavy")
     _add_setting(ws, "type_b.max_table_content_pct",
                  cls.get("type_b", {}).get("max_table_content_pct", 10),
-                 "<X% of content in tables → Type B")
+                 "<X% of content in tables → Type B [default: 10]")
 
     _add_subheader(ws, "Type C — Hybrid (Procedure Keywords)")
-    _add_setting(ws, "# Keywords that signal embedded procedures", "", "")
+    ws.append(["## Column A = keyword (one per row). Keywords that signal embedded procedures", "", ""])
     ws.cell(row=ws.max_row, column=1).font = DESC_FONT
     for kw in cls.get("type_c", {}).get("procedure_keywords", [
         "step 1", "step 2", "procedure", "escalation",
@@ -572,7 +705,7 @@ def _build_classification_sheet(wb, cfg: dict):
     _add_subheader(ws, "Type D — Appendix-Dominant")
     _add_setting(ws, "type_d.min_appendix_content_pct",
                  cls.get("type_d", {}).get("min_appendix_content_pct", 60),
-                 ">X% of content in appendix → Type D")
+                 ">X% of content in appendix → Type D [default: 60]")
 
     _finalize_sheet(ws)
 
@@ -586,19 +719,19 @@ def _build_profiling_flags_sheet(wb, cfg: dict):
     _add_subheader(ws, "ControlDense")
     _add_setting(ws, "control_dense.min_controls_per_page",
                  pf.get("control_dense", {}).get("min_controls_per_page", 5.0),
-                 "Flag if >= this many control IDs per approx page")
+                 "Flag if >= this many control IDs per approx page [default: 5.0]")
 
     _add_subheader(ws, "HeadingVariance")
     hv = pf.get("heading_variance", {})
     _add_setting(ws, "heading_variance.max_level_skips", hv.get("max_level_skips", 2),
-                 "Flag if >= this many heading level jumps (e.g., H1→H3)")
+                 "Flag if >= this many heading level jumps (e.g., H1→H3) [default: 2]")
     _add_setting(ws, "heading_variance.max_fake_ratio", hv.get("max_fake_ratio", 0.5),
-                 "Flag if >= X% of headings are fake (0.5 = 50%)")
+                 "Flag if >= X% of headings are fake (0.5 = 50%) [default: 0.5]")
 
     _add_subheader(ws, "TableDense")
     _add_setting(ws, "table_dense.min_table_content_pct",
                  pf.get("table_dense", {}).get("min_table_content_pct", 30),
-                 "Flag if >= X% table content (early warning)")
+                 "Flag if >= X% table content (early warning) [default: 30]")
 
     _finalize_sheet(ws)
 
@@ -611,21 +744,21 @@ def _build_thresholds_sheet(wb, cfg: dict):
 
     _add_subheader(ws, "RAG Chunk Size")
     _add_setting(ws, "max_characters", th.get("max_characters", 36000),
-                 "Max chars per split sub-document. 36000≈20pp, 18000≈10pp, 72000≈40pp")
+                 "Max chars per split sub-document. 36000≈20pp, 18000≈10pp, 72000≈40pp [default: 36000]")
     _add_setting(ws, "max_pages", th.get("max_pages", 20),
-                 "Approximate page equivalent (reporting only)")
+                 "Approximate page equivalent (reporting only) [default: 20]")
 
     _add_subheader(ws, "Estimation Ratios")
     _add_setting(ws, "paragraphs_per_page", th.get("paragraphs_per_page", 30),
-                 "approx_pages = total_paragraphs / this. Lower=more pages")
+                 "approx_pages = total_paragraphs / this. Lower=more pages [default: 30]")
     _add_setting(ws, "chars_per_page", th.get("chars_per_page", 1800),
-                 "Chars per page for split manifest estimates")
+                 "Chars per page for split manifest estimates [default: 1800]")
 
     _add_subheader(ws, "Flagging Thresholds")
     _add_setting(ws, "section_dominance_pct", th.get("section_dominance_pct", 50),
-                 "Flag sections exceeding this % of total doc length")
+                 "Flag sections exceeding this % of total doc length [default: 50]")
     _add_setting(ws, "high_table_count", th.get("high_table_count", 10),
-                 "Flag docs with more tables than this")
+                 "Flag docs with more tables than this [default: 10]")
 
     _finalize_sheet(ws)
 
@@ -645,13 +778,13 @@ def _build_priority_scoring_sheet(wb, cfg: dict):
         "over_size_limit": 3.0,
     })
     weight_descs = {
-        "table_count": "More tables = harder to optimize",
-        "cross_ref_count": "More cross-refs = more manual work",
-        "fake_heading_count": "Fake headings break chunking",
-        "page_count": "Longer docs need more splitting",
-        "missing_sections": "Missing standard sections = structural problems",
-        "merged_cells": "Merged cells complicate table flattening",
-        "over_size_limit": "Over character limit is a hard retrieval problem",
+        "table_count": "More tables = harder to optimize [default: 2.0]",
+        "cross_ref_count": "More cross-refs = more manual work [default: 1.5]",
+        "fake_heading_count": "Fake headings break chunking [default: 1.0]",
+        "page_count": "Longer docs need more splitting [default: 0.5]",
+        "missing_sections": "Missing standard sections = structural problems [default: 1.5]",
+        "merged_cells": "Merged cells complicate table flattening [default: 1.0]",
+        "over_size_limit": "Over character limit is a hard retrieval problem [default: 3.0]",
     }
     for key, val in weights.items():
         _add_setting(ws, key, val, weight_descs.get(key, ""))
@@ -680,11 +813,11 @@ def _build_search_terms_sheet(wb, cfg: dict):
 
     _add_subheader(ws, "Settings")
     _add_setting(ws, "enabled", st.get("enabled", True),
-                 "Enable key term search in profiler")
+                 "Enable key term search in profiler [default: TRUE]")
     _add_setting(ws, "match_mode", st.get("match_mode", "word"),
-                 '"word" = whole-word boundary, "substring" = anywhere in text')
+                 '"word" = whole-word boundary, "substring" = anywhere in text [default: word]')
     _add_setting(ws, "show_counts", st.get("show_counts", True),
-                 "TRUE = show occurrence count, FALSE = show YES/blank")
+                 "TRUE = show occurrence count, FALSE = show YES/blank [default: TRUE]")
 
     # Validations
     for r in range(2, ws.max_row + 1):
@@ -714,21 +847,21 @@ def _build_control_extraction_sheet(wb, cfg: dict):
 
     _add_subheader(ws, "Common Settings")
     _add_setting(ws, "require_bold_control_id", ce.get("require_bold_control_id", True),
-                 "Only extract control IDs that appear in bold text. Set FALSE if your IDs are not bold")
+                 "Only extract control IDs that appear in bold text. Set FALSE if your IDs are not bold [default: TRUE]")
     _add_setting(ws, "bold_fallback_if_zero", ce.get("bold_fallback_if_zero", True),
-                 "If bold-only extraction finds 0 controls in a doc, auto-retry without the bold requirement")
+                 "If bold-only extraction finds 0 controls in a doc, auto-retry without the bold requirement [default: TRUE]")
     _add_setting(ws, "tables_ignore_bold", ce.get("tables_ignore_bold", True),
-                 "Always extract control IDs from table cells regardless of bold setting")
+                 "Always extract control IDs from table cells regardless of bold setting [default: TRUE]")
     _add_setting(ws, "control_id_anchor_start", ce.get("control_id_anchor_start", False),
-                 "Only match control IDs near the start of a paragraph (filters out inline references)")
+                 "Only match control IDs near the start of a paragraph (filters out inline references) [default: FALSE]")
     _add_setting(ws, "control_id_start_chars", ce.get("control_id_start_chars", 25),
-                 "How many chars from paragraph start to search when anchor_start is enabled")
+                 "How many chars from paragraph start to search when anchor_start is enabled [default: 25]")
     _add_setting(ws, "min_control_block_lines", ce.get("min_control_block_lines", 0),
-                 "Discard control blocks with fewer than N content lines. 0 = keep all. 2 = drop inline refs")
+                 "Discard control blocks with fewer than N content lines. 0 = keep all. 2 = drop inline refs [default: 0]")
     _add_setting(ws, "enable_checkpoint", ce.get("enable_checkpoint", True),
-                 "Save progress so re-runs skip already-processed files. Delete checkpoint.json to force fresh run")
+                 "Save progress so re-runs skip already-processed files. Delete checkpoint.json to force fresh run [default: TRUE]")
     _add_setting(ws, "output_format", ce.get("output_format", "both"),
-                 '"csv", "xlsx", or "both" — controls the output file format for extracted controls')
+                 '"csv", "xlsx", or "both" — controls the output file format for extracted controls [default: both]')
 
     bool_settings = (
         "require_bold_control_id", "bold_fallback_if_zero", "tables_ignore_bold",
@@ -776,7 +909,7 @@ def _build_control_extraction_sheet(wb, cfg: dict):
     _add_subheader(ws, "Guidance Keywords")
     ws.append(["## Keywords marking the boundary between control description and supplemental guidance.", "", ""])
     ws.cell(row=ws.max_row, column=1).font = DESC_FONT
-    ws.append(["## One keyword per row. When a paragraph contains one of these, text after it is classified as guidance.", "", ""])
+    ws.append(["## Column A = keyword (one per row). When a paragraph contains one of these, text after it is classified as guidance.", "", ""])
     ws.cell(row=ws.max_row, column=1).font = DESC_FONT
     for kw in ce.get("guidance_keywords", [
         "implementation guidance", "implementation:", "guidelines:",
@@ -803,7 +936,7 @@ def _build_control_extraction_sheet(wb, cfg: dict):
     _add_subheader(ws, "Heading Detection (Advanced)")
     hd = ce.get("heading_detection", {})
     _add_setting(ws, "heading_detection.use_word_heading_style",
-                 hd.get("use_word_heading_style", True), "Use Word heading styles for detection")
+                 hd.get("use_word_heading_style", True), "Use Word heading styles for detection [default: TRUE]")
     _add_setting(ws, "heading_detection.section_keyword_pattern",
                  hd.get("section_keyword_pattern", r"^[Ss]ection\s+\d{1,2}"),
                  'Regex for section headings like "Section 4"')
@@ -811,15 +944,15 @@ def _build_control_extraction_sheet(wb, cfg: dict):
                  hd.get("numbered_title_pattern", r"^\d{1,2}\.?\d{0,2}\s+[A-Z][a-zA-Z\s]{3,50}$"),
                  'Regex for numbered titles like "4.1 Access Control"')
     _add_setting(ws, "heading_detection.detect_allcaps", hd.get("detect_allcaps", True),
-                 "Detect ALL CAPS headings")
+                 "Detect ALL CAPS headings [default: TRUE]")
     _add_setting(ws, "heading_detection.allcaps_max_length", hd.get("allcaps_max_length", 80),
-                 "Max chars for all-caps heading")
+                 "Max chars for all-caps heading [default: 80]")
     _add_setting(ws, "heading_detection.allcaps_min_words", hd.get("allcaps_min_words", 3),
-                 "Min words for all-caps heading")
+                 "Min words for all-caps heading [default: 3]")
     _add_setting(ws, "heading_detection.detect_bold_short", hd.get("detect_bold_short", True),
-                 "Detect short bold text as headings")
+                 "Detect short bold text as headings [default: TRUE]")
     _add_setting(ws, "heading_detection.bold_max_length", hd.get("bold_max_length", 60),
-                 "Max chars for bold heading")
+                 "Max chars for bold heading [default: 60]")
 
     for r in range(2, ws.max_row + 1):
         val = ws.cell(row=r, column=1).value
@@ -835,7 +968,7 @@ def _build_control_extraction_sheet(wb, cfg: dict):
                  "Regex for guidance boundary within a control block")
 
     _add_setting(ws, "metadata_scan_paragraphs", ce.get("metadata_scan_paragraphs", 40),
-                 "How many paragraphs from top of doc to scan for metadata")
+                 "How many paragraphs from top of doc to scan for metadata [default: 40]")
 
     _finalize_sheet(ws)
 
@@ -887,17 +1020,17 @@ def _build_metadata_sheet(wb, cfg: dict):
     ws = wb.create_sheet("Metadata")
     meta = cfg.get("metadata", {})
 
-    _style_headers(ws, ["Setting", "Value", "Description"])
+    _style_headers(ws, ["Setting", "Value", "Description", "", ""])
 
-    _add_subheader(ws, "General Settings")
+    _add_subheader(ws, "General Settings", ncols=5)
     _add_setting(ws, "placement", meta.get("placement", "top"),
-                 '"top", "top_and_bottom", or "each_page"')
+                 '"top", "top_and_bottom", or "each_page" [default: top]')
     _add_setting(ws, "add_separator", meta.get("add_separator", True),
-                 "Horizontal rule after metadata block")
+                 "Horizontal rule after metadata block [default: TRUE]")
     _add_setting(ws, "font_size", meta.get("font_size", 8),
-                 "Font size (pt) for metadata text")
+                 "Font size (pt) for metadata text [default: 8]")
     _add_setting(ws, "label_color", meta.get("label_color", "2F5496"),
-                 "Hex RGB color for metadata labels")
+                 "Hex RGB color for metadata labels [default: 2F5496]")
 
     for r in range(2, ws.max_row + 1):
         val = ws.cell(row=r, column=1).value
@@ -906,15 +1039,19 @@ def _build_metadata_sheet(wb, cfg: dict):
         if val == "add_separator":
             _add_bool_validation(ws, "B", r, r)
 
-    _add_subheader(ws, "Metadata Fields")
-    ws.append(["## Key | Label | Enabled | Source | Value (for static source)", "", ""])
-    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    _add_subheader(ws, "Metadata Fields", ncols=5)
+    col_headers = ["## Key", "Label", "Enabled", "Source", "Value (for static source)"]
+    ws.append(col_headers)
+    for col_idx in range(1, len(col_headers) + 1):
+        cell = ws.cell(row=ws.max_row, column=col_idx)
+        cell.font = DESC_FONT
     fields = meta.get("fields", [
         {"key": "name", "label": "Document", "enabled": True, "source": "auto"},
         {"key": "url", "label": "URL", "enabled": True, "source": "auto"},
         {"key": "scope", "label": "Scope", "enabled": True, "source": "auto"},
         {"key": "intent", "label": "Intent", "enabled": True, "source": "auto"},
         {"key": "tags", "label": "Tags", "enabled": True, "source": "auto"},
+        {"key": "acronyms", "label": "Acronyms", "enabled": True, "source": "auto"},
     ])
     for field in fields:
         ws.append([field.get("key", ""), field.get("label", ""),
@@ -924,32 +1061,39 @@ def _build_metadata_sheet(wb, cfg: dict):
     _add_subheader(ws, "URL Resolution")
     url = meta.get("url", {})
     _add_setting(ws, "url.lookup_file", url.get("lookup_file", "./input/Doc_URL.xlsx"),
-                 "Excel file mapping document names to URLs")
+                 "Excel file mapping document names to URLs [default: ./input/Doc_URL.xlsx]")
     _add_setting(ws, "url.name_column", url.get("name_column", "Document_Name"),
-                 "Column header for doc names in lookup file")
+                 "Column header for doc names in lookup file [default: Document_Name]")
     _add_setting(ws, "url.url_column", url.get("url_column", "URL"),
-                 "Column header for URLs in lookup file")
+                 "Column header for URLs in lookup file [default: URL]")
     _add_setting(ws, "url.sheet", url.get("sheet", 0),
-                 "Sheet name (text) or index (0 = first)")
+                 "Sheet name (text) or index (0 = first) [default: 0]")
     _add_setting(ws, "url.fallback_template", url.get("fallback_template", ""),
-                 "URL template when no Excel match. Use {filename} placeholder")
+                 "URL template when no Excel match. Use {filename} placeholder [default: empty]")
 
     _add_subheader(ws, "Advanced Settings")
     _add_setting(ws, "max_scope_chars", meta.get("max_scope_chars", 300),
-                 "Max chars for scope text extraction")
+                 "Max chars for scope text extraction [default: 300]")
     _add_setting(ws, "max_intent_chars", meta.get("max_intent_chars", 300),
-                 "Max chars for intent text extraction")
+                 "Max chars for intent text extraction [default: 300]")
 
     _add_subheader(ws, "Tag Generation")
     tags = meta.get("tags", {})
     _add_setting(ws, "tags.include_doc_type", tags.get("include_doc_type", True),
-                 'Add "Type-B" etc. from profiler')
+                 'Add "Type-B" etc. from profiler [default: TRUE]')
     _add_setting(ws, "tags.include_sections_found", tags.get("include_sections_found", True),
-                 'Add "has-scope", "has-controls" etc.')
+                 'Add "has-scope", "has-controls" etc. [default: TRUE]')
+    _add_setting(ws, "tags.acronym_definitions_file",
+                 tags.get("acronym_definitions_file", "./input/Acronym_Definitions.xlsx"),
+                 "Path to verified Acronym Definitions Excel (preferred). Leave empty to fall back to acronym_audit_file [default: ./input/Acronym_Definitions.xlsx]")
     _add_setting(ws, "tags.acronym_audit_file", tags.get("acronym_audit_file", ""),
-                 "Path to Acronym Finder output Excel (leave empty to skip)")
+                 "Path to raw Acronym Finder output Excel (fallback if no definitions file). Leave empty to skip [default: empty]")
     _add_setting(ws, "tags.max_acronym_tags", tags.get("max_acronym_tags", 15),
-                 "Most-frequent first. 0 = unlimited")
+                 "Max unique-acronym tags per doc. 0 = unlimited [default: 15]")
+    _add_setting(ws, "tags.max_tag_doc_count", tags.get("max_tag_doc_count", 3),
+                 "Uniqueness threshold: acronyms in \u2264 N docs become tags [default: 3]")
+    _add_setting(ws, "tags.max_acronym_definitions", tags.get("max_acronym_definitions", 0),
+                 "Max acronym=definition pairs in Acronyms field. 0 = unlimited [default: 0]")
 
     for r in range(2, ws.max_row + 1):
         val = ws.cell(row=r, column=1).value
@@ -975,22 +1119,22 @@ def _build_docx2md_sheet(wb, cfg: dict):
 
     _add_subheader(ws, "Input Mode")
     _add_setting(ws, "pure_conversion", d2m.get("pure_conversion", False),
-                 "TRUE = Pure Conversion (read from input/), FALSE = Optimized (read from step output)")
+                 "TRUE = Pure Conversion (read from input/), FALSE = Optimized (read from step output) [default: FALSE]")
     _add_setting(ws, "optimized_source_step", d2m.get("optimized_source_step", "heading_fixes"),
-                 'Step output to read when not pure: "heading_fixes", "split_documents", "metadata"')
+                 'Step output to read when not pure: "heading_fixes", "split_documents", "metadata" [default: heading_fixes]')
     for r in range(2, ws.max_row + 1):
         if ws.cell(row=r, column=1).value == "pure_conversion":
             _add_bool_validation(ws, "B", r, r)
 
     _add_subheader(ws, "Output")
     _add_setting(ws, "output_directory", d2m.get("output_directory", "./output/7 - markdown"),
-                 "Where converted .md files are written")
+                 "Where converted .md files are written [default: ./output/7 - markdown]")
 
     _add_subheader(ws, "Image Handling")
     _add_setting(ws, "image_handling", d2m.get("image_handling", "extract"),
-                 '"extract", "placeholder", or "skip"')
+                 '"extract", "placeholder", or "skip" [default: extract]')
     _add_setting(ws, "image_subfolder", d2m.get("image_subfolder", "images"),
-                 "Subfolder name under each doc's image dir")
+                 "Subfolder name under each doc's image dir [default: images]")
 
     for r in range(2, ws.max_row + 1):
         if ws.cell(row=r, column=1).value == "image_handling":
@@ -998,24 +1142,24 @@ def _build_docx2md_sheet(wb, cfg: dict):
 
     _add_subheader(ws, "Table Conversion")
     _add_setting(ws, "table_strategy", d2m.get("table_strategy", "auto"),
-                 '"auto" (recommended), "markdown", or "html"')
+                 '"auto" (recommended), "markdown", or "html" [default: auto]')
     for r in range(2, ws.max_row + 1):
         if ws.cell(row=r, column=1).value == "table_strategy":
             _add_enum_validation(ws, "B", r, ["auto", "markdown", "html"])
 
     _add_subheader(ws, "Heading & Text Cleanup")
     _add_setting(ws, "heading_normalization", d2m.get("heading_normalization", True),
-                 "Shift heading levels so doc starts at H1")
+                 "Shift heading levels so doc starts at H1 [default: TRUE]")
     _add_setting(ws, "max_heading_level", d2m.get("max_heading_level", 2),
-                 "Max heading depth in output (2 = only H1/H2). H3+ collapsed to this level.")
+                 "Max heading depth in output (2 = only H1/H2). H3+ collapsed to this level. [default: 2]")
     _add_setting(ws, "max_consecutive_blank_lines", d2m.get("max_consecutive_blank_lines", 2),
-                 "Collapse runs of blank lines")
+                 "Collapse runs of blank lines [default: 2]")
     _add_setting(ws, "clean_smart_quotes", d2m.get("clean_smart_quotes", True),
-                 "Convert smart quotes to ASCII")
+                 "Convert smart quotes to ASCII [default: TRUE]")
     _add_setting(ws, "strip_zero_width_chars", d2m.get("strip_zero_width_chars", True),
-                 "Remove zero-width spaces, BOM, etc.")
+                 "Remove zero-width spaces, BOM, etc. [default: TRUE]")
     _add_setting(ws, "extract_text_boxes", d2m.get("extract_text_boxes", True),
-                 "Extract floating text box content inline")
+                 "Extract floating text box content inline [default: TRUE]")
 
     for r in range(2, ws.max_row + 1):
         val = ws.cell(row=r, column=1).value
@@ -1025,32 +1169,32 @@ def _build_docx2md_sheet(wb, cfg: dict):
 
     _add_subheader(ws, "Doc URL Resolution")
     _add_setting(ws, "include_doc_url", d2m.get("include_doc_url", True),
-                 "Resolve Doc URLs from metadata.url Excel lookup into frontmatter")
+                 "Resolve Doc URLs from metadata.url Excel lookup into frontmatter [default: TRUE]")
     for r in range(2, ws.max_row + 1):
         if ws.cell(row=r, column=1).value == "include_doc_url":
             _add_bool_validation(ws, "B", r, r)
 
     _add_subheader(ws, "Metadata Placement")
     _add_setting(ws, "metadata_placement", d2m.get("metadata_placement", "top"),
-                 '"top" = YAML frontmatter only; "top_and_bottom" = also append readable block at end')
+                 '"top" = YAML frontmatter only; "top_and_bottom" = also append readable block at end [default: top]')
     for r in range(2, ws.max_row + 1):
         if ws.cell(row=r, column=1).value == "metadata_placement":
             _add_enum_validation(ws, "B", r, ["top", "top_and_bottom"])
 
     _add_subheader(ws, "Control ID Headings")
     _add_setting(ws, "promote_control_ids_to_heading", d2m.get("promote_control_ids_to_heading", True),
-                 "Promote paragraphs with control IDs to H2 headings (uses control_extraction patterns)")
+                 "Promote paragraphs with control IDs to H2 headings (uses control_extraction patterns) [default: TRUE]")
     for r in range(2, ws.max_row + 1):
         if ws.cell(row=r, column=1).value == "promote_control_ids_to_heading":
             _add_bool_validation(ws, "B", r, r)
 
     _add_subheader(ws, "Logging")
     _add_setting(ws, "log_file_prefix", d2m.get("log_file_prefix", "docx2md_log"),
-                 "Prefix for timestamped log Excel file")
+                 "Prefix for timestamped log Excel file [default: docx2md_log]")
 
     _add_subheader(ws, "Metadata Frontmatter")
     _add_setting(ws, "include_metadata_frontmatter", d2m.get("include_metadata_frontmatter", True),
-                 "Add YAML frontmatter block at top of each .md file")
+                 "Add YAML frontmatter block at top of each .md file [default: TRUE]")
     for r in range(2, ws.max_row + 1):
         if ws.cell(row=r, column=1).value == "include_metadata_frontmatter":
             _add_bool_validation(ws, "B", r, r)
@@ -1060,11 +1204,11 @@ def _build_docx2md_sheet(wb, cfg: dict):
     for field in d2m.get("metadata_fields", [
         {"name": "title", "source": "core:title", "default": ""},
         {"name": "source_file", "source": "filename"},
-        {"name": "author", "source": "core:author", "default": "Unknown"},
-        {"name": "created", "source": "core:created", "default": ""},
         {"name": "modified", "source": "core:modified", "default": ""},
         {"name": "doc_id", "source": r"filename_regex:([A-Z]+-[A-Z]+-\d{4}-\d+)", "default": ""},
         {"name": "converted", "source": "converted_date"},
+        {"name": "PublishedURL", "source": "doc_url", "default": ""},
+        {"name": "Acronyms", "source": "excel_lookup_dict:./input/Acronym_Definitions.xlsx:Acronym Definitions:Document:Acronym:Definition", "default": ""},
     ]):
         ws.append([field.get("name", ""), field.get("source", ""), field.get("default", "")])
 
@@ -1079,32 +1223,32 @@ def _build_docx2jsonl_sheet(wb, cfg: dict):
 
     _add_subheader(ws, "Input Mode")
     _add_setting(ws, "pure_conversion", d2j.get("pure_conversion", False),
-                 "TRUE = Pure Conversion (read from input/), FALSE = Optimized (read from step output)")
+                 "TRUE = Pure Conversion (read from input/), FALSE = Optimized (read from step output) [default: FALSE]")
     _add_setting(ws, "optimized_source_step", d2j.get("optimized_source_step", "heading_fixes"),
-                 'Step output to read when not pure: "heading_fixes", "split_documents", "metadata"')
+                 'Step output to read when not pure: "heading_fixes", "split_documents", "metadata" [default: heading_fixes]')
     for r in range(2, ws.max_row + 1):
         if ws.cell(row=r, column=1).value == "pure_conversion":
             _add_bool_validation(ws, "B", r, r)
 
     _add_subheader(ws, "Output")
     _add_setting(ws, "output_directory", d2j.get("output_directory", "./output/8 - jsonl"),
-                 "Where converted .jsonl.txt files are written")
+                 "Where converted .jsonl.txt files are written [default: ./output/8 - jsonl]")
 
     _add_subheader(ws, "Chunking")
     _add_setting(ws, "max_chunk_chars", d2j.get("max_chunk_chars", 1500),
-                 "Maximum characters per chunk")
+                 "Maximum characters per chunk [default: 1500]")
     _add_setting(ws, "overlap_words", d2j.get("overlap_words", 30),
-                 "Words to overlap between consecutive chunks")
+                 "Words to overlap between consecutive chunks [default: 30]")
     _add_setting(ws, "min_chunk_chars", d2j.get("min_chunk_chars", 100),
-                 "Merge trailing chunks smaller than this into previous")
+                 "Merge trailing chunks smaller than this into previous [default: 100]")
 
     _add_subheader(ws, "Acronym Definitions")
     _add_setting(ws, "acronym_definitions_file", d2j.get("acronym_definitions_file", "./input/Acronym_Definitions.xlsx"),
-                 "Path to confirmed acronym definitions Excel (Per Document sheet)")
+                 "Path to confirmed acronym definitions Excel (Per Document sheet) [default: ./input/Acronym_Definitions.xlsx]")
 
     _add_subheader(ws, "Tag Mapping")
     _add_setting(ws, "tag_file", d2j.get("tag_file", ""),
-                 "Optional Excel file mapping documents to tags (leave empty to skip)")
+                 "Optional Excel file mapping documents to tags (leave empty to skip) [default: empty]")
 
     _finalize_sheet(ws)
 
@@ -1117,24 +1261,24 @@ def _build_acronym_finder_sheet(wb, cfg: dict):
 
     _add_subheader(ws, "Output")
     _add_setting(ws, "output_file", af.get("output_file", "acronym_audit.xlsx"),
-                 "Filename for the audit Excel report")
+                 "Filename for the audit Excel report [default: acronym_audit.xlsx]")
 
     _add_subheader(ws, "Search Settings")
     search = af.get("search", {})
     _add_setting(ws, "search.min_length", search.get("min_length", 2),
-                 "Minimum acronym length (2 = 'AC')")
+                 "Minimum acronym length (2 = 'AC') [default: 2]")
     _add_setting(ws, "search.max_length", search.get("max_length", 8),
-                 "Maximum acronym length")
+                 "Maximum acronym length [default: 8]")
     _add_setting(ws, "search.scan_tables", search.get("scan_tables", True),
-                 "Include acronyms found inside tables")
+                 "Include acronyms found inside tables [default: TRUE]")
     _add_setting(ws, "search.scan_headers_footers", search.get("scan_headers_footers", True),
-                 "Include acronyms found in headers/footers")
+                 "Include acronyms found in headers/footers [default: TRUE]")
     _add_setting(ws, "search.scan_textboxes", search.get("scan_textboxes", True),
-                 "Include acronyms found in text boxes")
+                 "Include acronyms found in text boxes [default: TRUE]")
     _add_setting(ws, "search.min_global_occurrences", search.get("min_global_occurrences", 1),
-                 "Min occurrences across ALL docs to appear in results")
+                 "Min occurrences across ALL docs to appear in results [default: 1]")
     _add_setting(ws, "search.min_doc_occurrences", search.get("min_doc_occurrences", 1),
-                 "Min occurrences within a single doc to appear")
+                 "Min occurrences within a single doc to appear [default: 1]")
 
     for r in range(2, ws.max_row + 1):
         val = ws.cell(row=r, column=1).value
@@ -1143,12 +1287,12 @@ def _build_acronym_finder_sheet(wb, cfg: dict):
 
     _add_subheader(ws, "Detection Patterns")
     patterns = af.get("patterns", {})
-    _add_setting(ws, "patterns.pure_caps", patterns.get("pure_caps", True), "ABC, NIST, GCC")
-    _add_setting(ws, "patterns.caps_with_numbers", patterns.get("caps_with_numbers", True), "AC-2, 800-53")
-    _add_setting(ws, "patterns.caps_with_hyphens", patterns.get("caps_with_hyphens", True), "FedRAMP, ATO-P")
-    _add_setting(ws, "patterns.caps_with_slashes", patterns.get("caps_with_slashes", True), "IT/OT, CI/CD")
+    _add_setting(ws, "patterns.pure_caps", patterns.get("pure_caps", True), "ABC, NIST, GCC [default: TRUE]")
+    _add_setting(ws, "patterns.caps_with_numbers", patterns.get("caps_with_numbers", True), "AC-2, 800-53 [default: TRUE]")
+    _add_setting(ws, "patterns.caps_with_hyphens", patterns.get("caps_with_hyphens", True), "FedRAMP, ATO-P [default: TRUE]")
+    _add_setting(ws, "patterns.caps_with_slashes", patterns.get("caps_with_slashes", True), "IT/OT, CI/CD [default: TRUE]")
     _add_setting(ws, "patterns.parenthetical_defs", patterns.get("parenthetical_defs", True),
-                 '"Multi-Factor Authentication (MFA)"')
+                 '"Multi-Factor Authentication (MFA)" [default: TRUE]')
 
     for r in range(2, ws.max_row + 1):
         val = ws.cell(row=r, column=1).value
@@ -1158,7 +1302,19 @@ def _build_acronym_finder_sheet(wb, cfg: dict):
     _add_subheader(ws, "Ignore List (one per row)")
     ws.append(['## Acronyms and uppercase words to skip entirely', "", ""])
     ws.cell(row=ws.max_row, column=1).font = DESC_FONT
-    for item in af.get("ignore_list", []):
+    default_ignore = [
+        "THE", "AND", "FOR", "NOT", "BUT", "ALL", "ARE", "CAN", "HAS",
+        "HER", "WAS", "ONE", "OUR", "OUT", "YOU", "USE", "MAY", "SHALL",
+        "MUST", "WILL", "WITH", "THIS", "THAT", "FROM", "THEY", "BEEN",
+        "HAVE", "EACH", "MAKE", "WHEN", "DOES", "INTO", "THEM", "THEN",
+        "THAN", "ONLY", "OVER", "SUCH", "ALSO", "SOME", "THESE", "OTHER",
+        "WHICH", "THEIR", "THERE", "WOULD", "ABOUT", "AFTER", "COULD",
+        "WHERE", "SHOULD", "THOSE",
+        "II", "III", "IV", "VI", "VII", "VIII", "IX", "XI", "XII",
+        "PAGE", "DATE", "DRAFT", "FINAL", "NOTE", "TABLE", "FIGURE",
+        "REV", "VER", "NA", "TBD", "TODO", "YES", "NO",
+    ]
+    for item in af.get("ignore_list", default_ignore):
         ws.append([item, "", ""])
     # Add some empty rows for user additions
     for _ in range(5):

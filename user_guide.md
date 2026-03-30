@@ -11,7 +11,6 @@
 7. [Output Reference](#output-reference)
 8. [File Lifecycle: What to Keep, What to Delete](#file-lifecycle-what-to-keep-what-to-delete)
 9. [Utilities](#utilities)
-   - [Acronym Intake Template Generator](#acronym-intake-template-miscacronym-findercreate_acronym_templatepy)
    - [Word Counter](#word-counter-scriptsword_counterpy)
    - [Control Attribute Analyzer](#control-attribute-analyzer-miscanalyze_control_attributespy)
 10. [Troubleshooting](#troubleshooting)
@@ -124,17 +123,17 @@ Each script can be run independently outside the pipeline:
 
 ```bash
 python scripts/policy_profiler.py --config dps_config.xlsx --input ./input --output ./output/0\ -\ profiler
-python scripts/extract_controls.py --config dps_config.xlsx ./input ./output/1\ -\ controls
-python scripts/cross_reference_extractor.py --config dps_config.xlsx ./input ./output/2\ -\ cross_references
-python scripts/heading_style_fixer.py --config dps_config.xlsx ./input ./output/3\ -\ heading_fixes
-python scripts/section_splitter.py --config dps_config.xlsx ./output/3\ -\ heading_fixes ./output/4\ -\ split_documents
-python scripts/add_metadata.py --config dps_config.xlsx ./output/4\ -\ split_documents ./output/5\ -\ metadata
+python scripts/extract_controls.py --config dps_config.xlsx ./input ./output/2\ -\ controls
+python scripts/cross_reference_extractor.py --config dps_config.xlsx ./input ./output/3\ -\ cross_references
+python scripts/heading_style_fixer.py --config dps_config.xlsx ./input ./output/4\ -\ heading_fixes
+python scripts/section_splitter.py --config dps_config.xlsx ./output/4\ -\ heading_fixes ./output/5\ -\ split_documents
+python scripts/add_metadata.py --config dps_config.xlsx ./output/5\ -\ split_documents ./output/6\ -\ metadata
 python scripts/validate_controls.py --config dps_config.xlsx
 ```
 
 ### Pipeline Behavior
 
-- Steps run sequentially in order (0 → 6).
+- Steps run sequentially in order (0 → 9).
 - If a step fails, the pipeline stops and reports which step failed.
 - Re-run from the failed step with `--step N` after fixing the issue.
 - Elapsed time is displayed per step and for the total run.
@@ -196,15 +195,17 @@ Scans every document for acronym candidates and generates a multi-sheet Excel au
 
 | File | Contents |
 |------|----------|
-| `acronym_audit.xlsx` | Global Summary, Per Document, Undefined Acronyms, Cross-Reference Matrix, Config Used |
+| `acronym_audit.xlsx` | Acronym Definitions (with Status dropdown + instruction row), Per Document, Global Summary, Undefined Acronyms, Cross-Reference Matrix, Custom Tags (with instruction row), Config Used |
 
 **Using the output:**
 
-> **Important:** The `acronym_audit.xlsx` output is **unvalidated** — it contains raw candidates including false positives. Do not point Steps 6/7/8 directly at this file. Instead, review it and curate a verified `input/Acronym_Definitions.xlsx` (see workflow below).
+1. **Run Step 1** — produces `output/1 - acronyms/acronym_audit.xlsx`
+2. **Open it** — review the "Acronym Definitions" sheet. Use the **Status** dropdown (column D) to mark each row as Confirmed, False Positive, or Needs Review. Fill in missing definitions in column C (yellow-highlighted rows). **Do not delete rows** — use "False Positive" status instead so downstream steps automatically filter them out.
+3. **Fill in Custom Tags** — go to the "Custom Tags" sheet and enter comma-separated tags for each document (e.g., `access control, CUI, FedRAMP-High`).
+4. **Save a copy to `input/`** — the filename doesn't matter, just make sure the config key (`metadata.tags.acronym_definitions_file`) points to it.
+5. **Steps 6/7/8 read it** — they look for the "Acronym Definitions" sheet (falling back to "Per Document"), columns A (`Document`) and B (`Acronym`). Rows with Status="False Positive" are automatically skipped.
 
-1. Open **Global Summary** — sort by "Total Occurrences" descending; top 20-30 are highest impact
-2. **Undefined Acronyms** sheet — each entry needs an expansion added to the source doc, or added to `ignore_list` in `dps_config.xlsx`
-3. Create `input/Acronym_Definitions.xlsx` by running the template generator, then paste and curate rows from the **Per Document** sheet (see [Acronym Intake Template](#acronym-intake-template-miscacronym-findercreate_acronym_templatepy) and [File Lifecycle](#file-lifecycle-what-to-keep-what-to-delete))
+> **Tip:** Open **Global Summary** and sort by "Total Occurrences" descending to find the highest-impact acronyms first. The **Undefined Acronyms** sheet highlights entries with no detected definition — these are your priority targets.
 
 ---
 
@@ -374,7 +375,7 @@ For full configuration details see [Section 13: DOCX to Markdown](#section-13-do
 **Input:** Configurable — `input/` (Pure Conversion) or `output/4 - heading_fixes/` (Optimized, default)
 **Output:** `output/8 - jsonl/`
 
-Converts `.docx` files to chunked JSONL for RAG/vector DB ingestion. Each output file contains one JSON object per chunk with `text`, `PublishedURL`, `acronyms`, heading context, and configurable metadata. Supports the same Pure/Optimized input modes as Step 7.
+Converts `.docx` files to chunked JSONL for RAG/vector DB ingestion. Each output file contains one JSON object per chunk with `text`, `PublishedURL`, `Tags`, heading context, and configurable metadata. Supports the same Pure/Optimized input modes as Step 7.
 
 ---
 
@@ -472,11 +473,11 @@ python scripts/ingest_review_feedback.py --config dps_config.xlsx
 
 All settings live in a single Excel workbook: **`dps_config.xlsx`**. The pipeline works with defaults — only change what you need.
 
-> **Legacy support:** If `dps_config.xlsx` is not found, the pipeline falls back to `dps_config.yaml`. Both formats produce the same internal configuration. Excel is the recommended format for day-to-day use.
+> **Legacy support:** If `dps_config.xlsx` is not found, the pipeline falls back to `dps_config_fallback.yaml`. Both formats produce the same internal configuration. Excel is the recommended format for day-to-day use.
 
 ### How to Edit `dps_config.xlsx`
 
-The workbook has 17 sheets (1 README + 16 configuration sheets). Each sheet controls a different part of the pipeline.
+The workbook has 20 sheets (Quick Start + README + 18 configuration sheets). Each sheet controls a different part of the pipeline.
 
 **General rules:**
 - **Close the file in Excel before running the pipeline.** An open file causes permission errors on Windows.
@@ -498,6 +499,45 @@ If the workbook becomes corrupted or you want to start fresh with all defaults:
 ```bash
 python generate_config_template.py -o dps_config.xlsx
 ```
+
+### Maintainer: Changing Workbook Structure Safely
+
+This section is for updating the Excel config creator itself (`generate_config_template.py`), not normal day-to-day config edits.
+
+#### If you want to reorder columns
+
+1. Update the sheet builder headers and row writes in `generate_config_template.py`.
+2. Update parser column assumptions in `scripts/shared_utils.py` (for example `_parse_settings_rows()` and any sheet-specific column indexing).
+3. Regenerate and sanity-check parse:
+
+```bash
+python generate_config_template.py --from-yaml dps_config_fallback.yaml --output dps_config.xlsx
+python run_pipeline.py --list
+```
+
+#### If you want to rename worksheet tabs
+
+1. Change the tab name in `generate_config_template.py`.
+2. Update `load_config_xlsx()` sheet name mapping in `scripts/shared_utils.py`.
+3. Regenerate and run `python run_pipeline.py --list` to ensure the section still loads.
+
+Note: parser matching is exact by sheet name. Renaming only in Excel (without code updates) causes that section to be skipped.
+
+#### If you want to add or remove columns in table-like blocks
+
+Examples: Pipeline rows, Metadata Fields, section deletion table.
+
+1. Change table headers and row shapes in `generate_config_template.py`.
+2. Update the matching parser in `scripts/shared_utils.py` so new columns are read and removed columns are no longer expected.
+3. Update consuming script logic if parsed keys changed.
+4. Regenerate and run a step that uses the modified section.
+
+#### Source of truth and fallback
+
+- Primary human-edited config: `dps_config.xlsx`
+- Fallback/seed config: `dps_config_fallback.yaml`
+
+When changing generator defaults, keep YAML defaults aligned unless you intentionally want different fallback behavior.
 
 ### Section 1: Input
 
@@ -586,7 +626,7 @@ Controls how headings are detected, classified, and fixed across Steps 0 and 3.
 |-----|---------|-------------|
 | `headings.builtin_styles` | `Heading 1` through `Heading 4` (both cases) | Standard Word heading style names. Rarely needs editing. |
 | `headings.custom_heading_styles` | `Policy Heading 1`, `Policy Heading 2`, `TOC Heading`, `AppendixHeading` | Custom heading style names used in your org's Word templates. Add styles here if they show up as "FAKE" in the profiler but are real headings in Word. |
-| `headings.custom_style_map` | See config file | Maps your org's custom style names to standard `Heading 1`/`2`/`3` (case-insensitive keys). Used by Step 3 to convert styles the splitter can recognize. |
+| `headings.custom_style_map` | See config file | Maps your org's custom style names to standard `Heading 1`/`2`/`3` (case-insensitive keys). Used by Step 4 to convert styles the splitter can recognize. |
 
 **How to find your org's custom styles:** In Word, click a heading, then check the Styles pane on the Home tab for the active style name.
 
@@ -615,13 +655,14 @@ Regex patterns that determine what heading level to assign to a fake heading bas
 
 ### Section 4B: Text Deletion
 
-Remove specific phrases from documents during heading style fixing (Step 3). Deletions cascade to Steps 4 and 5.
+Remove specific phrases from documents during heading style fixing (Step 4). Deletions cascade to Steps 5 and 6.
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `text_deletions.enabled` | `false` | Set to `true` to activate deletion. |
 | `text_deletions.case_sensitive` | `true` | Whether phrase matching is case-sensitive. |
 | `text_deletions.phrases` | `[]` (empty) | List of exact phrases to delete. After deletion, double-spaces are collapsed to single spaces. |
+| `text_deletions.section_deletions` | `[]` (empty) | List of section-level deletions. Each entry has `heading` (case-insensitive substring match on heading text), `delete` (TRUE/FALSE), and optional `description`. Deletes the heading and all content until the next heading of same or higher level. |
 
 **Example phrases (on the Text Deletions sheet):**
 | Value | Description |
@@ -772,7 +813,7 @@ Search for specific terms across all documents in Step 0. Results appear as colu
 | Key | Default | Description |
 |-----|---------|-------------|
 | `search_terms.enabled` | `true` | Enable/disable key term search. |
-| `search_terms.terms` | `["AC", "Cloud"]` | List of terms to search for. Each term gets its own column. Plain text only (no regex). |
+| `search_terms.terms` | `["AC", "Cloud", "NIST"]` | List of terms to search for. Each term gets its own column. Plain text only (no regex). |
 | `search_terms.match_mode` | `"word"` | `"word"` = whole-word boundary (e.g., "AC" matches "AC-1" but not "ACCESS"). `"substring"` = anywhere in text (e.g., "AC" matches "ACCESS", "PRACTICAL"). |
 | `search_terms.show_counts` | `true` | `true` = show occurrence count. `false` = show YES/blank. |
 
@@ -1023,6 +1064,38 @@ The default config points to `input/Doc_URL.xlsx`. These settings are on the **M
 | `metadata.tags.max_acronym_tags` | `15` | Maximum acronym tags per document (most-frequent first). `0` = unlimited. |
 | `metadata.tags.static_tags` | `[]` | Static tags added to ALL documents (e.g., `["InfoSec", "GCC-High"]`). |
 
+#### Custom Tags (Per-Document)
+
+You can assign custom tags to individual documents by adding a **"Custom Tags"** sheet to your `Acronym_Definitions.xlsx` file (or `acronym_audit.xlsx`). These are **merged** with auto-generated tags — nothing is overwritten, no separate file needed.
+
+**Setup:**
+
+Open `input/Acronym_Definitions.xlsx` and add a sheet called **"Custom Tags"** with two columns:
+
+| Document_Name | Tags |
+|---|---|
+| Access Control Policy | CUI, FedRAMP-High, Priority |
+| Incident Response Policy | SOC, CIRT, Critical-Path |
+| Data Protection Policy | PII, Encryption |
+
+That's it — no config changes needed. Step 6 reads the "Custom Tags" sheet automatically when it loads the acronym definitions file. Step 8 (JSONL) also reads from the same sheet.
+
+> **Tip:** If you run Step 1 (Acronym Finder) first, the output `acronym_audit.xlsx` already includes an empty "Custom Tags" sheet pre-populated with document names — just fill in the Tags column.
+
+**How it works:**
+- Tags are comma-separated in the Tags column
+- Document name matching is case-insensitive and normalized (handles underscores, extensions, suffixes)
+- Custom tags appear **after** auto-generated tags (doc type, sections, acronyms) and **before** static tags
+- Duplicates across all tag sources are automatically removed (first occurrence wins)
+- Auto-generated acronym tags, validation steps (Step 9), and all other pipeline steps are **completely unaffected**
+
+**Example result** for "Access Control Policy":
+```
+Tags: Type-C, has-scope, has-controls, AC, MFA, CUI, FedRAMP-High, Priority, InfoSec
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^
+       auto-generated (doc type + sections + acronyms)   custom tags           static tags
+```
+
 ---
 
 ### Section 13: DOCX to Markdown (`docx2md`)
@@ -1033,15 +1106,16 @@ All settings live under the `docx2md:` key in `dps_config.xlsx`. This section co
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `output_directory` | `./output/markdown` | Where converted `.md` files are written (relative to config file). |
+| `output_directory` | `./output/7 - markdown` | Where converted `.md` files are written (relative to config file). |
 | `include_metadata_frontmatter` | `true` | Write YAML frontmatter block at the top of each `.md` file. |
 | `metadata_placement` | `top` | `top` = frontmatter only, `top_and_bottom` = also appends a readable metadata block at the end of the file. |
-| `table_strategy` | `auto` | `pipe` = always use pipe tables, `html` = always use HTML tables, `auto` = use HTML only for tables with merged cells. |
+| `table_strategy` | `auto` | `markdown` = always use pipe tables, `html` = always use HTML tables, `auto` = use HTML only for tables with merged cells. |
 | `image_handling` | `extract` | `extract` = save images to a `<docname>_images/` subfolder and insert Markdown image links, `skip` = ignore images. |
 | `extract_text_boxes` | `true` | Extract floating text box content and insert it inline in the document body. |
 | `clean_smart_quotes` | `true` | Replace curly quotes (`""`), en/em dashes, and ellipsis with ASCII equivalents. |
 | `strip_zero_width_chars` | `true` | Remove zero-width and BOM characters from output. |
-| `promote_control_ids_to_heading` | `false` | Promote paragraphs matching a control ID pattern to H2 headings. Uses `control_extraction` patterns from the main pipeline config. |
+| `promote_control_ids_to_heading` | `true` | Promote paragraphs matching a control ID pattern to H2 headings. Uses `control_extraction` patterns from the main pipeline config. |
+| `max_heading_level` | `2` | Maximum heading depth in output. Headings deeper than this level are collapsed (e.g., `2` means H3+ becomes H2). Set to `6` to disable. |
 | `log_file_prefix` | `docx2md_log` | Prefix for the timestamped Excel log file (e.g., `docx2md_log_2026-03-24_143052.xlsx`). |
 
 #### Metadata Fields
@@ -1072,12 +1146,40 @@ metadata_fields:
 Reads all rows in `<sheet>` where `<key>` column matches the current `.docx` filename, and returns all matching `<value>` column entries as a YAML list (e.g., `["MFA", "NIST", "RAG"]`). Matching is case-insensitive and normalizes underscores, hyphens, and spaces — so `Policy_Doc.docx` matches an Excel entry of `Policy-Doc` or `policy doc`.
 
 ```yaml
-- name: "acronyms"
-  source: "excel_lookup_list:./output/acronym_intake_template.xlsx:Per Document:Document:Acronym"
+- name: "Tags"
+  source: "excel_lookup_list:./input/Acronym_Definitions.xlsx:Acronym Definitions:Document:Acronym"
   default: ""
 ```
 
 The `doc_url` source loads the URL mapping automatically when any field uses it — `include_doc_url: true` is not required when using `metadata_fields`.
+
+#### Renaming a Metadata Field Across the Dual Config Layers
+
+Metadata field names (the keys that appear in JSONL chunks and Markdown frontmatter) are defined in multiple places due to the dual config system. Renaming a field — for example, changing `acronyms` to `Tags` — requires updates in **all** of these locations or the old name will persist in some outputs.
+
+**Where field names live:**
+
+| Layer | File | What to change |
+|-------|------|----------------|
+| **YAML fallback** | `dps_config_fallback.yaml` | Find the `- name: "oldName"` entry under `docx2md.metadata_fields` and change it |
+| **Generator defaults** | `generate_config_template.py` | Find the `{"name": "oldName", ...}` entry in the default `metadata_fields` list (look for `_build_docx2md_sheet`) and change it |
+| **Excel config** | `dps_config.xlsx` | Regenerate from YAML after updating the above: `python generate_config_template.py --from-yaml dps_config_fallback.yaml` |
+| **JSONL script** | `scripts/docx2jsonl.py` | Search for `chunk["oldName"]` and rename the key — this script hardcodes the acronym/tag field name rather than reading it from config |
+
+**Step-by-step:**
+
+1. **Edit `dps_config_fallback.yaml`** — change the `name:` value in the `metadata_fields` list (under `docx2md:`)
+2. **Edit `generate_config_template.py`** — change the matching `{"name": ...}` entry in the default metadata fields
+3. **Regenerate the Excel config:**
+   ```bash
+   python generate_config_template.py --from-yaml dps_config_fallback.yaml --output dps_config.xlsx
+   ```
+4. **Edit `scripts/docx2jsonl.py`** — rename the hardcoded chunk key (e.g., `chunk["Tags"] = ...`)
+5. **Verify** — re-run Steps 7 and 8 on a test document and confirm the new key name appears in both `.md` frontmatter and `.jsonl.txt` output
+
+> **Why is this spread across so many files?** The Markdown converter (`docx2md.py`) reads field names dynamically from config, so updating config is enough for `.md` output. But `docx2jsonl.py` writes the acronym/tag field with a hardcoded key name, so it requires a code change too. The YAML fallback, generator, and Excel config are three representations of the same settings — all three must agree, and the generator is the bridge between them.
+
+> **Tip:** If you only use the Excel config (not the YAML fallback), you can skip step 1 and instead edit the field name directly on the **Docx2md** sheet in `dps_config.xlsx`. But you'll still need step 4 (the JSONL script edit), and the next time you regenerate the Excel from YAML, your manual edit will be overwritten unless the YAML is also updated.
 
 ---
 
@@ -1132,7 +1234,27 @@ output/
   DPS_Report_<timestamp>.xlsx      # Consolidated workbook (all CSVs)
 ```
 
-The **consolidated report** (`DPS_Report_*.xlsx`) contains one styled sheet per step's CSV output, with blue headers, frozen top row, autofilter, and auto-sized columns.
+The **consolidated report** (`DPS_Report_*.xlsx`) contains one styled sheet per step's CSV/Excel output, with blue headers, frozen top row, autofilter, and auto-sized columns.
+
+**Consolidated report sheets:**
+
+| Sheet Name | Source Step | Source File | Contents |
+|------------|-----------|-------------|----------|
+| Pipeline Issues | (all) | `pipeline_issues.csv` | Warnings/errors from the run (always first, only present if issues exist) |
+| 0 - Document Inventory | Step 0 | `document_inventory.xlsx` | Master document metrics (one row per document) |
+| 0 - Sections | Step 0 | `section_inventory.csv` | One row per section per document |
+| 0 - Tables | Step 0 | `table_inventory.csv` | One row per table per document |
+| 0 - CrossRefs | Step 0 | `crossref_inventory.csv` | One row per cross-reference candidate |
+| 1 - Controls | Step 2 | `controls_output.csv` | One row per extracted control |
+| 2 - Cross References | Step 3 | `cross_references.csv` | One row per cross-reference |
+| 3 - Heading Changes | Step 4 | `heading_changes.csv` | Every heading style change made |
+| 4 - Split Manifest | Step 5 | `split_manifest.csv` | Every sub-document created |
+| 5 - Metadata | Step 6 | `metadata_manifest.csv` | Metadata applied to each sub-document |
+| 6 - Validation | Step 9 | `control_validation.csv` | PASS/MISSING/RELOCATED per control |
+| 6 - Validation Review | Step 9 | `validation_review.xlsx` | Confidence-scored controls for human review |
+| 6 - Validation Summary | Step 9 | `validation_review.xlsx` | Aggregate validation statistics |
+
+Sheets are only included when the source file exists (i.e., the corresponding step has been run).
 
 ---
 
@@ -1148,7 +1270,7 @@ These files live in `input/` and represent curated, reviewed data consumed by mu
 |------|-----------------|-------------------|
 | **`input/*.docx`** | Source policy documents from your organization | Everything — the pipeline starts here |
 | **`input/Doc_URL.xlsx`** | You create this manually. Run Step 0 or 2 first to discover document names, then enter each name and its SharePoint URL. | Steps 2, 6, 7, 8 use it for Published URL in controls, metadata blocks, MD frontmatter, and JSONL chunks |
-| **`input/Acronym_Definitions.xlsx`** | You create this by reviewing Step 1's `acronym_audit.xlsx` output, removing false positives, and confirming definitions. The template generator (`Misc/Acronym Finder/create_acronym_template.py`) creates a blank starting file. | Steps 6, 7, 8 use it for acronym tags, MD frontmatter lists, and JSONL chunk metadata |
+| **`input/Acronym_Definitions.xlsx`** | Run Step 1 to generate `acronym_audit.xlsx`, then review and curate: remove false positives, confirm definitions, fill in Custom Tags. Save the curated copy to `input/Acronym_Definitions.xlsx`. See [Acronym Definitions Lifecycle](#acronym-definitions-lifecycle) below. | Steps 6, 7, 8 use it for acronym tags, custom tags, MD frontmatter lists, and JSONL chunk metadata |
 | **`dps_config.xlsx`** | Generated once by `generate_config_template.py`, then tuned by you over multiple pipeline runs | All steps read this for their settings |
 
 **Backup strategy:** Back up `input/` and `dps_config.xlsx` before major changes. These files contain human judgment that cannot be regenerated.
@@ -1179,9 +1301,10 @@ Everything under `output/` is machine-generated. Re-running the relevant step re
 3. Create Doc_URL.xlsx    → Open input/Doc_URL.xlsx, enter document names + URLs
                             from Step 0 output. One row per document.
 4. Create Acronym_Definitions.xlsx
-                          → Run the template generator, paste Per Document rows
-                            from Step 1's audit, remove junk entries, confirm
-                            real definitions. Save to input/Acronym_Definitions.xlsx.
+                          → Open Step 1's acronym_audit.xlsx. Review the
+                            "Acronym Definitions" sheet — remove false positives,
+                            confirm definitions. Fill in "Custom Tags" sheet with
+                            per-document tags. Save to input/Acronym_Definitions.xlsx.
 5. Run Steps 2-9          → Pipeline uses both validated files automatically
 ```
 
@@ -1203,41 +1326,92 @@ Your `input/` files (source .docx, Doc_URL.xlsx, Acronym_Definitions.xlsx) and `
 
 Utilities are standalone scripts that support the pipeline but are not pipeline steps. Run them manually as needed.
 
-### Acronym Intake Template (`Misc/Acronym Finder/create_acronym_template.py`)
+### Acronym Definitions Lifecycle
 
-Generates a blank, pre-formatted Excel template for manually entering acronym definitions and per-document acronym mappings. Run this **once** after Step 1 (Acronym Finder) to create the file that Steps 7 and 8 consume.
+`input/Acronym_Definitions.xlsx` is the curated, human-validated version of Step 1's output. It feeds acronym tags, custom tags, and definitions into Steps 6, 7, and 8. Here's the full workflow.
+
+#### Step 1: Generate the Audit
 
 ```bash
-python "Misc/Acronym Finder/create_acronym_template.py"
-python "Misc/Acronym Finder/create_acronym_template.py" --output ./output/acronym_intake.xlsx
+python run_pipeline.py --step 1
 ```
 
-**Output:** `output/acronym_intake_template.xlsx` with two sheets:
+This scans all `.docx` files in your input folder and produces `output/1 - acronyms/acronym_audit.xlsx` — a 7-sheet workbook:
 
-| Sheet | Purpose |
-|-------|---------|
-| **Acronym Definitions** | Master glossary — fill in `Acronym`, `Full Name / Definition`, `Category`, `Notes` |
-| **Per Document** | Per-doc mapping — `Document` (exact `.docx` filename), `Acronym`, `Occurrences`, `Found In`, `Definition(s) Detected` |
+| Sheet | What It Contains | Your Action |
+|-------|-----------------|-------------|
+| **Acronym Definitions** | One row per document-acronym pair. Auto-detected definitions filled in; undefined ones highlighted yellow. Row 2 is a gray instruction row explaining each column. **Status** column has a dropdown (Confirmed / False Positive / Needs Review). | **Curate this sheet** — set Status for each row, fill in missing definitions, add notes. Do NOT delete rows — mark them "False Positive" instead so there's an audit trail. |
+| **Per Document** | Detailed occurrence data: counts, sections found in, definition(s) detected. | Reference only — use for context when deciding what to keep. |
+| **Global Summary** | All acronyms ranked by total occurrences across all documents. Undefined entries highlighted yellow. | Sort by "Total Occurrences" descending. Focus on the top 20-30 highest-impact acronyms first. |
+| **Undefined Acronyms** | Filtered view of acronyms with no auto-detected definition. | Each needs a definition added or goes on the `ignore_list` in config. |
+| **Cross-Reference Matrix** | Which acronyms appear in which documents (matrix view). | Reference only — helps spot inconsistencies across documents. |
+| **Custom Tags** | Pre-populated with all document names. Row 2 is a gray instruction row showing the expected comma-separated format. | **Fill in per-document tags** — comma-separated values (e.g., `access control, authentication, MFA`). Do NOT edit the Document_Name column. |
+| **Config Used** | Snapshot of the acronym finder config used for this run. | Reference only — useful for reproducibility. |
 
-The **Per Document** sheet matches the column structure of the Step 1 output (`acronym_audit.xlsx`) exactly — paste rows from it directly, or fill in manually.
+#### Step 2: Human Review and Curation
 
-**Typical workflow:**
-1. Run Step 1 (`python run_pipeline.py --step 1`) to get `output/1 - acronyms/acronym_audit.xlsx`
-2. Run this template generator to create a blank intake file
-3. Paste the **Per Document** rows from `acronym_audit.xlsx` into the template, then add/confirm definitions
-4. Save the filled file somewhere stable (e.g., `input/Acronym_Definitions.xlsx`)
-5. Point the pipeline at it in `dps_config.xlsx`:
-   - **Step 7 (docx2md):** use `excel_lookup_list` source in `docx2md.metadata_fields`:
-     ```yaml
-     - name: "acronyms"
-       source: "excel_lookup_list:./input/Acronym_Definitions.xlsx:Per Document:Document:Acronym"
-       default: ""
-     ```
-   - **Step 8 (docx2jsonl):** set `docx2jsonl.acronym_definitions_file: "./input/Acronym_Definitions.xlsx"`
+Open `output/1 - acronyms/acronym_audit.xlsx` and work through these validation steps:
 
-Both steps read the **Per Document** sheet, match by filename, and embed that document's confirmed acronyms into its output metadata.
+1. **"Acronym Definitions" sheet** — the primary sheet:
+   - **Use the Status dropdown** (column D) for every row:
+     - **Confirmed** — acronym is real, definition is correct
+     - **False Positive** — not a real acronym (e.g., `PDF`, `USB`, file extensions, Roman numerals). These rows are **skipped** by Steps 6, 7, and 8 — they won't become tags or metadata.
+     - **Needs Review** — uncertain, come back later. Treated the same as blank (kept in output).
+   - For yellow-highlighted rows (no definition found): add the correct expansion manually in column C, or if the acronym should be ignored globally across all future runs, add it to the `ignore_list` in `dps_config.xlsx` under `acronym_finder:` settings
+   - Verify auto-detected definitions are correct — the scanner finds parenthetical expansions but may pick up wrong text
+   - Use the **Notes** column (E) to flag anything for future review
 
-> **Note:** `Misc/Acronym Finder/acronym_config.yaml` was the config for the old standalone version of `acronym_finder.py`. It is now obsolete — all settings live in `dps_config.xlsx` under `acronym_finder:` (Section 15). You can delete it.
+   > **Do not delete rows.** Use "False Positive" status instead. Deleted rows reappear on the next Step 1 run with no audit trail. Marked rows stay visible and are automatically filtered out by downstream steps.
+
+2. **"Global Summary" sheet** — prioritization guide:
+   - Sort by "Total Occurrences" descending
+   - High-occurrence undefined acronyms are the biggest risk for RAG quality — prioritize those
+
+3. **"Custom Tags" sheet** — optional enrichment:
+   - Each row has a document name pre-populated from Step 1; enter comma-separated tags in the Tags column
+   - Tags must be **comma-separated** — e.g., `access control, authentication, CUI` (three tags). Without commas, the entire cell becomes a single tag.
+   - These tags are merged into the document's metadata alongside auto-generated tags
+   - Leave the Tags cell empty if no custom tags are needed for that document
+   - **Do not edit the Document_Name column** — it must match the filenames in your input folder. If you rename input files, re-run Step 1 to get fresh names.
+
+#### Step 3: Save the Curated File
+
+Save your reviewed copy to:
+```
+input/Acronym_Definitions.xlsx
+```
+
+Keep only the sheets that have data. The pipeline looks for sheets by name ("Acronym Definitions" and "Custom Tags"), so sheet order doesn't matter. The instruction rows (row 2, gray italics) are automatically skipped by all consumers.
+
+#### What Consumes It
+
+| Step | What It Reads | How It Uses It |
+|------|--------------|----------------|
+| **Step 6 (Metadata)** | "Acronym Definitions" sheet + "Custom Tags" sheet | Generates per-document tags from acronyms and custom tags; embeds into sub-documents. Skips rows with Status="False Positive". |
+| **Step 7 (Markdown)** | "Acronym Definitions" sheet | Embeds acronym lists in YAML frontmatter (via `excel_lookup_list`/`excel_lookup_dict` config) |
+| **Step 8 (JSONL)** | "Acronym Definitions" sheet + "Custom Tags" sheet | Includes acronyms and custom tags in chunk metadata for RAG retrieval. Skips rows with Status="False Positive". Only includes acronyms that have definitions. Prints warnings for documents with no metadata matches. |
+
+#### Re-Running After Changes
+
+If you add new source documents or want to refresh the acronym scan:
+
+1. Run Step 1 again — produces a fresh `acronym_audit.xlsx`
+2. Compare with your existing `input/Acronym_Definitions.xlsx` to pick up new acronyms
+3. Update the curated file and re-run Steps 6-8
+
+> **Tip:** Your curated `input/Acronym_Definitions.xlsx` is never overwritten by the pipeline. Step 1 always writes to `output/1 - acronyms/`, keeping your validated input safe.
+
+#### Common Mistakes and Troubleshooting
+
+| Problem | Symptom | Fix |
+|---------|---------|-----|
+| Tags not appearing in JSONL output | Step 8 prints "N document(s) had no matching custom tags" | Check that Document_Name values in the Custom Tags sheet match your input filenames. The matching is fuzzy (ignores underscores/hyphens/case/extension) but won't match typos. |
+| Acronym definitions not appearing in JSONL | Step 8 prints "N without definitions skipped" | Fill in the Definition column (C) for acronyms you want in the output. Blank definitions are intentionally excluded from JSONL metadata. |
+| False positive acronyms appearing in metadata | Tags contain entries like `PDF`, `USB` | Set Status to "False Positive" in the Acronym Definitions sheet and re-run Steps 6-8. |
+| "Custom Tags" sheet not found | Step 6/8 prints "NOTE: Sheet 'Custom Tags' not found" | Ensure the sheet is named exactly "Custom Tags" (case-insensitive). Do not rename it. |
+| All tags appear as one long string | JSONL shows `["access control authentication"]` instead of `["access control", "authentication"]` | Tags must be comma-separated in the Excel cell. Add commas between tags. |
+| Acronyms from a previous run reappear | Rows deleted from the audit come back after re-running Step 1 | Use Status="False Positive" instead of deleting rows. Or add the acronym to the `ignore_list` in config for permanent suppression. |
+| Short document name matches wrong document | e.g., "IR" matches both "Incident Response" and "IR Plan" | Use full document names in the Excel. The matching uses substring containment — short names are ambiguous. |
 
 ---
 

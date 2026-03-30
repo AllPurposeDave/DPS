@@ -261,43 +261,81 @@ def write_excel(all_doc_results, global_acronyms, files, cfg):
             cell.border = border
 
     # =============================================
-    # SHEET 1: GLOBAL SUMMARY (all acronyms across all docs)
+    # SHEET 1: ACRONYM DEFINITIONS (primary — consumers read this)
+    # One row per document-acronym pair. Users curate here.
+    # Status column lets reviewers mark rows without deleting them.
+    # Only rows with Status=Confirmed (or blank) are consumed downstream.
     # =============================================
     ws1 = wb.active
-    ws1.title = "Global Summary"
-    headers1 = ["Acronym", "Total Occurrences", "Found In # Docs", "Documents", "Found In", "Definition(s) Detected"]
+    ws1.title = "Acronym Definitions"
+    headers1 = ["Document", "Acronym", "Definition", "Status", "Notes"]
     for col, h in enumerate(headers1, 1):
         ws1.cell(row=1, column=col, value=h)
     style_header(ws1, 1, len(headers1))
 
-    sorted_global = sorted(global_acronyms.items(), key=lambda x: x[1]['total_count'], reverse=True)
-    for i, (acr, data) in enumerate(sorted_global, 2):
-        ws1.cell(row=i, column=1, value=acr)
-        ws1.cell(row=i, column=2, value=data['total_count'])
-        ws1.cell(row=i, column=3, value=data['doc_count'])
-        ws1.cell(row=i, column=4, value=', '.join(sorted(data['docs'])))
-        ws1.cell(row=i, column=5, value=', '.join(sorted(data['locations'])))
-        defs = '; '.join(sorted(data['definitions'])) if data['definitions'] else ''
-        ws1.cell(row=i, column=6, value=defs)
-        style_data(ws1, i, len(headers1))
-        ws1.cell(row=i, column=4).alignment = wrap
-        ws1.cell(row=i, column=6).alignment = wrap
-        if not data['definitions']:
-            ws1.cell(row=i, column=6).fill = warn_fill
-        if data['total_count'] >= 20:
-            ws1.cell(row=i, column=2).fill = count_high_fill
+    # Instruction row (light gray background, italic) — explains how to use this sheet
+    instruct_fill = PatternFill('solid', fgColor='F2F2F2')
+    instruct_font = Font(name='Arial', size=9, italic=True, color='666666')
+    instructions = [
+        "(source file)",
+        "(acronym found)",
+        "Yellow = no definition detected. Fill in manually.",
+        "Set to Confirmed, False Positive, or Needs Review",
+        "(optional reviewer notes)",
+    ]
+    for col, txt in enumerate(instructions, 1):
+        cell = ws1.cell(row=2, column=col, value=txt)
+        cell.font = instruct_font
+        cell.fill = instruct_fill
+        cell.alignment = wrap
+        cell.border = border
 
-    ws1.column_dimensions['A'].width = 16
-    ws1.column_dimensions['B'].width = 18
-    ws1.column_dimensions['C'].width = 16
-    ws1.column_dimensions['D'].width = 50
-    ws1.column_dimensions['E'].width = 22
-    ws1.column_dimensions['F'].width = 50
-    ws1.auto_filter.ref = f"A1:F{len(sorted_global) + 1}"
+    # Data validation dropdown for Status column (column D)
+    from openpyxl.worksheet.datavalidation import DataValidation
+    status_dv = DataValidation(
+        type="list",
+        formula1='"Confirmed,False Positive,Needs Review"',
+        allow_blank=True,
+        showErrorMessage=True,
+        errorTitle="Invalid Status",
+        error="Use: Confirmed, False Positive, or Needs Review",
+    )
+    status_dv.prompt = "Mark this acronym as Confirmed, False Positive, or Needs Review"
+    status_dv.promptTitle = "Review Status"
+
+    row = 3  # Data starts after header + instruction row
+    for fname in sorted(all_doc_results.keys()):
+        doc_acrs = all_doc_results[fname]
+        for acr, data in sorted(doc_acrs.items(), key=lambda x: x[1]['count'], reverse=True):
+            if acr == '_ERROR':
+                continue
+            ws1.cell(row=row, column=1, value=fname)
+            ws1.cell(row=row, column=2, value=acr)
+            defs = '; '.join(sorted(data['definitions'])) if data['definitions'] else ''
+            ws1.cell(row=row, column=3, value=defs)
+            ws1.cell(row=row, column=4, value='')  # Status — blank = unreviewed
+            ws1.cell(row=row, column=5, value='')
+            style_data(ws1, row, len(headers1))
+            ws1.cell(row=row, column=3).alignment = wrap
+            if not data['definitions']:
+                ws1.cell(row=row, column=3).fill = warn_fill
+            row += 1
+
+    # Apply status dropdown to all data rows
+    if row > 3:
+        status_dv.sqref = f"D3:D{row - 1}"
+        ws1.add_data_validation(status_dv)
+
+    ws1.column_dimensions['A'].width = 40
+    ws1.column_dimensions['B'].width = 16
+    ws1.column_dimensions['C'].width = 50
+    ws1.column_dimensions['D'].width = 18
+    ws1.column_dimensions['E'].width = 30
+    ws1.auto_filter.ref = f"A1:E{row - 1}"
     ws1.freeze_panes = 'A2'
 
     # =============================================
-    # SHEET 2: PER-DOC BREAKDOWN
+    # SHEET 2: PER-DOC BREAKDOWN (occurrence details for reference)
     # =============================================
     ws2 = wb.create_sheet("Per Document")
     headers2 = ["Document", "Acronym", "Occurrences", "Found In", "Definition(s) Detected"]
@@ -337,7 +375,42 @@ def write_excel(all_doc_results, global_acronyms, files, cfg):
     ws2.freeze_panes = 'A2'
 
     # =============================================
-    # SHEET 3: UNDEFINED ACRONYMS (no parenthetical definition found)
+    # SHEET 3: GLOBAL SUMMARY (all acronyms across all docs)
+    # =============================================
+    ws3g = wb.create_sheet("Global Summary")
+    headers3g = ["Acronym", "Total Occurrences", "Found In # Docs", "Documents", "Found In", "Definition(s) Detected"]
+    for col, h in enumerate(headers3g, 1):
+        ws3g.cell(row=1, column=col, value=h)
+    style_header(ws3g, 1, len(headers3g))
+
+    sorted_global = sorted(global_acronyms.items(), key=lambda x: x[1]['total_count'], reverse=True)
+    for i, (acr, data) in enumerate(sorted_global, 2):
+        ws3g.cell(row=i, column=1, value=acr)
+        ws3g.cell(row=i, column=2, value=data['total_count'])
+        ws3g.cell(row=i, column=3, value=data['doc_count'])
+        ws3g.cell(row=i, column=4, value=', '.join(sorted(data['docs'])))
+        ws3g.cell(row=i, column=5, value=', '.join(sorted(data['locations'])))
+        defs = '; '.join(sorted(data['definitions'])) if data['definitions'] else ''
+        ws3g.cell(row=i, column=6, value=defs)
+        style_data(ws3g, i, len(headers3g))
+        ws3g.cell(row=i, column=4).alignment = wrap
+        ws3g.cell(row=i, column=6).alignment = wrap
+        if not data['definitions']:
+            ws3g.cell(row=i, column=6).fill = warn_fill
+        if data['total_count'] >= 20:
+            ws3g.cell(row=i, column=2).fill = count_high_fill
+
+    ws3g.column_dimensions['A'].width = 16
+    ws3g.column_dimensions['B'].width = 18
+    ws3g.column_dimensions['C'].width = 16
+    ws3g.column_dimensions['D'].width = 50
+    ws3g.column_dimensions['E'].width = 22
+    ws3g.column_dimensions['F'].width = 50
+    ws3g.auto_filter.ref = f"A1:F{len(sorted_global) + 1}"
+    ws3g.freeze_panes = 'A2'
+
+    # =============================================
+    # SHEET 4: UNDEFINED ACRONYMS (no parenthetical definition found)
     # =============================================
     ws3 = wb.create_sheet("Undefined Acronyms")
     headers3 = ["Acronym", "Total Occurrences", "# Docs", "Documents"]
@@ -362,7 +435,7 @@ def write_excel(all_doc_results, global_acronyms, files, cfg):
     ws3.freeze_panes = 'A2'
 
     # =============================================
-    # SHEET 4: ACRONYM CROSS-REFERENCE MATRIX
+    # SHEET 5: ACRONYM CROSS-REFERENCE MATRIX
     # =============================================
     ws4 = wb.create_sheet("Cross-Reference Matrix")
     all_acrs = sorted(global_acronyms.keys())
@@ -392,7 +465,42 @@ def write_excel(all_doc_results, global_acronyms, files, cfg):
     ws4.freeze_panes = 'B2'
 
     # =============================================
-    # SHEET 5: CONFIG SNAPSHOT
+    # SHEET 6: CUSTOM TAGS (empty template for user to fill in)
+    # Instruction row explains format; document names pre-populated.
+    # =============================================
+    ws_ct = wb.create_sheet("Custom Tags")
+    ct_headers = ["Document_Name", "Tags"]
+    for col, h in enumerate(ct_headers, 1):
+        ws_ct.cell(row=1, column=col, value=h)
+    style_header(ws_ct, 1, len(ct_headers))
+
+    # Instruction row — tells the user exactly what format to use
+    instruct_fill = PatternFill('solid', fgColor='F2F2F2')
+    instruct_font = Font(name='Arial', size=9, italic=True, color='666666')
+    ct_instructions = [
+        "(do not edit — document names from scan)",
+        "Enter comma-separated tags, e.g.: access control, authentication, CUI, FedRAMP-High",
+    ]
+    for col, txt in enumerate(ct_instructions, 1):
+        cell = ws_ct.cell(row=2, column=col, value=txt)
+        cell.font = instruct_font
+        cell.fill = instruct_fill
+        cell.alignment = wrap
+        cell.border = border
+
+    # Pre-populate document names from scanned files (data starts at row 3)
+    for i, fname in enumerate(sorted(all_doc_results.keys()), 3):
+        ws_ct.cell(row=i, column=1, value=fname).font = data_font
+        ws_ct.cell(row=i, column=2, value="").font = data_font
+        style_data(ws_ct, i, len(ct_headers))
+    ct_last = max(len(all_doc_results) + 2, 3)
+    ws_ct.auto_filter.ref = f"A1:B{ct_last}"
+    ws_ct.freeze_panes = 'A2'
+    ws_ct.column_dimensions['A'].width = 40
+    ws_ct.column_dimensions['B'].width = 60
+
+    # =============================================
+    # SHEET 7: CONFIG SNAPSHOT
     # =============================================
     ws5 = wb.create_sheet("Config Used")
     ws5.cell(row=1, column=1, value="Setting")

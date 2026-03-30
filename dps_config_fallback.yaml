@@ -66,7 +66,7 @@ input:
     - "~$"           # Word temp/lock files (created when a doc is open)
     - "_optimized"   # Already-processed files from a previous run
     - "_backup"      # Backup copies
-    - "_fixed"       # Output from Step 3 (heading fixer) — don't re-process
+    - "_fixed"       # Output from Step 4 (heading fixer) — don't re-process
     - "template"     # Template files, not actual policies
 
 
@@ -195,7 +195,7 @@ sections:
 
 
 # ============================================================================
-# SECTION 4: HEADING DETECTION (used by Step 0 + Step 3)
+# SECTION 4: HEADING DETECTION (used by Step 0 + Step 4)
 # ============================================================================
 
 headings:
@@ -224,7 +224,7 @@ headings:
     - "AppendixHeading"
 
   # Maps your org's custom styles → standard Heading 1/2/3 (case-insensitive keys).
-  # The heading fixer (Step 3) uses this to convert styles the splitter can recognize.
+  # The heading fixer (Step 4) uses this to convert styles the splitter can recognize.
   custom_style_map:
     "policy heading 1": "Heading 1"
     "policy heading 2": "Heading 2"
@@ -246,7 +246,7 @@ headings:
   # ~~~ Fake heading detection — LEAVE AS-IS unless tuning ~~~~~~~~~~~~~~~~~~
   #
   # A "fake heading" is bold text with no Word Heading style applied.
-  # The profiler flags these; the heading fixer (Step 3) converts them.
+  # The profiler flags these; the heading fixer (Step 4) converts them.
 
   # Min font size (pt) for bold text to be considered a fake heading.
   # Too few detected? Lower to 11. Too many false positives? Raise to 13-14.
@@ -273,10 +273,10 @@ headings:
 
 
 # ============================================================================
-# SECTION 4B: TEXT DELETION (used by Step 3 — Heading Style Fixer)
+# SECTION 4B: TEXT DELETION (used by Step 4 — Heading Style Fixer)
 # ============================================================================
 # Remove specific phrases, words, or sentences from documents during
-# heading style fixing (Step 3). Deletions cascade to Steps 4 and 5.
+# heading style fixing (Step 4). Deletions cascade to Steps 5 and 6.
 #
 # IMPORTANT: Matching is case-sensitive by default. Set case_sensitive: false
 # for case-insensitive matching.
@@ -297,9 +297,19 @@ text_deletions:
     # - "[INSERT DATE]"
     # - "TBD"
 
+  # Section-level deletions — remove an entire section (heading + all content
+  # until the next heading of same or higher level). Match is case-insensitive
+  # substring on the heading text. Originals are never modified.
+  # Example:
+  #   section_deletions:
+  #     - heading: "Appendix A"
+  #       delete: true
+  #       description: "Remove Appendix A and all content below it"
+  section_deletions: []
+
 
 # ============================================================================
-# SECTION 5: CROSS-REFERENCE DETECTION (used by Step 0 + Step 2) [LEAVE AS-IS]
+# SECTION 5: CROSS-REFERENCE DETECTION (used by Step 0 + Step 3) [LEAVE AS-IS]
 # ============================================================================
 
 cross_references:
@@ -530,7 +540,7 @@ thresholds:
   #   window. One 36k chunk is retrieved as a unit — if only 2k is relevant,
   #   you're burning 34k tokens of context budget on noise every query.
   #
-  # HOW STEP 4 SPLITS (greedy accumulation):
+  # HOW STEP 5 SPLITS (greedy accumulation):
   #   H2 sub-sections are grouped together until adding the next one would
   #   push the chunk over this limit. The split then happens at THAT H2
   #   heading boundary — never mid-section. Each sub-document is as large
@@ -714,7 +724,7 @@ control_extraction:
 
 
 # ============================================================================
-# SECTION 11: PIPELINE STEPS (used by run_pipeline.py)
+# SECTION 11b: PIPELINE STEPS (used by run_pipeline.py)
 # ============================================================================
 # Set enabled: false to skip a step. You can still run it with --step N.
 
@@ -818,7 +828,12 @@ metadata:
     - key: "tags"
       label: "Tags"
       enabled: true
-      source: "auto"            # generated from doc type, sections, acronyms
+      source: "auto"            # unique acronyms + doc type + sections + static
+
+    - key: "acronyms"
+      label: "Acronyms"
+      enabled: true
+      source: "auto"            # term = definition glossary for RAG comprehension
 
     # --- Custom field examples (uncomment and edit) ---
     #
@@ -860,22 +875,35 @@ metadata:
   max_intent_chars: 300
 
   # Tag generation — multiple sources combined into a comma-separated list.
+  #   Tags = doc type + sections found + unique acronyms + static tags.
+  #   "Unique" means the acronym appears in ≤ max_tag_doc_count documents.
+  #   Acronyms appearing in many documents don't help retrieval — those
+  #   go into the separate "Acronyms" field as term = definition pairs.
   tags:
     include_doc_type: true          # Add "Type-B" etc. from profiler
     include_sections_found: true    # Add "has-scope", "has-controls" etc.
 
     # Path to verified Acronym Definitions Excel (preferred).
-    # Same file used by Steps 7/8. Reads "Per Document" sheet.
+    # Same file used by Steps 7/8. Reads "Acronym Definitions" or "Per Document" sheet.
     # Leave "" to fall back to acronym_audit_file below.
     acronym_definitions_file: "./input/Acronym_Definitions.xlsx"
 
     # Path to raw Acronym Finder output Excel (fallback if no definitions file).
     # Leave "" to skip acronym tags entirely.
     acronym_audit_file: ""
-    max_acronym_tags: 15        # Most-frequent first. 0 = unlimited.
+    max_acronym_tags: 15        # Max unique-acronym tags per doc. 0 = unlimited.
+    max_tag_doc_count: 3        # Uniqueness threshold: acronyms in ≤ N docs become tags.
+    max_acronym_definitions: 0  # Max acronym=definition pairs. 0 = unlimited.
 
     # Static tags added to ALL documents (e.g., ["InfoSec", "GCC-High"])
     static_tags: []
+
+    # Per-document custom tags: add a "Custom Tags" sheet to your
+    # Acronym_Definitions.xlsx (or acronym_audit.xlsx) with columns:
+    #   Document_Name | Tags  (comma-separated)
+    # The sheet is read automatically — no extra config needed.
+    # Tags are merged with auto-generated tags (doc type, sections, acronyms)
+    # and static tags. Duplicates are removed.
 
 
 # ============================================================================
@@ -916,6 +944,10 @@ docx2md:
   # Shift heading levels so the document starts at H1
   heading_normalization: true
 
+  # Max heading depth in output. Headings deeper than this level are collapsed.
+  # 2 = only H1/H2 in output (H3+ becomes H2). 6 = no collapsing.
+  max_heading_level: 2
+
   # --- Text cleanup ---
   max_consecutive_blank_lines: 2     # collapse runs of blank lines
   clean_smart_quotes: true           # convert smart quotes to standard ASCII
@@ -942,6 +974,15 @@ docx2md:
   include_metadata_frontmatter: true
   include_doc_url: true
 
+  # Where to place metadata in the .md output:
+  #   "top"            — YAML frontmatter only (default)
+  #   "top_and_bottom" — also append a readable metadata block at end
+  metadata_placement: "top"
+
+  # Promote paragraphs containing control IDs to H2 headings in markdown.
+  # Uses control_extraction.control_id_patterns for detection.
+  promote_control_ids_to_heading: true
+
   metadata_fields:
     - name: "title"
       source: "core:title"
@@ -959,12 +1000,12 @@ docx2md:
     - name: "PublishedURL"
       source: "doc_url"
       default: ""
-    # Acronyms found in this document, pulled from the confirmed acronym definitions.
+    # Acronym definitions for this document, pulled from confirmed acronym definitions.
     # Run Step 1 (Acronym Finder) first, review results, then curate
     # input/Acronym_Definitions.xlsx with confirmed acronyms only.
-    # Matches Document column against current filename — only that doc's acronyms are included.
-    - name: "acronyms"
-      source: "excel_lookup_list:./input/Acronym_Definitions.xlsx:Per Document:Document:Acronym"
+    # Returns "ACRONYM = Definition" formatted strings for RAG comprehension.
+    - name: "Acronyms"
+      source: "excel_lookup_dict:./input/Acronym_Definitions.xlsx:Acronym Definitions:Document:Acronym:Definition"
       default: ""
     # --- Add your own fields below this line ---
     # - name: "organization"
@@ -1002,9 +1043,10 @@ docx2jsonl:
 
   # --- Acronym definitions ---
   # Path to confirmed acronym definitions Excel (same file used by docx2md).
-  # Reads "Per Document" sheet, matches Document column against current filename.
-  # Only that document's acronyms are embedded in JSONL chunks.
-  # Leave "" to skip acronym tagging.
+  # Reads "Acronym Definitions" sheet, matches Document column against current filename.
+  # Embeds as key-value object: {"AC": "Access Control", ...} in JSONL chunks.
+  # Only acronyms with non-empty definitions are included.
+  # Leave "" to skip acronym definitions.
   acronym_definitions_file: "./input/Acronym_Definitions.xlsx"
 
   # --- Tag mapping ---
