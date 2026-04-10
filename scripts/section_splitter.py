@@ -363,6 +363,7 @@ def main():
 
     config = load_config(args.config)
     thresholds = config.get("thresholds", {})
+    split_by_heading = thresholds.get("split_by_heading", True)
     max_chars = thresholds.get("max_characters", 36_000)
     chars_per_page = thresholds.get("chars_per_page", 1800)
 
@@ -395,18 +396,47 @@ def main():
     files_processed = 0
     files_failed = 0
 
-    for filepath in docx_files:
-        filename = os.path.basename(filepath)
-        try:
-            records = process_document(filepath, output_dir, max_chars, chars_per_page)
-            all_records.extend(records)
-            files_processed += 1
-            print(f"  Processing {filename}... {len(records)} sub-document(s) created")
-        except Exception as e:
-            files_failed += 1
-            print(f"  ERROR processing {filename}: {e}")
-            traceback.print_exc()
-            log_pipeline_issue(os.path.dirname(output_dir), "Step 4 - Section Splitter", filename, "ERROR", str(e))
+    # --- Pass-through mode: copy files unsplit when split_by_heading is false ---
+    if not split_by_heading:
+        for filepath in docx_files:
+            filename = os.path.basename(filepath)
+            try:
+                out_name = filename
+                out_path = os.path.join(output_dir, out_name)
+                shutil.copy2(filepath, out_path)
+                doc = Document(filepath)
+                char_count = sum(len(p.text) for p in doc.paragraphs)
+                for table in doc.tables:
+                    for row in table.rows:
+                        for cell in row.cells:
+                            char_count += len(cell.text)
+                all_records.append({
+                    "original_doc": filename,
+                    "sub_doc_filename": out_name,
+                    "heading_text": "(Full Document - splitting disabled)",
+                    "character_count": char_count,
+                    "page_estimate": round(char_count / chars_per_page, 1),
+                })
+                files_processed += 1
+                print(f"  Copying {filename}... (splitting disabled)")
+            except Exception as e:
+                files_failed += 1
+                print(f"  ERROR copying {filename}: {e}")
+                traceback.print_exc()
+                log_pipeline_issue(os.path.dirname(output_dir), "Step 4 - Section Splitter", filename, "ERROR", str(e))
+    else:
+        for filepath in docx_files:
+            filename = os.path.basename(filepath)
+            try:
+                records = process_document(filepath, output_dir, max_chars, chars_per_page)
+                all_records.extend(records)
+                files_processed += 1
+                print(f"  Processing {filename}... {len(records)} sub-document(s) created")
+            except Exception as e:
+                files_failed += 1
+                print(f"  ERROR processing {filename}: {e}")
+                traceback.print_exc()
+                log_pipeline_issue(os.path.dirname(output_dir), "Step 4 - Section Splitter", filename, "ERROR", str(e))
 
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -416,15 +446,18 @@ def main():
     print("\n" + "=" * 60)
     print("STEP 4 — SECTION SPLITTER SUMMARY")
     print("=" * 60)
+    if not split_by_heading:
+        print("Mode:                   PASS-THROUGH (split_by_heading = false)")
     print(f"Files processed:        {files_processed}")
     print(f"Files failed:           {files_failed}")
     print(f"Total sub-docs created: {len(all_records)}")
 
-    over_limit = [r for r in all_records if r["character_count"] > max_chars]
-    if over_limit:
-        print(f"\nWARNING: {len(over_limit)} sub-document(s) still exceed {max_chars:,} characters:")
-        for r in over_limit:
-            print(f"  {r['sub_doc_filename']}: {r['character_count']:,} chars")
+    if split_by_heading:
+        over_limit = [r for r in all_records if r["character_count"] > max_chars]
+        if over_limit:
+            print(f"\nWARNING: {len(over_limit)} sub-document(s) still exceed {max_chars:,} characters:")
+            for r in over_limit:
+                print(f"  {r['sub_doc_filename']}: {r['character_count']:,} chars")
 
     print(f"\nSub-documents written to: {output_dir}")
     print(f"Manifest written to: {csv_path}")

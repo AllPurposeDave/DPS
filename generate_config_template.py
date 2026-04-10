@@ -270,21 +270,21 @@ def _build_readme(wb):
         ("Input",              "run_pipeline.py",              "Input folder, file pattern, and exclude patterns."),
         ("Output",             "run_pipeline.py",              "Output folder structure and filenames for each step."),
         ("Pipeline",           "run_pipeline.py",              "Enable or disable individual pipeline steps."),
-        ("Thresholds",         "section_splitter.py",          "Chunk-size limits and page-estimation parameters."),
-        ("Sections",           "policy_profiler.py",           "Keywords used to classify Purpose, Scope, and Controls sections."),
-        ("Headings",           "heading_style_fixer.py",       "Heading styles, custom style maps, and fake-heading detection rules."),
-        ("Text Deletions",     "heading_style_fixer.py",       "Phrases or entire sections to strip during processing."),
-        ("Cross References",   "cross_reference_extractor.py", "Cross-reference detection patterns."),
-        ("Tables",             "policy_profiler.py",           "Table-classification keywords."),
-        ("Classification",     "policy_profiler.py",           "Type A / B / C / D classification thresholds."),
-        ("Profiling Flags",    "policy_profiler.py",           "Flags for control-dense and heading-variance documents."),
-        ("Priority Scoring",   "policy_profiler.py",           "Weights for the priority-ranking algorithm."),
-        ("Search Terms",       "policy_profiler.py",           "Custom terms to surface in profiler output."),
-        ("Control Extraction", "extract_controls.py",          "Control-ID patterns, whitelist, and blacklist."),
-        ("Metadata",           "add_metadata.py",              "Metadata fields, URL lookup table, and tag-generation rules."),
-        ("Docx2md",            "docx2md.py",                   "Markdown conversion settings and front-matter field mapping."),
-        ("Docx2jsonl",         "docx2jsonl.py",                "JSONL chunking parameters."),
-        ("Acronym Finder",     "acronym_finder.py",            "Acronym detection patterns and ignore list."),
+        ("0-Classification",   "policy_profiler.py",           "Type A / B / C / D classification thresholds."),
+        ("0-Profiling Flags",  "policy_profiler.py",           "Flags for control-dense and heading-variance documents."),
+        ("0-Tables",           "policy_profiler.py",           "Table-classification keywords."),
+        ("0-Priority Scoring", "policy_profiler.py",           "Weights for the priority-ranking algorithm."),
+        ("0-Search Terms",     "policy_profiler.py",           "Custom terms to surface in profiler output."),
+        ("1-Acronym Finder",   "acronym_finder.py",            "Acronym detection patterns and ignore list."),
+        ("2-Control Extraction","extract_controls.py",         "Control-ID patterns, whitelist, and blacklist."),
+        ("3-Cross References", "cross_reference_extractor.py", "Cross-reference detection patterns."),
+        ("4-Headings",         "heading_style_fixer.py",       "Heading styles, custom style maps, and fake-heading detection rules."),
+        ("4-Text Deletions",   "heading_style_fixer.py",       "Phrases or entire sections to strip during processing."),
+        ("5-Sections",         "section_splitter.py",          "Keywords used to classify Purpose, Scope, and Controls sections."),
+        ("5-Thresholds",       "section_splitter.py",          "Chunk-size limits and page-estimation parameters. max_characters also read by Step 0 profiler."),
+        ("6-Metadata",         "add_metadata.py",              "Metadata fields, URL lookup table, and tag-generation rules."),
+        ("7-Docx2md",          "docx2md.py",                   "Markdown conversion settings and front-matter field mapping."),
+        ("8-Docx2jsonl",       "docx2jsonl.py",                "JSONL chunking parameters."),
     ]
     for name, script, purpose in sheets:
         body_row(name, script, purpose)
@@ -445,11 +445,47 @@ def _build_output_sheet(wb, cfg: dict):
 
 
 def _build_sections_sheet(wb, cfg: dict):
-    ws = wb.create_sheet("Sections")
+    ws = wb.create_sheet("5-Sections")
     sections = cfg.get("sections", {})
 
     _style_headers(ws, ["Category", "Keyword", "Description"])
 
+    # ── Guidance block ───────────────────────────────────────────────────
+    guidance = [
+        ("What this sheet does",
+         "Maps keyword phrases to standard section categories (Purpose, Scope, Intent, Controls, Appendix). "
+         "The Step 0 profiler (policy_profiler.py) reads these keywords and compares them against every "
+         "Heading 1 in each document to classify sections."),
+        ("How matching works",
+         "Matching is case-insensitive substring matching. A keyword matches if the keyword text appears "
+         "inside the heading text, or the heading text appears inside the keyword. "
+         "For example, keyword 'scope' matches headings '2.0 Scope', 'Scope and Applicability', etc."),
+        ("What the results affect",
+         "Matched sections drive: has_purpose / has_scope / has_intent / has_controls / has_appendix flags; "
+         "the missing_sections list (sections not found raise the priority score); and the A/B/C/D document "
+         "type classification (e.g. Type D = appendix-dominant)."),
+        ("Adding a keyword",
+         "Insert a new row under the appropriate category sub-header. Set Column A to the category name "
+         "(e.g. 'scope') and Column B to the keyword phrase. The keyword is matched as-is — no wildcards or regex."),
+        ("Removing a keyword",
+         "Delete the entire row. Removing a keyword means headings that only matched that keyword will "
+         "no longer be classified under its category and may appear as 'none' in profiler output."),
+        ("Adding a new category",
+         "Categories are fixed to the five shown (purpose, scope, intent, controls, appendix). "
+         "Custom categories are not supported — the profiler only looks for these five."),
+        ("Tip",
+         "Run Step 0 alone (python run_pipeline.py --step 0) after editing this sheet to verify "
+         "that your documents' headings are classified as expected. Check the section_inventory.csv "
+         "output for the 'standard_section' column."),
+    ]
+    for label, text in guidance:
+        ws.append([f"## {label}", text, ""])
+        r = ws.max_row
+        ws.cell(row=r, column=1).font = Font(name="Arial", bold=True, size=9, color="2F5496")
+        ws.cell(row=r, column=2).font = DESC_FONT
+    ws.append(["", "", ""])  # blank separator row
+
+    # ── Keyword data ─────────────────────────────────────────────────────
     defaults = {
         "purpose": ["purpose", "policy purpose", "1.0 purpose", "document purpose"],
         "scope": ["scope", "policy scope", "2.0 scope", "applicability", "applicability and scope"],
@@ -460,21 +496,24 @@ def _build_sections_sheet(wb, cfg: dict):
                       "reference", "references", "glossary", "definitions"],
     }
 
-    desc = "Keywords the profiler matches against H1 headings to classify each section"
+    first_category = True
     for category in ["purpose", "scope", "intent", "controls", "appendix"]:
         keywords = sections.get(category, defaults.get(category, []))
         _add_subheader(ws, category.title())
-        for kw in keywords:
-            ws.append([category, kw, desc if kw == keywords[0] else ""])
-            if kw == keywords[0]:
+        for i, kw in enumerate(keywords):
+            desc = ""
+            if first_category and i == 0:
+                desc = "Keywords the profiler matches against H1 headings to classify each section"
+                first_category = False
+            ws.append([category, kw, desc])
+            if desc:
                 ws.cell(row=ws.max_row, column=3).font = DESC_FONT
-        desc = ""
 
     _finalize_sheet(ws)
 
 
 def _build_headings_sheet(wb, cfg: dict):
-    ws = wb.create_sheet("Headings")
+    ws = wb.create_sheet("4-Headings")
     hdg = cfg.get("headings", {})
 
     _style_headers(ws, ["Setting", "Value", "Description"])
@@ -531,7 +570,7 @@ def _build_headings_sheet(wb, cfg: dict):
 
 
 def _build_text_deletions_sheet(wb, cfg: dict):
-    ws = wb.create_sheet("Text Deletions")
+    ws = wb.create_sheet("4-Text Deletions")
     td = cfg.get("text_deletions", {})
 
     _style_headers(ws, ["Setting", "Value", "Description"])
@@ -598,7 +637,7 @@ def _build_text_deletions_sheet(wb, cfg: dict):
 
 
 def _build_cross_references_sheet(wb, cfg: dict):
-    ws = wb.create_sheet("Cross References")
+    ws = wb.create_sheet("3-Cross References")
     xr = cfg.get("cross_references", {})
 
     _style_headers(ws, ["Setting", "Value", "Description"])
@@ -659,7 +698,7 @@ def _build_cross_references_sheet(wb, cfg: dict):
 
 
 def _build_tables_sheet(wb, cfg: dict):
-    ws = wb.create_sheet("Tables")
+    ws = wb.create_sheet("0-Tables")
     tbl = cfg.get("tables", {}).get("classification", {})
 
     _style_headers(ws, ["Table Type", "Keyword", "Min Columns"])
@@ -688,7 +727,7 @@ def _build_tables_sheet(wb, cfg: dict):
 
 
 def _build_classification_sheet(wb, cfg: dict):
-    ws = wb.create_sheet("Classification")
+    ws = wb.create_sheet("0-Classification")
     cls = cfg.get("classification", {})
 
     _style_headers(ws, ["Setting", "Value", "Description"])
@@ -721,7 +760,7 @@ def _build_classification_sheet(wb, cfg: dict):
 
 
 def _build_profiling_flags_sheet(wb, cfg: dict):
-    ws = wb.create_sheet("Profiling Flags")
+    ws = wb.create_sheet("0-Profiling Flags")
     pf = cfg.get("profiling_flags", {})
 
     _style_headers(ws, ["Setting", "Value", "Description"])
@@ -747,10 +786,14 @@ def _build_profiling_flags_sheet(wb, cfg: dict):
 
 
 def _build_thresholds_sheet(wb, cfg: dict):
-    ws = wb.create_sheet("Thresholds")
+    ws = wb.create_sheet("5-Thresholds")
     th = cfg.get("thresholds", {})
 
     _style_headers(ws, ["Setting", "Value", "Description"])
+
+    _add_subheader(ws, "Section Splitting")
+    _add_setting(ws, "split_by_heading", th.get("split_by_heading", True),
+                 "Split documents into sub-docs at Heading 1 boundaries. FALSE = pass files through unsplit [default: TRUE]")
 
     _add_subheader(ws, "RAG Chunk Size")
     _add_setting(ws, "max_characters", th.get("max_characters", 36000),
@@ -770,11 +813,17 @@ def _build_thresholds_sheet(wb, cfg: dict):
     _add_setting(ws, "high_table_count", th.get("high_table_count", 10),
                  "Flag docs with more tables than this [default: 10]")
 
+    # Bool validation for split_by_heading
+    for r in range(2, ws.max_row + 1):
+        if ws.cell(row=r, column=1).value == "split_by_heading":
+            _add_bool_validation(ws, "B", r, r)
+            break
+
     _finalize_sheet(ws)
 
 
 def _build_priority_scoring_sheet(wb, cfg: dict):
-    ws = wb.create_sheet("Priority Scoring")
+    ws = wb.create_sheet("0-Priority Scoring")
     ps = cfg.get("priority_scoring", {})
 
     _style_headers(ws, ["Setting", "Value", "Description"])
@@ -816,7 +865,7 @@ def _build_priority_scoring_sheet(wb, cfg: dict):
 
 
 def _build_search_terms_sheet(wb, cfg: dict):
-    ws = wb.create_sheet("Search Terms")
+    ws = wb.create_sheet("0-Search Terms")
     st = cfg.get("search_terms", {})
 
     _style_headers(ws, ["Setting", "Value", "Description"])
@@ -850,7 +899,7 @@ def _build_search_terms_sheet(wb, cfg: dict):
 
 
 def _build_control_extraction_sheet(wb, cfg: dict):
-    ws = wb.create_sheet("Control Extraction")
+    ws = wb.create_sheet("2-Control Extraction")
     ce = cfg.get("control_extraction", {})
 
     _style_headers(ws, ["Setting", "Value", "Description"])
@@ -1027,14 +1076,14 @@ def _build_pipeline_sheet(wb, cfg: dict):
 
 
 def _build_metadata_sheet(wb, cfg: dict):
-    ws = wb.create_sheet("Metadata")
+    ws = wb.create_sheet("6-Metadata")
     meta = cfg.get("metadata", {})
 
     _style_headers(ws, ["Setting", "Value", "Description", "", ""])
 
     _add_subheader(ws, "General Settings", ncols=5)
     _add_setting(ws, "placement", meta.get("placement", "top"),
-                 '"top", "top_and_bottom", or "each_page" [default: top]')
+                 '"top", "top_and_bottom", "each_page", or "URL_each_pg" [default: top]')
     _add_setting(ws, "add_separator", meta.get("add_separator", True),
                  "Horizontal rule after metadata block [default: TRUE]")
     _add_setting(ws, "font_size", meta.get("font_size", 8),
@@ -1045,7 +1094,7 @@ def _build_metadata_sheet(wb, cfg: dict):
     for r in range(2, ws.max_row + 1):
         val = ws.cell(row=r, column=1).value
         if val == "placement":
-            _add_enum_validation(ws, "B", r, ["top", "top_and_bottom", "each_page"])
+            _add_enum_validation(ws, "B", r, ["top", "top_and_bottom", "each_page", "URL_each_pg"])
         if val == "add_separator":
             _add_bool_validation(ws, "B", r, r)
 
@@ -1122,7 +1171,7 @@ def _build_metadata_sheet(wb, cfg: dict):
 
 
 def _build_docx2md_sheet(wb, cfg: dict):
-    ws = wb.create_sheet("Docx2md")
+    ws = wb.create_sheet("7-Docx2md")
     d2m = cfg.get("docx2md", {})
 
     _style_headers(ws, ["Setting", "Value", "Description"])
@@ -1254,7 +1303,7 @@ def _build_docx2md_sheet(wb, cfg: dict):
 
 
 def _build_docx2jsonl_sheet(wb, cfg: dict):
-    ws = wb.create_sheet("Docx2jsonl")
+    ws = wb.create_sheet("8-Docx2jsonl")
     d2j = cfg.get("docx2jsonl", {})
 
     _style_headers(ws, ["Setting", "Value", "Description"])
@@ -1292,7 +1341,7 @@ def _build_docx2jsonl_sheet(wb, cfg: dict):
 
 
 def _build_acronym_finder_sheet(wb, cfg: dict):
-    ws = wb.create_sheet("Acronym Finder")
+    ws = wb.create_sheet("1-Acronym Finder")
     af = cfg.get("acronym_finder", {})
 
     _style_headers(ws, ["Setting", "Value", "Description"])
@@ -1369,25 +1418,35 @@ def generate_config_workbook(cfg: dict, output_path: str):
     # Remove default sheet
     wb.remove(wb.active)
 
+    # Global sheets
     _build_readme(wb)
     _build_input_sheet(wb, cfg)
     _build_output_sheet(wb, cfg)
-    _build_sections_sheet(wb, cfg)
-    _build_headings_sheet(wb, cfg)
-    _build_text_deletions_sheet(wb, cfg)
-    _build_cross_references_sheet(wb, cfg)
-    _build_tables_sheet(wb, cfg)
+    _build_pipeline_sheet(wb, cfg)
+    # Step 0 — Document Profiler
     _build_classification_sheet(wb, cfg)
     _build_profiling_flags_sheet(wb, cfg)
-    _build_thresholds_sheet(wb, cfg)
+    _build_tables_sheet(wb, cfg)
     _build_priority_scoring_sheet(wb, cfg)
     _build_search_terms_sheet(wb, cfg)
-    _build_control_extraction_sheet(wb, cfg)
-    _build_pipeline_sheet(wb, cfg)
-    _build_metadata_sheet(wb, cfg)
-    _build_docx2md_sheet(wb, cfg)
-    _build_docx2jsonl_sheet(wb, cfg)
+    # Step 1 — Acronym Finder
     _build_acronym_finder_sheet(wb, cfg)
+    # Step 2 — Control Extractor
+    _build_control_extraction_sheet(wb, cfg)
+    # Step 3 — Cross-Reference Extractor
+    _build_cross_references_sheet(wb, cfg)
+    # Step 4 — Heading Style Fixer
+    _build_headings_sheet(wb, cfg)
+    _build_text_deletions_sheet(wb, cfg)
+    # Step 5 — Section Splitter
+    _build_sections_sheet(wb, cfg)
+    _build_thresholds_sheet(wb, cfg)
+    # Step 6 — Metadata Injector
+    _build_metadata_sheet(wb, cfg)
+    # Step 7 — DOCX to Markdown
+    _build_docx2md_sheet(wb, cfg)
+    # Step 8 — DOCX to JSONL
+    _build_docx2jsonl_sheet(wb, cfg)
 
     wb.save(output_path)
     print(f"  Config template saved to: {output_path}")

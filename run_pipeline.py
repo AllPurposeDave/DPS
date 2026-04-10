@@ -113,6 +113,12 @@ def get_step_definitions(config: dict, config_path: str) -> list[dict]:
         subdir = config.get("output", {}).get(step_key, {}).get("directory", "")
         return os.path.join(output_root, subdir)
 
+    # When split_by_heading is false, downstream steps read from heading_fixes
+    # instead of split_documents (the splitter copies files through, but if
+    # Step 5 is disabled entirely the output dir won't exist).
+    split_by_heading = config.get("thresholds", {}).get("split_by_heading", True)
+    meta_input = out("split_documents") if split_by_heading else out("heading_fixes")
+
     steps = [
         {
             "number": 0,
@@ -167,7 +173,7 @@ def get_step_definitions(config: dict, config_path: str) -> list[dict]:
             "name": "Step 6 — Metadata Injector",
             "description": "Add identity metadata (name, URL, scope, intent, tags) to sub-documents",
             "script": os.path.join(scripts_dir, "add_metadata.py"),
-            "args": ["--config", abs_config, out("split_documents"), out("metadata")],
+            "args": ["--config", abs_config, meta_input, out("metadata")],
             "enabled": True,
         },
         {

@@ -534,6 +534,13 @@ thresholds:
 
   # ~~~ Key setting — YOU MAY WANT TO CHANGE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+  # ─── SECTION SPLITTING ───────────────────────────────────────────────────
+  # When true, Step 5 splits documents into sub-documents at Heading 1
+  # boundaries.  When false, Step 5 copies files through unsplit and
+  # downstream steps (metadata, markdown, jsonl) read from heading_fixes
+  # output instead of split_documents.
+  split_by_heading: true
+
   # ─── RAG CHUNK SIZE ───────────────────────────────────────────────────────
   # max_characters controls the maximum size of each split sub-document.
   #
@@ -799,6 +806,7 @@ metadata:
   #   "top"            — top of document (default, best for most RAG scenarios)
   #   "top_and_bottom" — both ends (for longer chunks where top may be truncated)
   #   "each_page"      — Word header on every page (for Word/PDF viewing)
+  #   "URL_each_pg"    — full metadata at top of page 1 + only the URL in Word headers on every page
   placement: "top"
 
   add_separator: true         # Horizontal rule after metadata block

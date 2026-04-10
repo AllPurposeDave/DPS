@@ -1309,6 +1309,22 @@ def process_document(
     if placement == "each_page":
         # Header mode — don't insert body elements
         insert_metadata_header(doc, enabled_fields, resolved_values, config)
+    elif placement == "URL_each_pg":
+        # Hybrid mode: full metadata block at top of body (page 1),
+        # plus ONLY the URL field in Word headers on every page.
+        elements_top = build_metadata_elements(doc, enabled_fields, resolved_values, config)
+        insert_metadata_top(doc, elements_top)
+
+        # Find the URL field and its resolved value
+        url_fields = []
+        url_values = []
+        for field, rv in zip(enabled_fields, resolved_values):
+            if field.get("key") == "url":
+                url_fields.append(field)
+                url_values.append(rv)
+                break
+        if url_fields:
+            insert_metadata_header(doc, url_fields, url_values, config)
     else:
         # Build elements for body insertion
         elements_top = build_metadata_elements(doc, enabled_fields, resolved_values, config)
@@ -1411,7 +1427,16 @@ def main():
     acronym_data = load_acronym_data(config)
 
     # --- Find input files ---
-    files = iter_docx_files(input_dir, config)
+    # When split_by_heading is false, input comes from heading_fixes which
+    # contains *_fixed.docx files.  The global exclude_patterns includes
+    # "_fixed", so we must drop that exclusion or every file gets skipped.
+    split_by_heading = config.get("thresholds", {}).get("split_by_heading", True)
+    if not split_by_heading:
+        global_excludes = config.get("input", {}).get("exclude_patterns", ["~$", "_optimized", "_backup", "_fixed", "template"])
+        exclude_override = [p for p in global_excludes if p.lower() != "_fixed"]
+        files = iter_docx_files(input_dir, config, exclude_override=exclude_override)
+    else:
+        files = iter_docx_files(input_dir, config)
     if not files:
         print(f"\n  No .docx files found in: {input_dir}")
         print("  TIP: Run Steps 3-4 first to generate split sub-documents,")
