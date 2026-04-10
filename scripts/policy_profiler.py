@@ -32,6 +32,7 @@ import time
 import traceback
 from collections import OrderedDict
 from dataclasses import dataclass, field, asdict
+from datetime import datetime, date
 from pathlib import Path
 from typing import Optional
 
@@ -225,13 +226,18 @@ class DocumentProfile:
 
     # Priority scoring
     priority_score: float
-    priority_rank: int  # filled after all docs scored
+    priority_rank: int = 0  # filled after all docs scored
 
     # Key term search results
-    search_term_hits: dict  # {term: count}
+    search_term_hits: dict = field(default_factory=dict)  # {term: count}
+
+    # Date metadata (lifecycle tracking)
+    core_modified_date: Optional[str] = None   # from doc.core_properties.modified (YYYY-MM-DD)
+    compliance_date: Optional[str] = None      # from body text "as of Month DD, YYYY"
+    freshness: str = ""                        # "Overdue" / "Review Soon" / "Current" / ""
 
     # Errors
-    errors: list
+    errors: list = field(default_factory=list)
 
     def to_dict(self):
         """Convert to dict, handling nested dataclass lists."""
@@ -893,6 +899,94 @@ def compute_priority_score(profile: dict, config: dict) -> float:
 
 
 # ============================================================================
+# Date Metadata Extraction (Lifecycle Tracking)
+# ============================================================================
+
+# Thresholds for freshness calculation
+_OVERDUE_DAYS = 365
+_APPROACHING_DAYS = 30
+
+# Matches "as of Month D, YYYY" or "as of Month DD, YYYY" (comma optional)
+_COMPLIANCE_DATE_RE = re.compile(
+    r'(?i)\bas\s+of\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})'
+)
+_COMPLIANCE_HEADER_RE = re.compile(r'(?i)^\s*compliance\s+date\s*$')
+
+
+def extract_date_metadata(doc, paragraphs) -> dict:
+    """Extract modified date (core properties) and compliance date (body text).
+
+    Returns dict with keys: core_modified_date, compliance_date, freshness.
+    """
+    result = {"core_modified_date": None, "compliance_date": None, "freshness": ""}
+
+    # --- Core properties: modified date ---
+    try:
+        modified = getattr(doc.core_properties, 'modified', None)
+        if modified and hasattr(modified, 'strftime'):
+            result["core_modified_date"] = modified.strftime("%Y-%m-%d")
+    except Exception:
+        pass
+
+    # --- Compliance date from body text ---
+    compliance_str = _extract_compliance_date(paragraphs)
+    if compliance_str:
+        parsed = _parse_compliance_date_str(compliance_str)
+        if parsed:
+            result["compliance_date"] = parsed.strftime("%Y-%m-%d")
+            delta_days = (date.today() - parsed).days
+            if delta_days > _OVERDUE_DAYS:
+                result["freshness"] = "Overdue"
+            elif delta_days > _APPROACHING_DAYS:
+                result["freshness"] = "Review Soon"
+            else:
+                result["freshness"] = "Current"
+
+    return result
+
+
+def _extract_compliance_date(paragraphs) -> str:
+    """Scan paragraphs for a 'Compliance Date' heading, then extract the date string.
+
+    Mirrors the logic in extract_controls.py but works with doc.paragraphs objects.
+    """
+    def _try_parse(text):
+        match = _COMPLIANCE_DATE_RE.search(text)
+        if not match:
+            return ""
+        date_str = re.sub(r'\s+', ' ', match.group(1)).strip()
+        date_str = re.sub(r'(\d{1,2})\s+(\d{4})$', r'\1, \2', date_str)
+        return date_str
+
+    # First pass: find the header, then search nearby paragraphs
+    for i, para in enumerate(paragraphs):
+        if _COMPLIANCE_HEADER_RE.match(para.text.strip()):
+            for j in range(i + 1, min(i + 11, len(paragraphs))):
+                date_str = _try_parse(paragraphs[j].text)
+                if date_str:
+                    return date_str
+            break
+
+    # Fallback: scan entire document for "as of" pattern
+    for para in paragraphs:
+        date_str = _try_parse(para.text)
+        if date_str:
+            return date_str
+
+    return ""
+
+
+def _parse_compliance_date_str(date_str: str):
+    """Parse 'Month DD, YYYY' string to a date object. Returns None on failure."""
+    for fmt in ("%B %d, %Y", "%b %d, %Y"):
+        try:
+            return datetime.strptime(date_str, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+# ============================================================================
 # Main Profiler
 # ============================================================================
 
@@ -1132,6 +1226,9 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
     table_text = "\n".join(all_table_texts)
     search_term_hits = search_key_terms(full_text, table_text, config)
 
+    # ----- Date metadata (lifecycle tracking) -----
+    date_meta = extract_date_metadata(doc, paragraphs)
+
     # ----- Cross-references -----
     all_crossrefs = []
     crossref_pattern_counts = {}
@@ -1286,6 +1383,9 @@ def profile_document(filepath: str, config: dict) -> DocumentProfile:
         priority_score=priority,
         priority_rank=0,
         search_term_hits=search_term_hits,
+        core_modified_date=date_meta["core_modified_date"],
+        compliance_date=date_meta["compliance_date"],
+        freshness=date_meta["freshness"],
         errors=errors,
     )
 
@@ -1420,6 +1520,9 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
         ("Level Skips", 7),
         ("Unique Sections", 30),
         ("Table Dense", 8),
+        ("Modified", 12),
+        ("Compliance Date", 14),
+        ("Freshness", 12),
         ("Type Reason", 45),
         ("Errors", 30),
     ]
@@ -1494,6 +1597,9 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
             p.level_skips,
             ", ".join(p.unique_sections)[:60] if p.unique_sections else "",
             bool_to_str(p.table_dense),
+            p.core_modified_date or "",
+            p.compliance_date or "",
+            p.freshness,
             p.doc_type_reason[:80],
             "; ".join(p.errors)[:60] if p.errors else "",
         ]
@@ -1533,6 +1639,15 @@ def write_inventory_xlsx(profiles: list, output_path: str, config: dict):
             ws.cell(row=row_idx, column=col_map["Table Dense"]).fill = warn_fill
         if p.has_password_protection:
             ws.cell(row=row_idx, column=col_map["Password Protected"]).fill = fail_fill
+
+        # Freshness traffic-light (red/yellow/green)
+        if p.freshness == "Overdue":
+            ws.cell(row=row_idx, column=col_map["Freshness"]).fill = fail_fill
+        elif p.freshness == "Review Soon":
+            ws.cell(row=row_idx, column=col_map["Freshness"]).fill = warn_fill
+        elif p.freshness == "Current":
+            ws.cell(row=row_idx, column=col_map["Freshness"]).fill = PatternFill(
+                start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
 
         # Highlight search term hits with green fill
         hit_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")

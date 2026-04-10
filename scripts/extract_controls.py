@@ -86,7 +86,7 @@ def build_patterns(config: dict) -> dict:
     """Build all regex patterns from config, with sensible defaults."""
     ctrl_cfg = config.get("control_extraction", {})
 
-    id_patterns = ctrl_cfg.get("control_id_patterns", [r'\b[A-Z]{2,4}[-.]?\d{1,3}[-.]\d{2,4}\b'])
+    id_patterns = ctrl_cfg.get("control_id_patterns", [r'\b[A-Z]{2,4}[-.\s]?\d{1,3}[-.]\d{2,4}\b'])
 
     # Build combined regex from all patterns
     combined_pattern = "|".join(f"({p})" for p in id_patterns)
@@ -379,7 +379,7 @@ def extract_paragraphs_from_docx(filepath):
             # pattern. The real regex filtering happens later in find_control_blocks
             # and apply_filters. For structured tables we just need to find the ID.
             # Import the compiled regex from the caller via a simple broad match.
-            broad_id_re = re.compile(r'\b[A-Z]{2,4}[-.]?\d{1,3}[-.]?\d{1,4}\b')
+            broad_id_re = re.compile(r'\b[A-Z]{2,4}[-.\s]?\d{1,3}[-.]?\d{1,4}\b')
             structured_table_controls.extend(
                 _extract_structured_table_rows(table, broad_id_re)
             )

@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────
+# Dataverse Export Configuration
+# ─────────────────────────────────────────────────────────────
+# Transforms control catalog Excel files into Dataverse-ready
+# CSV import files optimized for M365 CoPilot Studio RAG.
+# ─────────────────────────────────────────────────────────────
+
+input:
+  # ── Control Catalog (NIST-style IDs: AC-2, CM-6, IR-4) ──
+  catalog_xlsx: ""            # Path to NIST control catalog Excel file
+  catalog_sheet: "Controls"   # Sheet name within the workbook
+
+  # ── Standard Controls (org-style IDs: ABC 01.001, ABCD02.003) ──
+  standard_xlsx: ""           # Path to org-standard controls Excel file
+  standard_sheet: "Controls"  # Sheet name within the workbook
+
+  # ── Column mapping ──
+  # Maps Excel column headers to internal field names.
+  # Both inputs use the same mapping (shared column structure).
+  # If your Excel uses different column names, update these.
+  column_map:
+    "Control ID": "control_id"
+    "Control Name": "control_name"
+    "Description": "description"
+    "Supplemental Guidance": "supplemental_guidance"
+    "Baseline": "baseline"
+    "Purpose": "purpose"
+    "Scope": "scope"
+    "Applicability": "applicability"
+    "Compliance Date": "compliance_date"
+    "Published URL": "published_url"
+    "Family": "family_name"
+
+  header_row: 1       # Row number containing column headers (1-based)
+  data_start_row: 2   # First row of data (1-based)
+
+output:
+  directory: "../../output/dataverse_export/"
+  controls_csv: "dps_controls_import.csv"
+  schema_reference: "dataverse_schema_reference.md"
+
+# ── NIST 800-53 family code -> full name mapping ──
+# Used to auto-populate family_name for catalog controls
+# when the Excel only provides a control ID (e.g. "AC-2").
+family_map:
+  AC: "Access Control"
+  AT: "Awareness and Training"
+  AU: "Audit and Accountability"
+  CA: "Assessment, Authorization, and Monitoring"
+  CM: "Configuration Management"
+  CP: "Contingency Planning"
+  IA: "Identification and Authentication"
+  IR: "Incident Response"
+  MA: "Maintenance"
+  MP: "Media Protection"
+  PE: "Physical and Environmental Protection"
+  PL: "Planning"
+  PM: "Program Management"
+  PS: "Personnel Security"
+  PT: "PII Processing and Transparency"
+  RA: "Risk Assessment"
+  SA: "System and Services Acquisition"
+  SC: "System and Communications Protection"
+  SI: "System and Information Integrity"
+  SR: "Supply Chain Risk Management"
+
+# ── RAG content composite column ──
+# Fields included in the rag_content column, in order.
+# Only non-empty fields are rendered.
+rag_content:
+  fields:
+    - control_id
+    - control_name
+    - family_name
+    - baseline
+    - description
+    - supplemental_guidance
+    - purpose
+    - scope

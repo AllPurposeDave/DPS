@@ -1,0 +1,209 @@
+﻿control_id,control_name,family,family_name,description,supplemental_guidance,baseline,purpose,scope,applicability,compliance_date,published_url,source,rag_content
+AC-1,Policy and Procedures,AC,Access Control,"Develop, document, and disseminate an access control policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination among organizational entities, and compliance.
+Develop procedures to facilitate the implementation of the access control policy and the associated access controls.","Access control policy can be included as part of the general security policy. Access control procedures can be developed for the organization and for each system as needed.
+Review and update policy and procedures at an organization-defined frequency.",,,,,,,Control Catalog,"Control AC-1: Policy and Procedures
+Family: Access Control
+
+Description:
+Develop, document, and disseminate an access control policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination among organizational entities, and compliance.
+Develop procedures to facilitate the implementation of the access control policy and the associated access controls.
+
+Supplemental Guidance:
+Access control policy can be included as part of the general security policy. Access control procedures can be developed for the organization and for each system as needed.
+Review and update policy and procedures at an organization-defined frequency."
+AC-2,Account Management,AC,Access Control,"Define and document the types of accounts allowed and specifically prohibited for use within the system. Assign account managers. Require conditions for group and role membership.
+Authorize access based on a valid authorization, intended system usage, and other organization-defined attributes.","Account management includes the creation, activation, modification, disabling, and removal of accounts. Organizations include explicit authorization and conditions for the use of guest and temporary accounts.
+Conditions for account creation include constraints on group and role membership as well as identifying authorized users of the system.",,,,,,,Control Catalog,"Control AC-2: Account Management
+Family: Access Control
+
+Description:
+Define and document the types of accounts allowed and specifically prohibited for use within the system. Assign account managers. Require conditions for group and role membership.
+Authorize access based on a valid authorization, intended system usage, and other organization-defined attributes.
+
+Supplemental Guidance:
+Account management includes the creation, activation, modification, disabling, and removal of accounts. Organizations include explicit authorization and conditions for the use of guest and temporary accounts.
+Conditions for account creation include constraints on group and role membership as well as identifying authorized users of the system."
+AC-3,Access Enforcement,AC,Access Control,Enforce approved authorizations for logical access to information and system resources in accordance with applicable access control policies.,"Access control policies control access between active entities (users or processes acting on behalf of users) and passive entities (devices, files, records, domains) in organizational systems.
+Access enforcement mechanisms can be employed at the application and service level to provide increased security for the organization.",,,,,,,Control Catalog,"Control AC-3: Access Enforcement
+Family: Access Control
+
+Description:
+Enforce approved authorizations for logical access to information and system resources in accordance with applicable access control policies.
+
+Supplemental Guidance:
+Access control policies control access between active entities (users or processes acting on behalf of users) and passive entities (devices, files, records, domains) in organizational systems.
+Access enforcement mechanisms can be employed at the application and service level to provide increased security for the organization."
+AC-6,Least Privilege,AC,Access Control,"Employ the principle of least privilege, allowing only authorized accesses for users and processes which are necessary to accomplish assigned organizational tasks.","Organizations employ least privilege for specific duties and systems. The principle of least privilege is also applied to system processes, ensuring that the processes have access to systems and operate at privilege levels no higher than necessary to accomplish organizational missions.",,,,,,,Control Catalog,"Control AC-6: Least Privilege
+Family: Access Control
+
+Description:
+Employ the principle of least privilege, allowing only authorized accesses for users and processes which are necessary to accomplish assigned organizational tasks.
+
+Supplemental Guidance:
+Organizations employ least privilege for specific duties and systems. The principle of least privilege is also applied to system processes, ensuring that the processes have access to systems and operate at privilege levels no higher than necessary to accomplish organizational missions."
+AT-1,Policy and Procedures,AT,Awareness and Training,"Develop, document, and disseminate a security and privacy awareness and training policy that addresses purpose, scope, roles, responsibilities, management commitment, and compliance.
+Develop procedures to facilitate the implementation of the awareness and training policy.",Awareness and training policy and procedures address the controls in the AT family implemented within systems and organizations. The risk management strategy guides and informs the development of the policy and procedures.,,,,,,,Control Catalog,"Control AT-1: Policy and Procedures
+Family: Awareness and Training
+
+Description:
+Develop, document, and disseminate a security and privacy awareness and training policy that addresses purpose, scope, roles, responsibilities, management commitment, and compliance.
+Develop procedures to facilitate the implementation of the awareness and training policy.
+
+Supplemental Guidance:
+Awareness and training policy and procedures address the controls in the AT family implemented within systems and organizations. The risk management strategy guides and informs the development of the policy and procedures."
+AT-2,Literacy Training and Awareness,AT,Awareness and Training,"Provide security and privacy literacy training to system users (including managers, senior executives, and contractors) as part of initial training for new users and at an organization-defined frequency thereafter.
+Training includes awareness of security risks associated with user activities and applicable policies, standards, and procedures.","Organizations determine the content and frequency of training based on the specific organizational requirements and the systems to which personnel have authorized access. Training can be role-based and include foundational concepts for new employees, periodic refreshers, and updates when significant changes occur.",,,,,,,Control Catalog,"Control AT-2: Literacy Training and Awareness
+Family: Awareness and Training
+
+Description:
+Provide security and privacy literacy training to system users (including managers, senior executives, and contractors) as part of initial training for new users and at an organization-defined frequency thereafter.
+Training includes awareness of security risks associated with user activities and applicable policies, standards, and procedures.
+
+Supplemental Guidance:
+Organizations determine the content and frequency of training based on the specific organizational requirements and the systems to which personnel have authorized access. Training can be role-based and include foundational concepts for new employees, periodic refreshers, and updates when significant changes occur."
+AU-1,Policy and Procedures,AU,Audit and Accountability,"Develop, document, and disseminate an audit and accountability policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination, and compliance.
+Develop procedures to facilitate the implementation of the audit and accountability policy and the associated audit controls.",Audit and accountability policy and procedures address the controls in the AU family. The risk management strategy is a key factor in establishing policy and procedures.,,,,,,,Control Catalog,"Control AU-1: Policy and Procedures
+Family: Audit and Accountability
+
+Description:
+Develop, document, and disseminate an audit and accountability policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination, and compliance.
+Develop procedures to facilitate the implementation of the audit and accountability policy and the associated audit controls.
+
+Supplemental Guidance:
+Audit and accountability policy and procedures address the controls in the AU family. The risk management strategy is a key factor in establishing policy and procedures."
+AU-2,Event Logging,AU,Audit and Accountability,"Identify the types of events that the system is capable of logging in support of the audit function. Coordinate the event logging function with other entities requiring audit-related information.
+Event types include password changes, failed logons, failed accesses to security objects, administrative privilege usage, and third-party credential usage.","An event is any observable occurrence in a system. The specific events that an organization audits are typically a subset of all possible events. Organizations should consider the auditing of events identified by type, location, or subject.",,,,,,,Control Catalog,"Control AU-2: Event Logging
+Family: Audit and Accountability
+
+Description:
+Identify the types of events that the system is capable of logging in support of the audit function. Coordinate the event logging function with other entities requiring audit-related information.
+Event types include password changes, failed logons, failed accesses to security objects, administrative privilege usage, and third-party credential usage.
+
+Supplemental Guidance:
+An event is any observable occurrence in a system. The specific events that an organization audits are typically a subset of all possible events. Organizations should consider the auditing of events identified by type, location, or subject."
+AU-6,"Audit Record Review, Analysis, and Reporting",AU,Audit and Accountability,"Review and analyze system audit records at an organization-defined frequency for indications of inappropriate or unusual activity. Report findings to designated organizational officials.
+Adjust the level of audit record review, analysis, and reporting when there is a change in risk based on law enforcement information, intelligence information, or other credible sources.","Audit record review, analysis, and reporting covers information security and privacy-related logging performed by organizations. Findings can be reported to organizational elements that have a need to know and can include indicators of compromise or concern.",,,,,,,Control Catalog,"Control AU-6: Audit Record Review, Analysis, and Reporting
+Family: Audit and Accountability
+
+Description:
+Review and analyze system audit records at an organization-defined frequency for indications of inappropriate or unusual activity. Report findings to designated organizational officials.
+Adjust the level of audit record review, analysis, and reporting when there is a change in risk based on law enforcement information, intelligence information, or other credible sources.
+
+Supplemental Guidance:
+Audit record review, analysis, and reporting covers information security and privacy-related logging performed by organizations. Findings can be reported to organizational elements that have a need to know and can include indicators of compromise or concern."
+CA-1,Policy and Procedures,CA,"Assessment, Authorization, and Monitoring","Develop, document, and disseminate an assessment, authorization, and monitoring policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination, and compliance.
+Develop procedures to facilitate the implementation of the policy.","Assessment, authorization, and monitoring policy addresses the controls in the CA family. The policy can be included as part of the general security and privacy policy. Procedures can be developed for the organization and for each system.",,,,,,,Control Catalog,"Control CA-1: Policy and Procedures
+Family: Assessment, Authorization, and Monitoring
+
+Description:
+Develop, document, and disseminate an assessment, authorization, and monitoring policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination, and compliance.
+Develop procedures to facilitate the implementation of the policy.
+
+Supplemental Guidance:
+Assessment, authorization, and monitoring policy addresses the controls in the CA family. The policy can be included as part of the general security and privacy policy. Procedures can be developed for the organization and for each system."
+CM-1,Policy and Procedures,CM,Configuration Management,"Develop, document, and disseminate a configuration management policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination, and compliance.
+Develop procedures to facilitate the implementation of the configuration management policy and the associated controls.",Configuration management policy and procedures address the controls in the CM family. The risk management strategy informs the development of the policy and procedures.,,,,,,,Control Catalog,"Control CM-1: Policy and Procedures
+Family: Configuration Management
+
+Description:
+Develop, document, and disseminate a configuration management policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination, and compliance.
+Develop procedures to facilitate the implementation of the configuration management policy and the associated controls.
+
+Supplemental Guidance:
+Configuration management policy and procedures address the controls in the CM family. The risk management strategy informs the development of the policy and procedures."
+CM-6,Configuration Settings,CM,Configuration Management,"Establish and document configuration settings for components employed within the system that reflect the most restrictive mode consistent with operational requirements.
+Implement the configuration settings and identify, document, and approve any deviations from established settings.","Configuration settings are the parameters that can be changed in hardware, software, or firmware components that affect the security and privacy posture of a system. Security-related parameters are those parameters impacting the security state of systems including the parameters required to satisfy other controls.
+Organizations establish organization-wide configuration settings and subsequently derive specific configuration settings for systems.",,,,,,,Control Catalog,"Control CM-6: Configuration Settings
+Family: Configuration Management
+
+Description:
+Establish and document configuration settings for components employed within the system that reflect the most restrictive mode consistent with operational requirements.
+Implement the configuration settings and identify, document, and approve any deviations from established settings.
+
+Supplemental Guidance:
+Configuration settings are the parameters that can be changed in hardware, software, or firmware components that affect the security and privacy posture of a system. Security-related parameters are those parameters impacting the security state of systems including the parameters required to satisfy other controls.
+Organizations establish organization-wide configuration settings and subsequently derive specific configuration settings for systems."
+IA-1,Policy and Procedures,IA,Identification and Authentication,"Develop, document, and disseminate an identification and authentication policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination, and compliance.
+Develop procedures to facilitate the implementation of the identification and authentication policy and the associated controls.",Identification and authentication policy and procedures address the controls in the IA family. The risk management strategy is a key factor in the development of the policy and procedures.,,,,,,,Control Catalog,"Control IA-1: Policy and Procedures
+Family: Identification and Authentication
+
+Description:
+Develop, document, and disseminate an identification and authentication policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination, and compliance.
+Develop procedures to facilitate the implementation of the identification and authentication policy and the associated controls.
+
+Supplemental Guidance:
+Identification and authentication policy and procedures address the controls in the IA family. The risk management strategy is a key factor in the development of the policy and procedures."
+IA-2,Identification and Authentication (Organizational Users),IA,Identification and Authentication,"Uniquely identify and authenticate organizational users, and associate that unique identification with processes acting on behalf of those users.","Organizations can satisfy the identification and authentication requirements by complying with the requirements in HSPD-12. Organizational users include employees, contractors, or individuals deemed to have equivalent status.
+Unique identification of individuals in group accounts may be needed for detailed accountability of individual activity.",,,,,,,Control Catalog,"Control IA-2: Identification and Authentication (Organizational Users)
+Family: Identification and Authentication
+
+Description:
+Uniquely identify and authenticate organizational users, and associate that unique identification with processes acting on behalf of those users.
+
+Supplemental Guidance:
+Organizations can satisfy the identification and authentication requirements by complying with the requirements in HSPD-12. Organizational users include employees, contractors, or individuals deemed to have equivalent status.
+Unique identification of individuals in group accounts may be needed for detailed accountability of individual activity."
+IR-1,Policy and Procedures,IR,Incident Response,"Develop, document, and disseminate an incident response policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination, and compliance.
+Develop procedures to facilitate the implementation of the incident response policy and the associated controls.",Incident response policy and procedures address the controls in the IR family. Policy can be included as part of the general security and privacy policy.,,,,,,,Control Catalog,"Control IR-1: Policy and Procedures
+Family: Incident Response
+
+Description:
+Develop, document, and disseminate an incident response policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination, and compliance.
+Develop procedures to facilitate the implementation of the incident response policy and the associated controls.
+
+Supplemental Guidance:
+Incident response policy and procedures address the controls in the IR family. Policy can be included as part of the general security and privacy policy."
+IR-4,Incident Handling,IR,Incident Response,"Implement an incident handling capability for incidents that includes preparation, detection and analysis, containment, eradication, and recovery.
+Coordinate incident handling activities with contingency planning activities and incorporate lessons learned from ongoing incident handling into procedures and training.","Organizations recognize that incident response capabilities are dependent on the capabilities of systems and the mission and business processes being supported. Incident-related information can be obtained from a variety of sources including audit monitoring, physical access monitoring, and network monitoring.",,,,,,,Control Catalog,"Control IR-4: Incident Handling
+Family: Incident Response
+
+Description:
+Implement an incident handling capability for incidents that includes preparation, detection and analysis, containment, eradication, and recovery.
+Coordinate incident handling activities with contingency planning activities and incorporate lessons learned from ongoing incident handling into procedures and training.
+
+Supplemental Guidance:
+Organizations recognize that incident response capabilities are dependent on the capabilities of systems and the mission and business processes being supported. Incident-related information can be obtained from a variety of sources including audit monitoring, physical access monitoring, and network monitoring."
+RA-1,Policy and Procedures,RA,Risk Assessment,"Develop, document, and disseminate a risk assessment policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination, and compliance.
+Develop procedures to facilitate the implementation of the risk assessment policy and the associated controls.",Risk assessment policy and procedures address the controls in the RA family. The risk management strategy informs the development of the risk assessment policy.,,,,,,,Control Catalog,"Control RA-1: Policy and Procedures
+Family: Risk Assessment
+
+Description:
+Develop, document, and disseminate a risk assessment policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination, and compliance.
+Develop procedures to facilitate the implementation of the risk assessment policy and the associated controls.
+
+Supplemental Guidance:
+Risk assessment policy and procedures address the controls in the RA family. The risk management strategy informs the development of the risk assessment policy."
+RA-5,Vulnerability Monitoring and Scanning,RA,Risk Assessment,"Monitor and scan for vulnerabilities in the system and hosted applications at an organization-defined frequency and when new vulnerabilities potentially affecting the system are identified.
+Employ vulnerability monitoring tools and techniques that facilitate interoperability among tools. Analyze vulnerability scan reports and results from vulnerability monitoring.","Organizations determine the required vulnerability scanning for all system components, including potential vulnerabilities in scanning activities themselves. Vulnerability analysis includes consideration of trend data from security advisories, vulnerability databases, and other sources of vulnerability information.",,,,,,,Control Catalog,"Control RA-5: Vulnerability Monitoring and Scanning
+Family: Risk Assessment
+
+Description:
+Monitor and scan for vulnerabilities in the system and hosted applications at an organization-defined frequency and when new vulnerabilities potentially affecting the system are identified.
+Employ vulnerability monitoring tools and techniques that facilitate interoperability among tools. Analyze vulnerability scan reports and results from vulnerability monitoring.
+
+Supplemental Guidance:
+Organizations determine the required vulnerability scanning for all system components, including potential vulnerabilities in scanning activities themselves. Vulnerability analysis includes consideration of trend data from security advisories, vulnerability databases, and other sources of vulnerability information."
+SC-1,Policy and Procedures,SC,System and Communications Protection,"Develop, document, and disseminate a system and communications protection policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination, and compliance.
+Develop procedures to facilitate the implementation of the system and communications protection policy and the associated controls.",System and communications protection policy and procedures address the controls in the SC family. Policy can be included as part of the general security and privacy policy.,,,,,,,Control Catalog,"Control SC-1: Policy and Procedures
+Family: System and Communications Protection
+
+Description:
+Develop, document, and disseminate a system and communications protection policy that addresses purpose, scope, roles, responsibilities, management commitment, coordination, and compliance.
+Develop procedures to facilitate the implementation of the system and communications protection policy and the associated controls.
+
+Supplemental Guidance:
+System and communications protection policy and procedures address the controls in the SC family. Policy can be included as part of the general security and privacy policy."
+SC-7,Boundary Protection,SC,System and Communications Protection,"Monitor and control communications at the external managed interfaces to the system and at key internal managed interfaces.
+Implement subnetworks for publicly accessible system components that are physically or logically separated from internal networks.
+Connect to external networks or systems only through managed interfaces consisting of boundary protection devices.","Managed interfaces include gateways, routers, firewalls, guards, network-based malicious code analysis, virtualization systems, or encrypted tunnels implemented within a security architecture.
+Restricting external web traffic only to organizational web servers within managed interfaces and prohibiting external traffic that appears to be spoofing internal addresses are examples of restricting and prohibiting communications.",,,,,,,Control Catalog,"Control SC-7: Boundary Protection
+Family: System and Communications Protection
+
+Description:
+Monitor and control communications at the external managed interfaces to the system and at key internal managed interfaces.
+Implement subnetworks for publicly accessible system components that are physically or logically separated from internal networks.
+Connect to external networks or systems only through managed interfaces consisting of boundary protection devices.
+
+Supplemental Guidance:
+Managed interfaces include gateways, routers, firewalls, guards, network-based malicious code analysis, virtualization systems, or encrypted tunnels implemented within a security architecture.
+Restricting external web traffic only to organizational web servers within managed interfaces and prohibiting external traffic that appears to be spoofing internal addresses are examples of restricting and prohibiting communications."

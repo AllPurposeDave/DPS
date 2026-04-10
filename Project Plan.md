@@ -243,6 +243,7 @@ Step 0 (`policy_profiler.py`) produces per-document:
 - Password protection, IRM protection
 - Five standard section detection (Purpose, Scope, Intent, Controls, Appendix) via fuzzy match on H1 text
 - Cross-reference patterns: "See Section", "refer to", "as described in", hyperlinked cross-references
+- Date metadata for lifecycle tracking: modified date (from Word core properties), compliance date (from body text), freshness status (Overdue / Review Soon / Current — traffic-light colored in the inventory Excel)
 
 ### Section Terminology
 
@@ -520,7 +521,7 @@ Templates for notebook instructions and agent configuration. Some are stored in 
 1. **Sub-Document Titling Strategy:** Output files named `[OriginalName] - [Heading1Text].docx` produce generic names like `*- Controls.docx` across many source docs. Needs a convention encoding source policy name + specific topic.
 2. **Duplicate/Overlap Detection:** No mechanism detects when two sub-docs from different source policies cover the same topic. Copilot retrieves both and may give contradictory answers.
 3. **Chunk Identity Metadata:** ~~Beyond preamble, nothing marks *where in the original doc* a chunk came from.~~ **Addressed by Step 6 (`add_metadata.py`).** Each sub-doc now gets a metadata block with document name, URL, scope, intent, and tags. URLs are sourced from `input/Doc_URL.xlsx` — one file shared by both Step 2 (Published URL column in controls export) and Step 6 (metadata injection). Steps 7 and 8 propagate this metadata to Markdown frontmatter and JSONL chunks respectively. Effective date and parent heading chain are not yet included — add as custom fields in `metadata.fields` config if needed.
-4. **Version/Staleness Tracking:** When a source doc is revised, no mechanism identifies which sub-docs need regeneration. `split_manifest.csv` needs a hash or timestamp per sub-doc.
+4. **Version/Staleness Tracking:** ~~No mechanism identifies stale policies.~~ **Partially addressed by lifecycle tracking in Step 0.** The profiler now extracts each document's modified date (Word core properties) and compliance date (body text), then computes a freshness status: Overdue (>365 days), Review Soon (30–365 days), or Current (<30 days). These appear as traffic-light colored columns in `document_inventory.xlsx` and the consolidated DPS Report. **Still missing:** sub-document-level staleness detection — when a source doc is revised, no mechanism identifies which sub-docs need regeneration. `split_manifest.csv` needs a hash or timestamp per sub-doc.
 5. **Round-Trip Validation:** No check confirms the union of all sub-doc content equals the original (minus formatting). Missing or duplicated paragraphs from XML deep-copy edge cases go unnoticed.
 6. **Table Handling at Split Boundaries:** Tables attributed to the section where they start. A table spanning an H1 boundary goes entirely into the first section's sub-doc even if it semantically belongs to the next.
 7. **Max Doc Count Guardrail:** No check enforces the 400-doc SharePoint/Copilot source limit. The splitter should track cumulative sub-doc count and warn before exceeding the ceiling.
@@ -645,7 +646,7 @@ Each step below documents its exact inputs, outputs, config dependencies, extern
 | **External files** | None |
 | **Shared utils** | `load_config`, `get_input_dir`, `get_output_dir`, `iter_docx_files`, `ensure_output_dir`, `is_heading_style`, `get_heading_level`, `is_paragraph_bold`, `paragraph_char_count`, `log_pipeline_issue` |
 
-**Notes:** This is the only step that reads from Classification, Profiling Flags, Priority Scoring, Search Terms, and Tables config sections. It also reads `control_extraction.control_id_patterns` to count control IDs per document — changing those patterns affects both Step 0 counts and Step 2 extraction.
+**Notes:** This is the only step that reads from Classification, Profiling Flags, Priority Scoring, Search Terms, and Tables config sections. It also reads `control_extraction.control_id_patterns` to count control IDs per document — changing those patterns affects both Step 0 counts and Step 2 extraction. Includes lifecycle tracking: extracts modified date (Word core properties) and compliance date (body text "as of" pattern), computes freshness status (Overdue/Review Soon/Current) with traffic-light conditional formatting in the inventory Excel.
 
 ---
 
@@ -701,11 +702,20 @@ Each step below documents its exact inputs, outputs, config dependencies, extern
 | **Reads from** | `input/` directory (*.docx files) |
 | **Writes to** | `output/4 - heading_fixes/*_fixed.docx`, `heading_changes.csv` |
 | **Config sections** | Input, Output, Headings, Text Deletions |
-| **Key config keys** | `headings.heading1_pattern`, `headings.heading2_pattern`, `headings.heading3_pattern`, `headings.custom_style_map`, `headings.fake_heading_max_chars_fixer`, `headings.default_heading_level`, `text_deletions.enabled`, `text_deletions.phrases`, `text_deletions.case_sensitive`, `text_deletions.section_deletions[].heading/delete` |
+| **Key config keys** | `headings.heading1_pattern`, `headings.heading2_pattern`, `headings.heading3_pattern`, `headings.custom_style_map`, `headings.fake_heading_max_chars_fixer`, `headings.default_heading_level`, `text_deletions.enabled`, `text_deletions.phrases`, `text_deletions.case_sensitive`, `text_deletions.section_deletions[].heading/delete`, `text_deletions.remove_table_of_content`, `text_deletions.remove_headers_footers`, `text_deletions.remove_revision_tables`, `text_deletions.flatten_definition_tables` |
 | **External files** | None |
 | **Shared utils** | `load_config`, `setup_argparse`, `get_input_dir`, `get_output_dir`, `iter_docx_files`, `ensure_output_dir`, `is_heading_style`, `is_paragraph_bold`, `log_pipeline_issue` |
 
 **Notes:** This is the only step that reads Text Deletions config. Its output (`*_fixed.docx`) is the primary input for Step 5. Uses `fake_heading_max_chars_fixer` (tighter limit), not `fake_heading_max_chars` (profiler's looser limit).
+
+**Processing order within Step 4:**
+1. Remove TOC-styled paragraphs (`remove_table_of_content`)
+2. Clear headers/footers (`remove_headers_footers`)
+3. Apply phrase deletions (`enabled` + `phrases`)
+4. Fix heading styles (fake heading detection + custom style mapping)
+5. Remove orphan revision tables (`remove_revision_tables`)
+6. Flatten definition tables to prose (`flatten_definition_tables`)
+7. Apply section deletions (`section_deletions`)
 
 ---
 
@@ -862,11 +872,15 @@ This table maps every config section (Excel sheet) to the specific keys within i
 |---|---|---|
 | `enabled` | `FALSE` | Step 4 only |
 | `case_sensitive` | `TRUE` | Step 4 only |
+| `remove_table_of_content` | `FALSE` | Step 4 only |
+| `remove_headers_footers` | `FALSE` | Step 4 only |
+| `remove_revision_tables` | `FALSE` | Step 4 only |
+| `flatten_definition_tables` | `FALSE` | Step 4 only |
 | `phrases` (list) | (empty) | Step 4 only |
 | `section_deletions[].heading` | (empty) | Step 4 only |
 | `section_deletions[].delete` | `TRUE` | Step 4 only |
 
-**Single consumer:** Only Step 4 reads this sheet.
+**Single consumer:** Only Step 4 reads this sheet. The 4 boolean cleanup toggles (`remove_table_of_content`, `remove_headers_footers`, `remove_revision_tables`, `flatten_definition_tables`) operate independently of the `enabled` flag — they have their own gates.
 
 #### Cross References Sheet
 

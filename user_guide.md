@@ -159,6 +159,7 @@ Scans every document and produces a comprehensive inventory:
 - Computes priority scores for optimization ordering
 - Counts words per document
 - Searches for key terms across all documents
+- Extracts date metadata for lifecycle tracking (modified date, compliance date, freshness status)
 
 **Start here** — open `document_inventory.xlsx` to understand your document set before running further steps.
 
@@ -173,6 +174,16 @@ Scans every document and produces a comprehensive inventory:
 | `section_inventory.csv` | One row per section per document |
 | `table_inventory.csv` | One row per table per document |
 | `crossref_inventory.csv` | One row per cross-reference candidate |
+
+**Lifecycle tracking columns** in `document_inventory.xlsx`:
+
+| Column | Source | Description |
+|--------|--------|-------------|
+| Modified | Word core properties | Last modified date from the `.docx` file's built-in metadata |
+| Compliance Date | Body text scan | Extracted from "Compliance Date" heading or "as of Month DD, YYYY" pattern |
+| Freshness | Computed from compliance date | Traffic-light status: **Overdue** (>365 days, red), **Review Soon** (30–365 days, yellow), **Current** (<30 days, green) |
+
+These columns also appear in the consolidated DPS Report under the "0 - Document Inventory" sheet.
 
 ---
 
@@ -206,6 +217,16 @@ Scans every document for acronym candidates and generates a multi-sheet Excel au
 5. **Steps 6/7/8 read it** — they look for the "Acronym Definitions" sheet (falling back to "Per Document"), columns A (`Document`) and B (`Acronym`). Rows with Status="False Positive" are automatically skipped.
 
 > **Tip:** Open **Global Summary** and sort by "Total Occurrences" descending to find the highest-impact acronyms first. The **Undefined Acronyms** sheet highlights entries with no detected definition — these are your priority targets.
+
+**Troubleshooting:**
+
+| Problem | Fix |
+|---------|-----|
+| "No .docx files found" | Check `input_folder` path in config. Use forward slashes even on Windows. |
+| Way too many results | Increase `min_global_occurrences` to 2 or 3 in config. Add common false positives to the `ignore_list`. |
+| Missing acronyms you expected | Check if they're on the `ignore_list`. Check `min_length` (default 2). |
+| Script crashes on a specific file | That file is probably password-protected or corrupted. The script logs the error and continues with other files. |
+| Slow on large corpus | Normal. Expect 1–3 minutes for 80+ files depending on size. Tables and textboxes add scanning time. |
 
 ---
 
@@ -274,12 +295,17 @@ Extracts three types of references:
 
 > **This step creates modified copies.** For each input document, a `*_fixed.docx` file is written to the output folder. Original input files are never changed.
 
-Standardizes heading styles so Step 5 (splitter) can find section boundaries:
+Standardizes heading styles and performs document cleanup so Step 5 (splitter) can find section boundaries and Copilot KB accuracy is maximized:
 
+- Removes Word Table of Contents paragraphs (TOC 1/2/3 styles) that create false matches in retrieval
+- Clears page headers and footers (branding, page numbers, classification banners)
 - Applies text deletions (configured phrases removed from all paragraphs and tables)
 - Converts fake bold headings to real Word Heading 1/2/3 styles
 - Maps custom heading styles (e.g., "Policy Heading 1") to standard heading styles
 - Determines heading level based on numbering patterns (e.g., "1.0" → H1, "1.1" → H2, "1.1.1" → H3)
+- Removes orphan revision/change history tables (detected by column headers: version + date + changes/author)
+- Flattens Terms & Definitions tables to prose paragraphs (`**Term**: Definition`)
+- Applies section-level deletions (heading + all content until next same/higher-level heading)
 
 **Key config sections:** `headings`, `text_deletions`
 
@@ -291,6 +317,8 @@ Standardizes heading styles so Step 5 (splitter) can find section boundaries:
 | `heading_changes.csv` | Change log of every modification made |
 
 **Output columns (heading_changes.csv):** `doc_name`, `paragraph_index`, `original_style`, `new_style`, `paragraph_text_preview`, `change_type`, `phrase_deleted`
+
+**Change types logged:** `heading_fix`, `text_deletion`, `section_deletion`, `toc_removal`, `header_footer_cleared`, `revision_table_removed`, `definition_table_flattened`
 
 ---
 
@@ -653,16 +681,29 @@ Regex patterns that determine what heading level to assign to a fake heading bas
 
 ---
 
-### Section 4B: Text Deletion
+### Section 4B: Text Deletion & Document Cleanup
 
-Remove specific phrases from documents during heading style fixing (Step 4). Deletions cascade to Steps 5 and 6.
+Remove noise from documents during heading style fixing (Step 4). All cleanup operations cascade to Steps 5, 6, 7, and 8.
+
+#### Phrase & Section Deletion
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `text_deletions.enabled` | `false` | Set to `true` to activate deletion. |
+| `text_deletions.enabled` | `false` | Set to `true` to activate phrase and section deletion. |
 | `text_deletions.case_sensitive` | `true` | Whether phrase matching is case-sensitive. |
 | `text_deletions.phrases` | `[]` (empty) | List of exact phrases to delete. After deletion, double-spaces are collapsed to single spaces. |
 | `text_deletions.section_deletions` | `[]` (empty) | List of section-level deletions. Each entry has `heading` (case-insensitive substring match on heading text), `delete` (TRUE/FALSE), and optional `description`. Deletes the heading and all content until the next heading of same or higher level. |
+
+#### Document Cleanup Toggles
+
+These boolean toggles enable additional cleanup operations independent of the `enabled` setting above:
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `text_deletions.remove_table_of_content` | `false` | Remove paragraphs with Word TOC styles (`TOC 1`, `TOC 2`, `TOC 3`, etc.). These are generated by Word's Insert Table of Contents feature and cannot be caught by section deletion. Eliminates page-number noise like `"4.1 Access Control .......... 12"` from Copilot retrieval. |
+| `text_deletions.remove_headers_footers` | `false` | Clear all page header and footer text (branding, page numbers, classification banners). Uses a safe approach — empties run text rather than removing XML parts. |
+| `text_deletions.remove_revision_tables` | `false` | Remove revision/change history tables detected by column headers containing "version" + "date" + "changes"/"description"/"author". Catches tables that don't live under a "Revision History" heading. |
+| `text_deletions.flatten_definition_tables` | `false` | Convert Terms & Definitions tables (under headings matching "Terms", "Definitions", or "Glossary") to prose paragraphs in the format `**Term**: Definition`. The section heading is preserved. |
 
 **Example phrases (on the Text Deletions sheet):**
 | Value | Description |
@@ -671,6 +712,14 @@ Remove specific phrases from documents during heading style fixing (Step 4). Del
 | CONFIDENTIAL | Classification banner |
 | [INSERT DATE] | Placeholder text |
 | TBD | Placeholder text |
+
+**Example section deletions:**
+| Section Heading | Delete | Description |
+|-----------------|--------|-------------|
+| Table of Contents | TRUE | Remove TOC section (under a heading) |
+| Revision History | TRUE | Version tracking noise |
+| Change History | TRUE | Version tracking noise |
+| Document Information | TRUE | Metadata already captured by Step 0/6 |
 
 Set `enabled` to TRUE and `case_sensitive` to TRUE or FALSE as needed in the settings block above the phrases list.
 

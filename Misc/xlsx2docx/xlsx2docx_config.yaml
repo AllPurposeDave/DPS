@@ -1,0 +1,297 @@
+# ============================================================================
+# xlsx2docx_config.yaml — Configuration for xlsx2docx.py
+#
+# Converts Excel files to formatted Word documents.
+# Primary use case: controls matrices where each row is a control,
+# the control ID column becomes a Word heading, and remaining columns
+# render as key-value content below that heading.
+#
+# Usage:
+#   python xlsx2docx.py                          # uses this file in same dir
+#   python xlsx2docx.py --config my_config.yaml  # explicit config
+#   python xlsx2docx.py --input file.xlsx        # single file override
+#   python xlsx2docx.py --output /path/to/out/   # output dir override
+# ============================================================================
+
+
+# ── INPUT / OUTPUT ────────────────────────────────────────────────────────────
+input:
+  files: []                        # Explicit .xlsx paths. Leave empty to scan directory.
+  # Example:
+  #   files:
+  #     - "../../input/controls.xlsx"
+  #     - "../../input/gap_analysis.xlsx"
+
+  directory: "../../input/"        # Scanned when files: is empty.
+  exclude_patterns: ["~$*"]        # Skip temp/lock files (e.g. ~$controls.xlsx).
+
+output:
+  directory: "../../output/xlsx2docx/"
+  filename_template: "{input_stem}.docx"   # {input_stem} = source filename without extension.
+  # Example: controls.xlsx → controls.docx
+
+
+# ── DOCUMENT IDENTITY ─────────────────────────────────────────────────────────
+# These values fill {token} placeholders in headers, footers, and the cover page.
+identity:
+  document_title: ""               # Full document title
+  organization_name: ""            # Organization or department name
+  classification: "Unclassified"   # e.g. Unclassified, CUI, FOUO
+  author: ""                       # Author name or role
+  version: "1.0"                   # Document version
+  date: ""                         # YYYY-MM-DD; blank = today's date
+
+
+# ── COVER PAGE ────────────────────────────────────────────────────────────────
+cover_page:
+  enabled: false                   # Set to true to generate a title page
+
+  title: "{document_title}"        # Main title (resolves tokens above)
+  subtitle: "{organization_name}"  # Subtitle line
+  classification: "{classification}"       # Classification banner text
+  classification_color: "FF0000"   # Hex RGB color for classification banner (no # prefix)
+  date: "{date}"                   # Date shown on cover
+  prepared_by: ""                  # "Prepared By" field (leave blank to omit)
+  approved_by: ""                  # "Approved By" field (leave blank to omit)
+  logo_placeholder: false          # Insert "[Organization Logo]" placeholder if true
+
+
+# ── TABLE OF CONTENTS ─────────────────────────────────────────────────────────
+toc:
+  enabled: false                   # Set to true to insert a TOC after the cover page
+  title: "Table of Contents"       # TOC section title (not a real Word heading)
+  depth: 2                         # Include H1 and H2 entries
+  note: "Press Ctrl+A then F9 in Word to update page numbers after opening."
+
+
+# ── PAGE LAYOUT ───────────────────────────────────────────────────────────────
+page:
+  size: "Letter"                   # Letter | A4
+  orientation: "Portrait"          # Portrait | Landscape
+  margin_top: 1.0                  # inches
+  margin_bottom: 1.0               # inches
+  margin_left: 1.25                # inches
+  margin_right: 1.25               # inches
+
+
+# ── BODY TEXT ─────────────────────────────────────────────────────────────────
+body:
+  font_name: "Calibri"
+  font_size: 11                    # pt
+  line_spacing: 1.15               # multiplier (1.0 = single, 2.0 = double)
+  space_after: 8                   # pt — space after each paragraph
+  alignment: "left"                # left | justified
+
+
+# ── HEADING STYLES (H1 – H4) ──────────────────────────────────────────────────
+# Colors are 6-digit hex RGB without a # prefix (e.g. 2F5496 = DPS blue).
+headings:
+  h1:
+    font_name: "Calibri"
+    font_size: 16                  # pt
+    bold: true
+    italic: false
+    color: "2F5496"                # DPS blue
+    space_before: 12               # pt
+    space_after: 6                 # pt
+    keep_with_next: true           # Keep heading on same page as following paragraph
+
+  h2:
+    font_name: "Calibri"
+    font_size: 14
+    bold: true
+    italic: false
+    color: "2F5496"
+    space_before: 10
+    space_after: 4
+    keep_with_next: true
+
+  h3:
+    font_name: "Calibri"
+    font_size: 12
+    bold: true
+    italic: false
+    color: "2F5496"
+    space_before: 8
+    space_after: 3
+    keep_with_next: false
+
+  h4:
+    font_name: "Calibri"
+    font_size: 11
+    bold: true
+    italic: true
+    color: "2F5496"
+    space_before: 6
+    space_after: 2
+    keep_with_next: false
+
+
+# ── HEADER ────────────────────────────────────────────────────────────────────
+# Tokens: {document_title}, {organization_name}, {classification}, {author},
+#         {version}, {date}, {page}, {pages}
+# Leave left/center/right blank ("") to suppress that position.
+header:
+  left: "{organization_name}"
+  center: ""
+  right: "{document_title}"
+  font_name: "Arial"
+  font_size: 8                     # pt
+  color: "666666"                  # dark gray
+
+
+# ── FOOTER ────────────────────────────────────────────────────────────────────
+footer:
+  left: "{classification}"
+  center: "Page {page} of {pages}"  # {page} and {pages} become live Word fields
+  right: "{date}"
+  font_name: "Arial"
+  font_size: 8
+  color: "666666"
+
+different_first_page: true         # Suppress header/footer on cover/first page
+
+
+# ── TABLE STYLES ──────────────────────────────────────────────────────────────
+# Applies to all Word tables created in "table" and "table_row" render modes.
+table:
+  header_font_name: "Arial"
+  header_font_size: 10
+  header_bold: true
+  header_font_color: "FFFFFF"      # white text on colored background
+  header_fill_color: "2F5496"      # DPS blue header row
+  body_font_name: "Calibri"
+  body_font_size: 10
+  row_banding: true                # Alternate row shading
+  banding_color: "D6E4F0"          # Light blue banding
+  border_style: "single"           # single | none
+  border_color: "CCCCCC"           # light gray borders
+  fit_to_page: true                # Auto-scale column widths to fit page width
+  max_col_width: 3.0               # inches — cap on any single column
+
+
+# ── SHEET RULES ───────────────────────────────────────────────────────────────
+# Rules are evaluated top-to-bottom. The FIRST matching rule wins.
+# Sheet names are matched case-insensitively using glob patterns:
+#   "Summary"   — exact name
+#   "Controls*" — starts with "Controls"
+#   "*Gap*"     — contains "Gap"
+#   "*"         — matches any sheet (catch-all, put this last)
+#
+# Sheets not matched by any rule use render_as: table by default,
+# unless include_unmatched: false.
+include_unmatched: true
+
+# ── RENDER MODES ──────────────────────────────────────────────────────────────
+#
+#  row_as_heading  PRIMARY MODE — each data row becomes a Word heading +
+#                  body content. heading_column specifies which column's
+#                  value becomes the heading text. Remaining columns render
+#                  as key-value pairs, a mini-table, or prose below.
+#
+#  table           Entire sheet becomes one Word table with a styled header row.
+#
+#  key_value       Two-column sheet: column A = bold label, column B = value.
+#                  Great for metadata or settings sheets.
+#
+#  list            Single-column sheet: values become a bulleted list.
+#
+#  prose           Column A values become plain paragraphs (no labels or bullets).
+#
+#  skip            Exclude this sheet from the output entirely.
+
+sheets:
+  # ── Example: controls matrix (primary use case) ────────────────────────────
+  - match: "*"
+    render_as: "row_as_heading"
+
+    # Column whose value becomes the Word heading (case-insensitive match).
+    heading_column: "Control ID"
+    heading_level: 1               # H1, H2, H3, or H4
+
+    # How remaining columns are rendered below each heading:
+    #   key_value  — "Label: Value" on one line per field (default)
+    #   table_row  — mini 2-column table (Field | Value) per control
+    #   prose      — values only, no labels
+    body_render: "key_value"
+
+    # Optional: include only these columns in the body, in this order.
+    # If empty, all columns (except heading_column) are included.
+    include_columns: []
+    # Example:
+    #   include_columns:
+    #     - "Description"
+    #     - "Guidance"
+    #     - "Status"
+    #     - "Notes"
+
+    # Rename Excel column headers to display labels in the output.
+    rename_columns: {}
+    # Example:
+    #   rename_columns:
+    #     "Ctrl_ID": "Control ID"
+    #     "Desc": "Description"
+    #     "Impl_Guidance": "Implementation Guidance"
+
+    # Exclude specific columns from the body content.
+    exclude_columns: []
+    # Example:
+    #   exclude_columns:
+    #     - "Internal_Notes"
+    #     - "Reviewer"
+
+    # Skip rows where heading_column is empty.
+    skip_empty_heading: true
+
+    # Row number (1-based) containing column headers.
+    header_row: 1
+
+    # First data row (1-based).
+    data_start_row: 2
+
+    # Repeat the header row at the top of each page (for table/table_row modes).
+    repeat_header: true
+
+
+# ── ADDITIONAL SHEET RULE EXAMPLES ────────────────────────────────────────────
+# Uncomment and customize as needed. Put specific rules ABOVE the "*" catch-all.
+#
+# sheets:
+#   # Render a summary sheet as a flat table
+#   - match: "Summary"
+#     render_as: "table"
+#     header_row: 1
+#     data_start_row: 2
+#     repeat_header: true
+#     include_columns: []          # empty = include all
+#
+#   # Render a settings/metadata sheet as key-value pairs
+#   - match: "Settings"
+#     render_as: "key_value"
+#     header_row: 1
+#     data_start_row: 2
+#
+#   # Skip internal admin sheets
+#   - match: "Admin*"
+#     render_as: "skip"
+#
+#   # Render a references sheet as a bulleted list (column A values only)
+#   - match: "References"
+#     render_as: "list"
+#     header_row: 1
+#     data_start_row: 2
+#
+#   # Controls with body as a mini 2-column table (Field | Value)
+#   - match: "Controls*"
+#     render_as: "row_as_heading"
+#     heading_column: "Control ID"
+#     heading_level: 1
+#     body_render: "table_row"
+#     include_columns:
+#       - "Description"
+#       - "Guidance"
+#       - "Status"
+#
+#   # Catch-all: render all other sheets as flat tables
+#   - match: "*"
+#     render_as: "table"

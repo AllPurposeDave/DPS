@@ -437,6 +437,7 @@ class DocxToJsonl:
         self.current_parts: list[str] = []
         self.current_heading: str = "(Document Start)"
         self.current_heading_level: int = 0
+        self.heading_stack: dict[str, str] = {"h1": "", "h2": "", "h3": ""}
         self.image_counter: int = 0
         self.warnings: list[str] = []
         self.stats = {
@@ -549,6 +550,16 @@ class DocxToJsonl:
             self._flush_chunk()
             self.current_heading = _clean_text(text)
             self.current_heading_level = heading_level
+            # Update heading breadcrumb stack: setting a level clears all
+            # deeper levels so the hierarchy stays accurate.
+            clean = _clean_text(text)
+            if heading_level == 1:
+                self.heading_stack = {"h1": clean, "h2": "", "h3": ""}
+            elif heading_level == 2:
+                self.heading_stack["h2"] = clean
+                self.heading_stack["h3"] = ""
+            elif heading_level == 3:
+                self.heading_stack["h3"] = clean
             return
 
         # Regular paragraph / list item -- extract plain text
@@ -723,6 +734,9 @@ class DocxToJsonl:
         chunk = {
             "heading": self.current_heading,
             "heading_level": self.current_heading_level,
+            "h1": self.heading_stack["h1"],
+            "h2": self.heading_stack["h2"],
+            "h3": self.heading_stack["h3"],
             "text": overlap_prefix + text,
             "char_count": len(overlap_prefix + text),
         }

@@ -541,11 +541,21 @@ def _build_text_deletions_sheet(wb, cfg: dict):
                  "Set TRUE to activate text deletion during Step 4 [default: FALSE]")
     _add_setting(ws, "case_sensitive", td.get("case_sensitive", True),
                  "TRUE for exact case match, FALSE for case-insensitive [default: TRUE]")
+    _add_setting(ws, "remove_table_of_content", td.get("remove_table_of_content", False),
+                 "Remove Word TOC-styled paragraphs (TOC 1, TOC 2, etc.) [default: FALSE]")
+    _add_setting(ws, "remove_headers_footers", td.get("remove_headers_footers", False),
+                 "Clear all page header and footer content [default: FALSE]")
+    _add_setting(ws, "remove_revision_tables", td.get("remove_revision_tables", False),
+                 "Remove tables with Version/Date/Changes columns [default: FALSE]")
+    _add_setting(ws, "flatten_definition_tables", td.get("flatten_definition_tables", False),
+                 "Convert Terms & Definitions tables to prose paragraphs [default: FALSE]")
 
     # Bool validations
     for r in range(2, ws.max_row + 1):
         val = ws.cell(row=r, column=1).value
-        if val in ("enabled", "case_sensitive"):
+        if val in ("enabled", "case_sensitive", "remove_table_of_content",
+                   "remove_headers_footers", "remove_revision_tables",
+                   "flatten_definition_tables"):
             _add_bool_validation(ws, "B", r, r)
 
     _add_subheader(ws, "Phrases to Delete")

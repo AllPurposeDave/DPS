@@ -287,6 +287,10 @@ headings:
 text_deletions:
   enabled: false    # Set to true to activate deletion
   case_sensitive: true
+  remove_table_of_content: false   # Remove Word TOC-styled paragraphs (TOC 1, TOC 2, etc.)
+  remove_headers_footers: false    # Clear all page header and footer content
+  remove_revision_tables: false    # Remove tables with Version/Date/Changes columns
+  flatten_definition_tables: false # Convert Terms & Definitions tables to prose paragraphs
 
   # Phrases to delete (exact match). Leading/trailing whitespace is trimmed.
   # After deletion, double-spaces are collapsed to single spaces.

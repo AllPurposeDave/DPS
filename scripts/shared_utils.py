@@ -285,6 +285,10 @@ def _parse_text_deletions_sheet(ws):
     # Ensure keys exist even if empty
     result.setdefault("phrases", [])
     result.setdefault("section_deletions", [])
+    result.setdefault("remove_table_of_content", False)
+    result.setdefault("remove_headers_footers", False)
+    result.setdefault("remove_revision_tables", False)
+    result.setdefault("flatten_definition_tables", False)
     return result
 
 
