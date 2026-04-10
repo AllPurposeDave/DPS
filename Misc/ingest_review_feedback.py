@@ -12,8 +12,8 @@ Outputs:
     output/6 - validation/suggested_config_changes.yaml  (if applicable)
 
 Usage:
-    python scripts/ingest_review_feedback.py
-    python scripts/ingest_review_feedback.py --config dps_config.xlsx
+    python Misc/ingest_review_feedback.py
+    python Misc/ingest_review_feedback.py --config dps_config.xlsx
 """
 
 from __future__ import annotations
@@ -21,10 +21,14 @@ from __future__ import annotations
 import csv
 import os
 import re
+import sys
 from collections import Counter
 from datetime import datetime
 
 from openpyxl import load_workbook
+
+# Add scripts directory to path for shared_utils import
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
 from shared_utils import (
     ensure_output_dir,

@@ -773,8 +773,8 @@ Optional: Supplemental Guidance, Baseline, Control Name, Reviewer Notes.
 After completing your review:
 
 ```
-python scripts/ingest_review_feedback.py
-python scripts/ingest_review_feedback.py --config dps_config.xlsx
+python Misc/ingest_review_feedback.py
+python Misc/ingest_review_feedback.py --config dps_config.xlsx
 ```
 
 This reads your reviewed `validation_review.xlsx` and produces:

@@ -455,11 +455,11 @@ Flags that reduce confidence: `EMPTY_DESCRIPTION`, `SHORT_DESCRIPTION`, `LONG_DE
 
 After a human reviews `validation_review.xlsx`, the feedback ingestion script reads the annotations and produces the authoritative control set plus improvement suggestions.
 
-**Script:** `scripts/ingest_review_feedback.py`
+**Script:** `Misc/ingest_review_feedback.py`
 
 ```bash
-python scripts/ingest_review_feedback.py
-python scripts/ingest_review_feedback.py --config dps_config.xlsx
+python Misc/ingest_review_feedback.py
+python Misc/ingest_review_feedback.py --config dps_config.xlsx
 ```
 
 **Workflow:**
