@@ -1,0 +1,108 @@
+# ============================================================================
+# Control Mapping Template — Configuration
+# ============================================================================
+#
+# See README.md for the full user guide, examples, and accuracy guidance.
+#
+# QUICK START:
+#   1. Place your Excel file in input/ (one file, two worksheets)
+#   2. Update every field below to match YOUR Excel layout
+#   3. Run:  python scripts/setup.py
+#   4. Process each batch file in batches/ with Claude Code
+#   5. Save JSON output to results/
+#   6. Run:  python scripts/merge.py
+#
+# COLUMN INDICES are 0-based: A=0, B=1, C=2, D=3, ...
+#
+# ============================================================================
+
+project_name: "SSCF to CCM Mapping"
+
+# Path to input Excel file (relative to this config file)
+input_file: "input/controls.xlsx"
+
+# ---------------------------------------------------------------------------
+# SOURCE — the framework being mapped FROM (its controls get batched)
+# ---------------------------------------------------------------------------
+source:
+  name: "SSCF"                           # Display name (used in prompts and output)
+  sheet_name: "SSCF"                     # Exact Excel worksheet name (case-sensitive)
+  columns:
+    id: 2                                # Column C: Control ID
+    description: 3                       # Column D: Control Specification
+    supplemental:
+      - index: 0
+        label: "Domain"                  # Column A: Control Domain (grouping field)
+      - index: 1
+        label: "Title"                   # Column B: Control Title
+      - index: 4
+        label: "Details"                 # Column E: Control Details
+      - index: 5
+        label: "Guidelines"              # Column F: Implementation Guidelines
+  header_row: 1                          # Row number with headers (1-based); data starts next row
+
+# ---------------------------------------------------------------------------
+# TARGET — the framework being mapped TO (full catalog embedded in prompts)
+# ---------------------------------------------------------------------------
+target:
+  name: "CCM"                            # Display name
+  sheet_name: "CCM"                      # Exact Excel worksheet name (case-sensitive)
+  columns:
+    id: 2                                # Column C: Control ID
+    description: 3                       # Column D: Control Specification
+    supplemental:
+      - index: 0
+        label: "Domain"                  # Column A: Control Domain
+      - index: 1
+        label: "Title"                   # Column B: Control Title
+  header_row: 1
+
+  # TARGET CHUNKING — split the target catalog into smaller groups per prompt
+  # -------------------------------------------------------------------------
+  # When disabled (default): the FULL target catalog is embedded in every batch.
+  # When enabled: target controls are grouped by ID prefix (e.g., AC-, CM-, SI-)
+  # and each source batch is mapped against each target group separately.
+  # This dramatically improves accuracy for large target catalogs (200+).
+  #
+  # HOW IT WORKS:
+  #   With 5 source batches and 8 target families, setup.py generates 40 batch
+  #   files (5×8). Each prompt is focused: a few source controls vs. one target
+  #   family. merge.py combines matches across all target families per source
+  #   control automatically.
+  #
+  # WHEN TO USE:
+  #   - Target has 200+ controls with dense, overlapping language
+  #   - Target IDs have clear family prefixes (AC-1, CM-2, SI-3, etc.)
+  #   - You want higher accuracy and don't mind more batch files
+  #
+  chunking:
+    enabled: true                        # CCM has 207 controls — chunking avoids mid-list misses
+    strategy: "prefix"                   # Group by ID prefix: A&A-01 → family "A&A"
+    separator: "-"                       # For "prefix" strategy: character separating family
+                                         # from number. "A&A-01" with separator "-" → family "A&A"
+    group_by_column: null                # For "column" strategy: column index to group by
+    max_controls_per_chunk: 50           # Combine small families until this limit.
+                                         # Prevents tiny families (2-3 controls) from each
+                                         # getting their own batch. Set to 0 to never combine.
+
+# ---------------------------------------------------------------------------
+# BATCHING — how source controls are chunked into manageable prompts
+# ---------------------------------------------------------------------------
+batching:
+  group_by: 0                            # Column A (Domain) — keep controls from same domain together.
+                                         # Must also appear in source.columns.supplemental.
+  batch_size: 8                          # Max source controls per batch.
+                                         # Smaller = more accurate mapping but more batches to process.
+                                         # Recommended: 5-10 for detailed mapping, 10-15 for faster runs.
+
+# ---------------------------------------------------------------------------
+# CONFIDENCE — levels used in mapping and gap analysis
+# ---------------------------------------------------------------------------
+confidence:
+  coverage_levels:                       # Which confidence levels count as "covered"
+    - "high"                             # (controls with ONLY low matches are flagged as gaps)
+    - "medium"
+  all_levels:                            # All valid confidence levels (high to low)
+    - "high"
+    - "medium"
+    - "low"
