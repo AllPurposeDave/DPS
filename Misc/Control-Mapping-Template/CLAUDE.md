@@ -1,13 +1,13 @@
 # Control Mapping Template
 
 ## Environment
-This project uses the **Continue Extension** (VS Code) with **Claude Sonnet 4.5**. Context is NOT loaded automatically — every relevant file must be explicitly added to the chat using `@FILE-Name` syntax before prompting.
+This project is designed for interactive AI chat sessions in VS Code (e.g. Claude Sonnet 4.5 or similar). Context is NOT loaded automatically — every relevant file must be explicitly added to the chat using `@FILE-Name` syntax before prompting.
 
 ## Standard Prompt Pattern
 ```
 @CLAUDE.md @batches/<filename>.md Follow the instructions in the batch file.
 ```
-Both `@CLAUDE.md` and the target batch file must be included in every chat. Press **Ctrl+Enter** to confirm any file write.
+Both `@CLAUDE.md` and the target batch file must be included in every chat.
 
 ## What This Project Does
 Maps controls from a **source** framework against a **target** framework to identify coverage gaps. Configured via `config.yaml`. See `README.md` for full user guide.

@@ -22,14 +22,14 @@ This produces a **many-to-many mapping**: each source control can match multiple
 ## Prerequisites
 
 - Python 3.8+
-- [Continue Extension](https://www.continue.dev/) for VS Code (configured with Claude Sonnet 4.5)
+- An interactive AI chat tool in VS Code (e.g. Claude Sonnet 4.5 or similar)
 - An Excel file with two worksheets (one per framework)
 
 ```bash
 pip install -r requirements.txt
 ```
 
-> **Continue Extension note:** Continue does not automatically read files — all context must be manually added to each chat using `@FILE-Name` syntax. See Step 5 for the exact prompt pattern.
+> **Context injection note:** Files are not read automatically — all context must be manually added to each chat using `@FILE-Name` syntax. See Step 5 for the exact prompt pattern.
 
 ---
 
@@ -136,7 +136,7 @@ Review the output to verify correct control counts and batch breakdown.
 
 ### Step 5: Process Batches
 
-For each `.md` file in `batches/`, open a new Continue chat and use this prompt pattern:
+For each `.md` file in `batches/`, open a new chat session and use this prompt pattern:
 
 > **`@CLAUDE.md @batches/<filename>.md` Follow the instructions in the batch file.**
 
@@ -149,10 +149,10 @@ The model will:
 2. Analyze each source control against the target controls
 3. Output a JSON mapping
 
-**Save the JSON output** to `results/<batch_name>_result.json` (the batch file tells you the exact filename). Press **Ctrl+Enter** to confirm the file write in Continue.
+**Save the JSON output** to `results/<batch_name>_result.json` (the batch file tells you the exact filename).
 
 **Tips:**
-- Process batches in any order — use a fresh Continue chat per batch
+- Process batches in any order — use a fresh chat session per batch
 - Work across multiple sessions — results accumulate in `results/`
 - If a batch seems wrong, delete its result file and reprocess
 - In chunked mode, the same source controls appear in multiple batches (one per target group) — this is expected
