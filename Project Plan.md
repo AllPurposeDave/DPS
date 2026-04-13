@@ -27,7 +27,7 @@ See user_guide.md > Running the Pipeline for CLI usage and standalone script com
 | 8 | `docx2jsonl.py` | Convert .docx files to chunked JSONL for RAG/vector DB ingestion | `output/8 - jsonl/` |
 | 9 | `validate_controls.py` | Validate all Step 2 controls are present in Step 5 split documents; produces review workbook for human annotation | `output/9 - validation/` |
 
-**Always run Step 0 first.** Step 4 reads from Step 3's output. Step 5 reads from Step 4's output. Step 6 reads from Step 5's output. Steps 7 and 8 read from Step 6's output (or Step 4's, configurable). Steps 1, 2, 3 read from `input/` directly.
+**Always run Step 0 first.** Steps 1, 2, 3, and 4 all read from `input/` directly. Step 3 must run before Step 4 (Step 3 snapshots cross-references before Step 4 modifies headings, but Step 4 does not read Step 3's output). Step 5 reads from Step 4's output. Step 6 reads from Step 5's output. Steps 7 and 8 read from Step 6's output (or Step 4's, configurable).
 
 ## Input File Classification
 
@@ -77,15 +77,29 @@ See user_guide.md > Output Reference for sheet details and skip options.
 
 Standalone tools in `Misc/` for supplemental audits. These do NOT run through `run_pipeline.py` — execute them directly.
 
-### Acronym Finder (`Misc/Acronym Finder/acronym_finder.py`)
+### Validation Feedback Ingestion (`Misc/ingest_review_feedback.py`)
 
-See user_guide.md > Step 1 and Acronym Definitions Lifecycle for usage, curation workflow, and output details.
+Closes the loop between Step 9's automated validation and human review. See the Validation Feedback Loop section below for full details.
 
-> **Note:** The Extract Controls standalone script that was previously in `Misc/` has been consolidated into pipeline Step 2. It supports whitelist/blacklist filtering, multiple control ID patterns, configurable heading detection, and Excel output. Word counting is now integrated into Step 0 (profiler). Configure via `dps_config.xlsx`.
+### Control Attribute Analysis (`Misc/analyze_control_attributes.py`)
 
-### DOCX to Markdown Converter (Step 7 — `scripts/docx2md.py`)
+Analyzes control attributes from extracted control data. Run standalone against Step 2 output.
 
-See user_guide.md > Step 7 and Section 13 for full feature list and config reference.
+### Dataverse Export (`Misc/dataverse_export/`)
+
+Exports DPS control data to Dataverse format. See `Misc/dataverse_export/CLAUDE.md` for details.
+
+### Control Mapping Template (`Misc/Control-Mapping-Template/`)
+
+Batch control-to-framework mapping tool. See `Misc/Control-Mapping-Template/README.md` for usage.
+
+### XLSX to DOCX Converter (`Misc/xlsx2docx/`)
+
+Converts Excel-based content to Word documents. See `Misc/xlsx2docx/CLAUDE.md` for details.
+
+### Doc Template Builder (`Misc/Doc Template Builder/`)
+
+Builds Word documents from Excel config templates.
 
 ## Workflow Overview
 
@@ -144,7 +158,7 @@ Users can assign arbitrary tags to specific documents without affecting auto-gen
 2. Go to the "Custom Tags" sheet (or create one)
 3. Fill in: `Document_Name` | `Tags` (comma-separated per row, e.g. `access control, authentication, CUI`)
 
-See CLAUDE.md > Key Technical Internals > Custom Tags Implementation for the code-level details.
+See `Misc/Control-Mapping-Template/CLAUDE.md` for code-level implementation reference.
 
 ### Acronym & Tagging Process: End-to-End Failure Point Map
 
@@ -156,7 +170,7 @@ This section documents every point where the acronym discovery → human curatio
 Step 1 (acronym_finder.py)
     │
     ▼
-acronym_audit.xlsx          ◄── 7 sheets, Status column, instruction rows
+acronym_audit.xlsx          ◄── 7 sheets (incl. Custom Tags), Status column, instruction rows
     │
     │  ┌──────────────────────────────────────────────────┐
     │  │  HUMAN REVIEW (highest failure risk)             │
@@ -258,12 +272,12 @@ Two distinct concepts are tracked for every heading-delimited section:
 
 The match is substring-based and case-insensitive: if any configured lookup term appears in (or contains) the heading text, that label is assigned.
 
-See `user_guide.md > Section 3: Document Structure Detection` for customizing lookup terms.
+See `user_guide.md > Section 14: Document Structure Detection` for customizing lookup terms.
 - Priority score — combines table count, cross-ref count, fake headings, page count, missing sections, merged cells, oversized flag
 
 Output format: `document_inventory.xlsx` (master spreadsheet) + `document_profiles.json` + CSVs per data type.
 
-See `user_guide.md > Configuration Reference` (Sections 3, 4, 8, 9) for tuning profiler settings.
+See `user_guide.md > Configuration Reference` (Sections 4-8, 14-15) for tuning profiler settings.
 
 ## Phase 2: Document Type Classification
 
@@ -283,7 +297,7 @@ Review the Step 0 inventory for type assignments before proceeding. Override any
 
 ## Phase 3: Document Transformation
 
-Automated pre-processing (Steps 3-5) runs first, then Copilot Notebook 2 handles the remaining transformation using the instruction templates in `references/`.
+Automated pre-processing (Steps 3-5) runs first, then Copilot Notebook 2 handles the remaining transformation using instruction templates (managed separately — see Reference Files section).
 
 ### Automated Pre-Processing (Steps 3-5)
 
@@ -312,7 +326,7 @@ Validation runs two tracks: automated structural checks (Step 0 word counts + ad
 
 ### Automated Structural Validation
 
-**Step 0** (`python run_pipeline.py --step 0`) now includes word counts per document in the profiler output as a baseline QA check. For ad-hoc word counting on split sub-documents, use `python scripts/word_counter.py`.
+**Step 0** (`python run_pipeline.py --step 0`) now includes word counts per document in the profiler output as a baseline QA check.
 
 For full structural validation, generate a batch validation script that checks per restructured document:
 
@@ -458,7 +472,7 @@ Generate Copilot Studio agent system instructions and test query suites.
 
 ### Agent Instruction Template
 
-Read `references/agent-template.md` for the full agent system instruction template. Customize per organization.
+The agent system instruction template is managed separately outside this repository. Customize per organization.
 
 ### Test Query Suite
 
@@ -479,29 +493,17 @@ See [`Misc/Manual_Validation.md`](Misc/Manual_Validation.md) for the full feedba
 
 ## Reference Files
 
-Templates for notebook instructions and agent configuration. Some are stored in `SKILL/`, others are managed separately outside this repository.
+Templates for notebook instructions and agent configuration. These are managed separately outside this repository.
 
 | File | When to Read | Contains | Status |
 |------|-------------|----------|--------|
-| `SKILL/notebook2-instructions.md` | When generating transformation notebook instructions | Full Notebook 2 base system instruction template | Available |
-| `SKILL/type-addendums.md` | When generating type-specific transformation instructions | All Type A/B/C/D/E addendum templates with before/after examples | Available |
+| Notebook 2 base instructions | When generating transformation notebook instructions | Full Notebook 2 base system instruction template | Managed separately |
+| Type addendums (A/B/C/D/E) | When generating type-specific transformation instructions | All Type A/B/C/D/E addendum templates with before/after examples | Managed separately |
 | Platform constraints doc | Always, before any output | GCC model limits, ingestion paths, chunking constraints, SharePoint limits | Managed separately |
 | Notebook 1 instructions | When generating profiling/scripting notebook instructions | Full Notebook 1 system instruction template | Managed separately |
 | Notebook 3 instructions | When generating QA validation notebook instructions | Full Notebook 3 system instruction template with type-specific checks | Managed separately |
 | Agent template | When generating Copilot Studio agent config | Agent system instruction template and test query framework | Managed separately |
 | Validation plan | When generating validation scripts or retrieval tests | Script validation plan, single-variable testing protocol, compound testing | Managed separately |
-
-## Execution Timeline
-
-| Week | Phase | Key Actions |
-|------|-------|-------------|
-| 1 | Profile + Classify | Run `--step 0-1` (profiler + acronym finder). Review inventory CSV, priority ranking, type classification. |
-| 2 | Calibrate | Run `--step 2-4` on 1 doc per type. Calibrated Notebook 2 instructions v1.0. Early retrieval check (10 queries). |
-| 2-3 | Build Infrastructure | SharePoint library, restructuring template DOCX, MD-to-DOCX assembly script. |
-| 3-5 | Transform Priority Batch | `--step 2-4` batch, `--step 6` metadata injection, `--step 7-8` conversion, then Notebook 2 section by section, assembly, `--step 9` validation. 2-3 sub-docs/day pace. |
-| 6-7 | Dataverse Registry | `--step 2` for control extraction, Dataverse table populated, synonyms configured. |
-| 7-8 | Agent Deployment | Copilot Studio agent configured, 30-50 query baseline documented. |
-| 8+ | Iterate Remaining | Batches of 10-15, retrospectives per batch, instruction promotion checks. |
 
 ## Known Risks & Missing Features
 
@@ -516,17 +518,10 @@ Templates for notebook instructions and agent configuration. Some are stored in 
 | **Table Flattening (Notebook 2)** | High | Control matrices encode relationships via row/column position. Flattening to prose requires interpreting those relationships. A "Yes" cell under "Encryption Required" next to "PII at Rest" becomes a sentence — and the sentence's wording *is* the policy now. |
 | **Cross-Reference Inlining (Notebook 2)** | Medium | Replacing "See Section 4.3" with the actual text of 4.3 can change meaning if 4.3 is paraphrased or truncated. Over-inlining bloats chunks; under-inlining leaves dangling pointers. |
 
-### Missing from the Pipeline
+### Addressed Gaps
 
-1. **Sub-Document Titling Strategy:** Output files named `[OriginalName] - [Heading1Text].docx` produce generic names like `*- Controls.docx` across many source docs. Needs a convention encoding source policy name + specific topic.
-2. **Duplicate/Overlap Detection:** No mechanism detects when two sub-docs from different source policies cover the same topic. Copilot retrieves both and may give contradictory answers.
-3. **Chunk Identity Metadata:** ~~Beyond preamble, nothing marks *where in the original doc* a chunk came from.~~ **Addressed by Step 6 (`add_metadata.py`).** Each sub-doc now gets a metadata block with document name, URL, scope, intent, and tags. URLs are sourced from `input/Doc_URL.xlsx` — one file shared by both Step 2 (Published URL column in controls export) and Step 6 (metadata injection). Steps 7 and 8 propagate this metadata to Markdown frontmatter and JSONL chunks respectively. Effective date and parent heading chain are not yet included — add as custom fields in `metadata.fields` config if needed.
-4. **Version/Staleness Tracking:** ~~No mechanism identifies stale policies.~~ **Partially addressed by lifecycle tracking in Step 0.** The profiler now extracts each document's modified date (Word core properties) and compliance date (body text), then computes a freshness status: Overdue (>365 days), Review Soon (30–365 days), or Current (<30 days). These appear as traffic-light colored columns in `document_inventory.xlsx` and the consolidated DPS Report. **Still missing:** sub-document-level staleness detection — when a source doc is revised, no mechanism identifies which sub-docs need regeneration. `split_manifest.csv` needs a hash or timestamp per sub-doc.
-5. **Round-Trip Validation:** No check confirms the union of all sub-doc content equals the original (minus formatting). Missing or duplicated paragraphs from XML deep-copy edge cases go unnoticed.
-6. **Table Handling at Split Boundaries:** Tables attributed to the section where they start. A table spanning an H1 boundary goes entirely into the first section's sub-doc even if it semantically belongs to the next.
-7. **Max Doc Count Guardrail:** No check enforces the 400-doc SharePoint/Copilot source limit. The splitter should track cumulative sub-doc count and warn before exceeding the ceiling.
-
-Options to stay under 400: merge small adjacent sections before splitting, consolidate Type D appendix docs into shared reference docs, or exclude boilerplate sections (Document History, Approval Signatures) from output.
+1. **Chunk Identity Metadata:** Addressed by Step 6 (`add_metadata.py`). Each sub-doc gets a metadata block with document name, URL, scope, intent, and tags. URLs are sourced from `input/Doc_URL.xlsx` — shared by Steps 2 and 6. Steps 7 and 8 propagate this metadata to Markdown frontmatter and JSONL chunks respectively. Effective date and parent heading chain are not yet included — add as custom fields in `metadata.fields` config if needed.
+2. **Version/Staleness Tracking:** Partially addressed by lifecycle tracking in Step 0. The profiler extracts each document's modified date (Word core properties) and compliance date (body text), then computes a freshness status: Overdue (>365 days), Review Soon (30–365 days), or Current (<30 days). These appear as traffic-light colored columns in `document_inventory.xlsx` and the consolidated DPS Report. Sub-document-level staleness detection is not yet implemented — when a source doc is revised, no mechanism identifies which sub-docs need regeneration.
 
 ## Excel Config System (`dps_config.xlsx`)
 
@@ -557,22 +552,22 @@ Every sheet follows one of three layout patterns. Understanding these is critica
 | **README** | (instructions) | Not config — explains how to use the workbook |
 | **Input** | Settings + List | Input directory, glob pattern, recursive flag, exclude patterns |
 | **Output** | Settings | Output directory and sub-folder/filename for every step (0-9) |
-| **Sections** | List (by category) | Keywords the profiler fuzzy-matches against H1 headings (purpose, scope, intent, controls, appendix) |
-| **Headings** | List + Map + Settings | Built-in/custom heading styles, custom→standard style map, fake heading detection thresholds, heading level regex patterns |
-| **Text Deletions** | Settings + List + Table | Enable/disable text deletion in Step 3, exact phrases to remove, **section deletions** (heading + body removal by heading name match) |
-| **Cross References** | Settings + List | Detection toggles, profiler regex patterns, extraction phrase→type pairs, document name keywords |
-| **Tables** | List (by type) | Keywords and min-column counts for classifying table types (control matrix, applicability, etc.) |
-| **Classification** | Settings + List | Thresholds for Type A/B/D classification, Type C procedure keywords |
-| **Profiling Flags** | Settings | Thresholds for ControlDense, HeadingVariance, TableDense flags |
-| **Thresholds** | Settings | `max_characters` (chunk size limit), page estimation ratios, flagging thresholds |
-| **Priority Scoring** | Settings + Map | Scoring weights per factor, per-document usage frequency overrides |
-| **Search Terms** | Settings + List | Enable/mode/display for key term search, list of terms (each becomes a column in profiler output) |
-| **Control Extraction** | Settings + List + Map | Bold requirement, patterns, whitelist/blacklist, guidance keywords, metadata triggers, heading detection |
 | **Pipeline** | Table | Step number, name, script, enabled (TRUE/FALSE), description — one row per step |
-| **Metadata** | Settings + List | Placement, styling, field definitions (key/label/source), URL lookup config, tag generation, static tags |
-| **Docx2md** | Settings + List | Pure vs optimized mode, image handling, table strategy, heading cleanup, frontmatter fields |
-| **Docx2jsonl** | Settings | Chunking params, acronym definitions file, tag mapping |
-| **Acronym Finder** | Settings + List | Search params, detection pattern toggles, ignore list |
+| **0-Classification** | Settings + List | Thresholds for Type A/B/D classification, Type C procedure keywords |
+| **0-Profiling Flags** | Settings | Thresholds for ControlDense, HeadingVariance, TableDense flags |
+| **0-Tables** | List (by type) | Keywords and min-column counts for classifying table types (control matrix, applicability, etc.) |
+| **0-Priority Scoring** | Settings + Map | Scoring weights per factor, per-document usage frequency overrides |
+| **0-Search Terms** | Settings + List | Enable/mode/display for key term search, list of terms (each becomes a column in profiler output) |
+| **1-Acronym Finder** | Settings + List | Search params, detection pattern toggles, ignore list |
+| **2-Control Extraction** | Settings + List + Map | Bold requirement, patterns, whitelist/blacklist, guidance keywords, metadata triggers, heading detection |
+| **3-Cross References** | Settings + List | Detection toggles, profiler regex patterns, extraction phrase→type pairs, document name keywords |
+| **4-Headings** | List + Map + Settings | Built-in/custom heading styles, custom→standard style map, fake heading detection thresholds, heading level regex patterns |
+| **4-Text Deletions** | Settings + List + Table | Enable/disable text deletion in Step 4, exact phrases to remove, **section deletions** (heading + body removal by heading name match) |
+| **5-Sections** | List (by category) | Keywords the profiler fuzzy-matches against H1 headings (purpose, scope, intent, controls, appendix) |
+| **5-Thresholds** | Settings | `max_characters` (chunk size limit), page estimation ratios, flagging thresholds |
+| **6-Metadata** | Settings + List | Placement, styling, field definitions (key/label/source), URL lookup config, tag generation, static tags |
+| **7-Docx2md** | Settings + List | Pure vs optimized mode, image handling, table strategy, heading cleanup, frontmatter fields |
+| **8-Docx2jsonl** | Settings | Chunking params, acronym definitions file, tag mapping |
 
 ### Critical Conventions (Must Follow When Editing)
 
@@ -641,12 +636,12 @@ Each step below documents its exact inputs, outputs, config dependencies, extern
 |---|---|
 | **Reads from** | `input/` directory (*.docx files) |
 | **Writes to** | `output/0 - profiler/document_inventory.xlsx`, `document_profiles.json`, `section_inventory.csv`, `table_inventory.csv`, `crossref_inventory.csv` |
-| **Config sections** | Input, Output, Headings, Sections, Tables, Cross References, Classification, Profiling Flags, Thresholds, Priority Scoring, Search Terms, Control Extraction |
+| **Config sections** | Input, Output, 4-Headings, 5-Sections, 0-Tables, 3-Cross References, 0-Classification, 0-Profiling Flags, 5-Thresholds, 0-Priority Scoring, 0-Search Terms, 2-Control Extraction |
 | **Key config keys** | `headings.builtin_styles`, `headings.custom_heading_styles`, `headings.fake_heading_min_font_size`, `headings.fake_heading_max_chars`, `sections.*` (all 5 categories), `tables.classification.*`, `cross_references.profiler_patterns`, `classification.type_a/b/c/d.*`, `priority_scoring.weights`, `thresholds.max_characters`, `thresholds.paragraphs_per_page`, `search_terms.enabled/terms/match_mode`, `control_extraction.control_id_patterns` |
 | **External files** | None |
 | **Shared utils** | `load_config`, `get_input_dir`, `get_output_dir`, `iter_docx_files`, `ensure_output_dir`, `is_heading_style`, `get_heading_level`, `is_paragraph_bold`, `paragraph_char_count`, `log_pipeline_issue` |
 
-**Notes:** This is the only step that reads from Classification, Profiling Flags, Priority Scoring, Search Terms, and Tables config sections. It also reads `control_extraction.control_id_patterns` to count control IDs per document — changing those patterns affects both Step 0 counts and Step 2 extraction. Includes lifecycle tracking: extracts modified date (Word core properties) and compliance date (body text "as of" pattern), computes freshness status (Overdue/Review Soon/Current) with traffic-light conditional formatting in the inventory Excel.
+**Notes:** This is the only step that reads from 0-Classification, 0-Profiling Flags, 0-Priority Scoring, 0-Search Terms, and 0-Tables config sections. It also reads `control_extraction.control_id_patterns` to count control IDs per document — changing those patterns affects both Step 0 counts and Step 2 extraction. Includes lifecycle tracking: extracts modified date (Word core properties) and compliance date (body text "as of" pattern), computes freshness status (Overdue/Review Soon/Current) with traffic-light conditional formatting in the inventory Excel.
 
 ---
 
@@ -655,8 +650,8 @@ Each step below documents its exact inputs, outputs, config dependencies, extern
 | Attribute | Details |
 |---|---|
 | **Reads from** | `input/` directory (*.docx files) |
-| **Writes to** | `output/1 - acronyms/acronym_audit.xlsx` (6 sheets: Acronym Definitions, Per Document, Global Summary, Undefined Acronyms, Cross-Reference Matrix, Config Used) |
-| **Config sections** | Input, Output, Acronym Finder |
+| **Writes to** | `output/1 - acronyms/acronym_audit.xlsx` (7 sheets: Acronym Definitions, Per Document, Global Summary, Undefined Acronyms, Cross-Reference Matrix, Custom Tags, Config Used) |
+| **Config sections** | Input, Output, 1-Acronym Finder |
 | **Key config keys** | `acronym_finder.output_file`, `acronym_finder.search.*` (min_length, max_length, scan_tables, scan_headers_footers, scan_textboxes, min_global_occurrences, min_doc_occurrences), `acronym_finder.patterns.*` (pure_caps, caps_with_numbers, caps_with_hyphens, caps_with_slashes, parenthetical_defs), `acronym_finder.ignore_list` |
 | **External files** | None |
 | **Shared utils** | `load_config` (imported as `_load_dps_config`) |
@@ -671,7 +666,7 @@ Each step below documents its exact inputs, outputs, config dependencies, extern
 |---|---|
 | **Reads from** | `input/` directory (*.docx files) |
 | **Writes to** | `output/2 - controls/controls_output.csv`, `controls_output.xlsx`, `checkpoint.json`, `errors.log` |
-| **Config sections** | Input, Output, Control Extraction, Metadata (URL resolution) |
+| **Config sections** | Input, Output, 2-Control Extraction, 6-Metadata (URL resolution) |
 | **Key config keys** | `control_extraction.control_id_patterns`, `control_extraction.require_bold_control_id`, `control_extraction.bold_fallback_if_zero`, `control_extraction.tables_ignore_bold`, `control_extraction.control_id_anchor_start`, `control_extraction.control_id_start_chars`, `control_extraction.min_control_block_lines`, `control_extraction.enable_checkpoint`, `control_extraction.output_format`, `control_extraction.implementation_trigger`, `control_extraction.guidance_keywords`, `control_extraction.metadata_triggers.*`, `control_extraction.heading_detection.*`, `control_extraction.metadata_scan_paragraphs`, `metadata.url.*` (lookup_file, name_column, url_column, sheet, fallback_template) |
 | **External files** | `input/Doc_URL.xlsx` (for Published URL column in controls output) |
 | **Shared utils** | `load_config`, `setup_argparse`, `get_input_dir`, `get_output_dir`, `iter_docx_files`, `ensure_output_dir`, `resolve_path`, `log_pipeline_issue` |
@@ -686,7 +681,7 @@ Each step below documents its exact inputs, outputs, config dependencies, extern
 |---|---|
 | **Reads from** | `input/` directory (*.docx files) — must run BEFORE heading fixes |
 | **Writes to** | `output/3 - cross_references/cross_references.csv` |
-| **Config sections** | Input, Output, Cross References |
+| **Config sections** | Input, Output, 3-Cross References |
 | **Key config keys** | `cross_references.detect_hyperlink_crossrefs`, `cross_references.detect_urls`, `cross_references.extraction_patterns[].phrase/type`, `cross_references.document_name_keywords` |
 | **External files** | None |
 | **Shared utils** | `load_config`, `setup_argparse`, `get_input_dir`, `get_output_dir`, `iter_docx_files`, `ensure_output_dir`, `find_parent_heading`, `log_pipeline_issue` |
@@ -701,12 +696,12 @@ Each step below documents its exact inputs, outputs, config dependencies, extern
 |---|---|
 | **Reads from** | `input/` directory (*.docx files) |
 | **Writes to** | `output/4 - heading_fixes/*_fixed.docx`, `heading_changes.csv` |
-| **Config sections** | Input, Output, Headings, Text Deletions |
+| **Config sections** | Input, Output, 4-Headings, 4-Text Deletions |
 | **Key config keys** | `headings.heading1_pattern`, `headings.heading2_pattern`, `headings.heading3_pattern`, `headings.custom_style_map`, `headings.fake_heading_max_chars_fixer`, `headings.default_heading_level`, `text_deletions.enabled`, `text_deletions.phrases`, `text_deletions.case_sensitive`, `text_deletions.section_deletions[].heading/delete`, `text_deletions.remove_table_of_content`, `text_deletions.remove_headers_footers`, `text_deletions.remove_revision_tables`, `text_deletions.flatten_definition_tables` |
 | **External files** | None |
 | **Shared utils** | `load_config`, `setup_argparse`, `get_input_dir`, `get_output_dir`, `iter_docx_files`, `ensure_output_dir`, `is_heading_style`, `is_paragraph_bold`, `log_pipeline_issue` |
 
-**Notes:** This is the only step that reads Text Deletions config. Its output (`*_fixed.docx`) is the primary input for Step 5. Uses `fake_heading_max_chars_fixer` (tighter limit), not `fake_heading_max_chars` (profiler's looser limit).
+**Notes:** This is the only step that reads 4-Text Deletions config. Its output (`*_fixed.docx`) is the primary input for Step 5. Uses `fake_heading_max_chars_fixer` (tighter limit), not `fake_heading_max_chars` (profiler's looser limit).
 
 **Processing order within Step 4:**
 1. Remove TOC-styled paragraphs (`remove_table_of_content`)
@@ -725,7 +720,7 @@ Each step below documents its exact inputs, outputs, config dependencies, extern
 |---|---|
 | **Reads from** | `output/4 - heading_fixes/*_fixed.docx` (Step 4 output) |
 | **Writes to** | `output/5 - split_documents/[DocName] - [H1Text].docx`, `split_manifest.csv` |
-| **Config sections** | Output, Thresholds |
+| **Config sections** | Output, 5-Thresholds |
 | **Key config keys** | `output.heading_fixes.directory` (input source), `output.split_documents.directory`, `output.split_documents.manifest_file`, `thresholds.max_characters`, `thresholds.chars_per_page` |
 | **External files** | None |
 | **Shared utils** | `load_config`, `setup_argparse`, `get_output_dir`, `iter_docx_files`, `ensure_output_dir`, `get_heading_level`, `sanitize_filename`, `log_pipeline_issue` |
@@ -740,7 +735,7 @@ Each step below documents its exact inputs, outputs, config dependencies, extern
 |---|---|
 | **Reads from** | `output/5 - split_documents/*.docx` (Step 5 output), `output/0 - profiler/document_profiles.json` (Step 0 output, optional) |
 | **Writes to** | `output/6 - metadata/*.docx`, `metadata_manifest.csv` |
-| **Config sections** | Input, Output, Metadata, Sections |
+| **Config sections** | Input, Output, 6-Metadata, 5-Sections |
 | **Key config keys** | `metadata.placement`, `metadata.add_separator`, `metadata.font_size`, `metadata.label_color`, `metadata.fields[].key/label/enabled/source/value`, `metadata.url.*` (lookup_file, name_column, url_column, sheet, fallback_template), `metadata.max_scope_chars`, `metadata.max_intent_chars`, `metadata.tags.*` (include_doc_type, include_sections_found, acronym_audit_file, max_acronym_tags, static_tags), `sections.*` (for scope/intent keyword matching), `output.profiler.directory/json_file`, `output.split_documents.directory/manifest_file` |
 | **External files** | `input/Doc_URL.xlsx`, `input/Acronym_Definitions.xlsx` or `output/1 - acronyms/acronym_audit.xlsx` (via `tags.acronym_audit_file`), `output/0 - profiler/document_profiles.json` |
 | **Shared utils** | `load_config`, `setup_argparse`, `get_output_dir`, `iter_docx_files`, `ensure_output_dir`, `resolve_path`, `match_doc_name`, `normalize_doc_name` |
@@ -755,7 +750,7 @@ Each step below documents its exact inputs, outputs, config dependencies, extern
 |---|---|
 | **Reads from** | `input/` (if `pure_conversion=True`) OR `output/4 - heading_fixes/` (default, configurable via `optimized_source_step`) |
 | **Writes to** | `output/7 - markdown/*.md`, timestamped log Excel |
-| **Config sections** | Input, Output, Headings (custom_style_map only), Docx2md, Metadata (URL only), Control Extraction (optional) |
+| **Config sections** | Input, Output, 4-Headings (custom_style_map only), 7-Docx2md, 6-Metadata (URL only), 2-Control Extraction (optional) |
 | **Key config keys** | `docx2md.pure_conversion`, `docx2md.optimized_source_step`, `docx2md.include_metadata_frontmatter`, `docx2md.metadata_fields[].name/source/default`, `docx2md.image_handling`, `docx2md.table_strategy`, `docx2md.heading_normalization`, `docx2md.max_heading_level`, `docx2md.max_consecutive_blank_lines`, `docx2md.clean_smart_quotes`, `docx2md.strip_zero_width_chars`, `docx2md.extract_text_boxes`, `docx2md.include_doc_url`, `docx2md.metadata_placement`, `docx2md.promote_control_ids_to_heading`, `docx2md.log_file_prefix`, `headings.custom_style_map`, `metadata.url.*`, `control_extraction.control_id_patterns` (for heading promotion), `control_extraction.require_bold_control_id` |
 | **External files** | `input/Doc_URL.xlsx` (for `PublishedURL` frontmatter field), any Excel referenced in `metadata_fields[].source` with `excel_lookup_list:` prefix (e.g., `input/Acronym_Definitions.xlsx`) |
 | **Shared utils** | `load_config`, `setup_argparse`, `iter_docx_files`, `ensure_output_dir`, `get_heading_level`, `is_paragraph_bold`, `match_doc_name`, `resolve_path`, `sanitize_filename` |
@@ -770,7 +765,7 @@ Each step below documents its exact inputs, outputs, config dependencies, extern
 |---|---|
 | **Reads from** | `input/` (if `pure_conversion=True`) OR `output/4 - heading_fixes/` (default, configurable via `optimized_source_step`) |
 | **Writes to** | `output/8 - jsonl/*.jsonl.txt` |
-| **Config sections** | Input, Output, Headings, Docx2jsonl, Metadata (URL only) |
+| **Config sections** | Input, Output, 4-Headings, 8-Docx2jsonl, 6-Metadata (URL only) |
 | **Key config keys** | `docx2jsonl.pure_conversion`, `docx2jsonl.optimized_source_step`, `docx2jsonl.max_chunk_chars`, `docx2jsonl.overlap_words`, `docx2jsonl.min_chunk_chars`, `docx2jsonl.acronym_definitions_file`, `docx2jsonl.tag_file`, `headings.heading1/2/3_pattern`, `headings.custom_style_map`, `headings.default_heading_level`, `headings.fake_heading_max_chars_fixer`, `metadata.url.*` |
 | **External files** | `input/Doc_URL.xlsx`, `input/Acronym_Definitions.xlsx` (via `acronym_definitions_file`), optional tag mapping Excel (via `tag_file`) |
 | **Shared utils** | `load_config`, `setup_argparse`, `iter_docx_files`, `ensure_output_dir`, `get_heading_level`, `is_heading_style`, `is_paragraph_bold`, `match_doc_name`, `normalize_doc_name`, `resolve_path`, `sanitize_filename` |
@@ -785,7 +780,7 @@ Each step below documents its exact inputs, outputs, config dependencies, extern
 |---|---|
 | **Reads from** | `output/2 - controls/controls_output.csv` (Step 2 output), `output/5 - split_documents/*.docx` + `split_manifest.csv` (Step 5 output), `input/*.docx` (for context) |
 | **Writes to** | `output/9 - validation/control_validation.csv`, `validation_review.xlsx` |
-| **Config sections** | Input, Output, Control Extraction |
+| **Config sections** | Input, Output, 2-Control Extraction |
 | **Key config keys** | `input.directory`, `output.controls.directory`, `output.split_documents.directory`, `output.split_documents.manifest_file`, `output.validation.directory/output_file/review_file`, `control_extraction.control_id_patterns` |
 | **External files** | None (reads other steps' outputs) |
 | **Shared utils** | `load_config`, `setup_argparse`, `get_input_dir`, `ensure_output_dir` |
@@ -839,7 +834,7 @@ This table maps every config section (Excel sheet) to the specific keys within i
 | `consolidated_report.enabled` | `TRUE` | `run_pipeline.py` |
 | `consolidated_report.filename_prefix` | `DPS_Report` | `run_pipeline.py` |
 
-#### Sections Sheet
+#### 5-Sections Sheet
 
 | Config Key | Default | Read By |
 |---|---|---|
@@ -849,7 +844,7 @@ This table maps every config section (Excel sheet) to the specific keys within i
 | `controls` (keyword list) | controls, technical controls, ... | Step 0 |
 | `appendix` (keyword list) | appendix, appendices, ... | Step 0 |
 
-#### Headings Sheet
+#### 4-Headings Sheet
 
 | Config Key | Default | Read By |
 |---|---|---|
@@ -866,7 +861,7 @@ This table maps every config section (Excel sheet) to the specific keys within i
 
 **Critical distinction:** `fake_heading_max_chars` (200) is for Step 0 profiler candidates. `fake_heading_max_chars_fixer` (120) is the tighter limit for Step 4 actual conversion and Steps 7/8 heading detection. They are separate settings for a reason — the profiler casts a wider net.
 
-#### Text Deletions Sheet
+#### 4-Text Deletions Sheet
 
 | Config Key | Default | Read By |
 |---|---|---|
@@ -882,7 +877,7 @@ This table maps every config section (Excel sheet) to the specific keys within i
 
 **Single consumer:** Only Step 4 reads this sheet. The 4 boolean cleanup toggles (`remove_table_of_content`, `remove_headers_footers`, `remove_revision_tables`, `flatten_definition_tables`) operate independently of the `enabled` flag — they have their own gates.
 
-#### Cross References Sheet
+#### 3-Cross References Sheet
 
 | Config Key | Default | Read By |
 |---|---|---|
@@ -894,7 +889,7 @@ This table maps every config section (Excel sheet) to the specific keys within i
 
 **Critical distinction:** `profiler_patterns` = Step 0 counting only. `extraction_patterns` = Step 3 extraction only. They serve different purposes and changing one does not affect the other.
 
-#### Tables Sheet
+#### 0-Tables Sheet
 
 | Config Key | Default | Read By |
 |---|---|---|
@@ -902,7 +897,7 @@ This table maps every config section (Excel sheet) to the specific keys within i
 
 **Single consumer:** Only Step 0 uses table classification.
 
-#### Classification Sheet
+#### 0-Classification Sheet
 
 | Config Key | Default | Read By |
 |---|---|---|
@@ -913,7 +908,7 @@ This table maps every config section (Excel sheet) to the specific keys within i
 
 **Single consumer:** Only Step 0 classifies documents.
 
-#### Profiling Flags Sheet
+#### 0-Profiling Flags Sheet
 
 | Config Key | Default | Read By |
 |---|---|---|
@@ -924,7 +919,7 @@ This table maps every config section (Excel sheet) to the specific keys within i
 
 **Single consumer:** Only Step 0 generates flags.
 
-#### Thresholds Sheet
+#### 5-Thresholds Sheet
 
 | Config Key | Default | Read By |
 |---|---|---|
@@ -937,7 +932,7 @@ This table maps every config section (Excel sheet) to the specific keys within i
 
 **Shared key:** `max_characters` is the chunk size limit — Step 0 uses it to flag oversized docs, Step 5 uses it as the actual split threshold.
 
-#### Priority Scoring Sheet
+#### 0-Priority Scoring Sheet
 
 | Config Key | Default | Read By |
 |---|---|---|
@@ -946,7 +941,7 @@ This table maps every config section (Excel sheet) to the specific keys within i
 
 **Single consumer:** Only Step 0 calculates priority scores.
 
-#### Search Terms Sheet
+#### 0-Search Terms Sheet
 
 | Config Key | Default | Read By |
 |---|---|---|
@@ -957,7 +952,7 @@ This table maps every config section (Excel sheet) to the specific keys within i
 
 **Single consumer:** Only Step 0 searches for key terms.
 
-#### Control Extraction Sheet
+#### 2-Control Extraction Sheet
 
 | Config Key | Default | Read By |
 |---|---|---|
@@ -986,7 +981,7 @@ This table maps every config section (Excel sheet) to the specific keys within i
 
 **Single consumer:** Only `run_pipeline.py` reads step enable/disable status.
 
-#### Metadata Sheet
+#### 6-Metadata Sheet
 
 | Config Key | Default | Read By |
 |---|---|---|
@@ -1010,7 +1005,7 @@ This table maps every config section (Excel sheet) to the specific keys within i
 
 **High-impact keys:** `url.*` sub-keys are read by 4 steps. Changing the URL lookup file path or column names breaks URL resolution everywhere.
 
-#### Docx2md Sheet
+#### 7-Docx2md Sheet
 
 | Config Key | Default | Read By |
 |---|---|---|
@@ -1034,7 +1029,7 @@ This table maps every config section (Excel sheet) to the specific keys within i
 
 **Single consumer:** All keys read by Step 7 only. `pure_conversion` and `optimized_source_step` are also read by `run_pipeline.py` to build the correct CLI args.
 
-#### Docx2jsonl Sheet
+#### 8-Docx2jsonl Sheet
 
 | Config Key | Default | Read By |
 |---|---|---|
@@ -1048,7 +1043,7 @@ This table maps every config section (Excel sheet) to the specific keys within i
 
 **Single consumer:** All keys read by Step 8 only.
 
-#### Acronym Finder Sheet
+#### 1-Acronym Finder Sheet
 
 | Config Key | Default | Read By |
 |---|---|---|
@@ -1065,26 +1060,25 @@ Every config setting passes through three files. If you add or rename a setting,
 
 | Excel Sheet | Generator Function (`generate_config_template.py`) | Parser Function (`shared_utils.py`) | Consuming Scripts |
 |---|---|---|---|
-| Quick Start | `_build_quick_start()` | (not parsed — instructions only) | None |
 | README | `_build_readme()` | (not parsed — instructions only) | None |
 | Input | `_build_input_sheet()` | `_parse_input_sheet()` | Steps 0-4, 6, 9 |
 | Output | `_build_output_sheet()` | `_parse_output_sheet()` | All steps, `run_pipeline.py` |
-| Sections | `_build_sections_sheet()` | `_parse_sections_sheet()` | Steps 0, 6 |
-| Headings | `_build_headings_sheet()` | `_parse_headings_sheet()` | Steps 0, 4, 8; Step 7 (custom_style_map only) |
-| Text Deletions | `_build_text_deletions_sheet()` | `_parse_text_deletions_sheet()` | Step 4 |
-| Cross References | `_build_cross_references_sheet()` | `_parse_cross_references_sheet()` | Steps 0, 3 |
-| Tables | `_build_tables_sheet()` | `_parse_tables_sheet()` | Step 0 |
-| Classification | `_build_classification_sheet()` | `_parse_classification_sheet()` | Step 0 |
-| Profiling Flags | `_build_profiling_flags_sheet()` | `_parse_profiling_flags_sheet()` | Step 0 |
-| Thresholds | `_build_thresholds_sheet()` | `_parse_thresholds_sheet()` | Steps 0, 5 |
-| Priority Scoring | `_build_priority_scoring_sheet()` | `_parse_priority_scoring_sheet()` | Step 0 |
-| Search Terms | `_build_search_terms_sheet()` | `_parse_search_terms_sheet()` | Step 0 |
-| Control Extraction | `_build_control_extraction_sheet()` | `_parse_control_extraction_sheet()` | Steps 0, 2, 7, 9 |
 | Pipeline | `_build_pipeline_sheet()` | `_parse_pipeline_sheet()` | `run_pipeline.py` |
-| Metadata | `_build_metadata_sheet()` | `_parse_metadata_sheet()` | Steps 2, 6, 7, 8 |
-| Docx2md | `_build_docx2md_sheet()` | `_parse_docx2md_sheet()` | Step 7, `run_pipeline.py` |
-| Docx2jsonl | `_build_docx2jsonl_sheet()` | `_parse_docx2jsonl_sheet()` | Step 8, `run_pipeline.py` |
-| Acronym Finder | `_build_acronym_finder_sheet()` | `_parse_acronym_finder_sheet()` | Step 1 |
+| 0-Classification | `_build_classification_sheet()` | `_parse_classification_sheet()` | Step 0 |
+| 0-Profiling Flags | `_build_profiling_flags_sheet()` | `_parse_profiling_flags_sheet()` | Step 0 |
+| 0-Tables | `_build_tables_sheet()` | `_parse_tables_sheet()` | Step 0 |
+| 0-Priority Scoring | `_build_priority_scoring_sheet()` | `_parse_priority_scoring_sheet()` | Step 0 |
+| 0-Search Terms | `_build_search_terms_sheet()` | `_parse_search_terms_sheet()` | Step 0 |
+| 1-Acronym Finder | `_build_acronym_finder_sheet()` | `_parse_acronym_finder_sheet()` | Step 1 |
+| 2-Control Extraction | `_build_control_extraction_sheet()` | `_parse_control_extraction_sheet()` | Steps 0, 2, 7, 9 |
+| 3-Cross References | `_build_cross_references_sheet()` | `_parse_cross_references_sheet()` | Steps 0, 3 |
+| 4-Headings | `_build_headings_sheet()` | `_parse_headings_sheet()` | Steps 0, 4, 8; Step 7 (custom_style_map only) |
+| 4-Text Deletions | `_build_text_deletions_sheet()` | `_parse_text_deletions_sheet()` | Step 4 |
+| 5-Sections | `_build_sections_sheet()` | `_parse_sections_sheet()` | Steps 0, 6 |
+| 5-Thresholds | `_build_thresholds_sheet()` | `_parse_thresholds_sheet()` | Steps 0, 5 |
+| 6-Metadata | `_build_metadata_sheet()` | `_parse_metadata_sheet()` | Steps 2, 6, 7, 8 |
+| 7-Docx2md | `_build_docx2md_sheet()` | `_parse_docx2md_sheet()` | Step 7, `run_pipeline.py` |
+| 8-Docx2jsonl | `_build_docx2jsonl_sheet()` | `_parse_docx2jsonl_sheet()` | Step 8, `run_pipeline.py` |
 
 ### External File Dependency Map
 

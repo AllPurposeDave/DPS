@@ -21,7 +21,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import codecs
 import copy
 import csv
 import logging
@@ -96,6 +95,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "supplemental_guidance",
             "purpose",
             "scope",
+            "applicability",
         ],
     },
 }
@@ -128,6 +128,7 @@ RAG_LABELS: dict[str, str] = {
     "supplemental_guidance": "Supplemental Guidance",
     "purpose": "Purpose",
     "scope": "Scope",
+    "applicability": "Applicability",
 }
 
 
@@ -233,7 +234,12 @@ def load_controls(
             if record[field]:
                 record[field] = record[field].replace("\r\n", "\n").replace("\r", "\n")
 
-        # Derive family code and name for catalog controls
+        # Derive family code and name for catalog controls.
+        # If the Excel "Family" column contains a code (e.g. "AC") rather
+        # than a full name, promote it to the family field and look up the name.
+        if record["family_name"] and record["family_name"].upper() in family_map:
+            record["family"] = record["family_name"].upper()
+            record["family_name"] = family_map[record["family"]]
         if not record["family"]:
             record["family"] = _derive_family_code(record["control_id"])
         if not record["family_name"] and record["family"]:
@@ -549,15 +555,23 @@ Examples:
         print("No controls loaded from any source.", file=sys.stderr)
         sys.exit(1)
 
-    # Validate: warn on duplicate control_ids (primary key in Dataverse)
-    seen_ids: dict[str, int] = {}
+    # Deduplicate control_ids (Dataverse alternate key must be unique).
+    # Keep the first occurrence; catalog controls load before standard controls
+    # so catalog takes priority by default.
+    seen_ids: set[str] = set()
+    deduped: list[dict[str, str]] = []
     for ctrl in all_controls:
         cid = ctrl["control_id"]
-        seen_ids[cid] = seen_ids.get(cid, 0) + 1
-    dupes = {cid: count for cid, count in seen_ids.items() if count > 1}
-    if dupes:
-        logging.warning("Duplicate control_id values found (Dataverse primary key "
-                        "must be unique): %s", dupes)
+        if cid in seen_ids:
+            logging.warning("Dropping duplicate control_id '%s' (source: %s)",
+                            cid, ctrl.get("source", "unknown"))
+            continue
+        seen_ids.add(cid)
+        deduped.append(ctrl)
+    if len(deduped) < len(all_controls):
+        logging.info("Deduplicated: %d -> %d controls",
+                     len(all_controls), len(deduped))
+    all_controls = deduped
 
     # Build RAG content
     build_rag_content(all_controls, config)

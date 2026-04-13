@@ -34,13 +34,13 @@ Output goes to `../../output/dataverse_export/` by default (configurable in YAML
 CoPilot Studio cannot join tables. A single `dps_controls` table with all fields means every row is a self-contained answer unit for RAG retrieval. Both Control Catalog and Standard Controls rows live in the same table, distinguished by the `source` column.
 
 ### 2. Composite `rag_content` column
-CoPilot Studio may search a single column for matching content. The `rag_content` column concatenates control ID, name, family, baseline, description, guidance, purpose, and scope into a structured text block. This enables queries like "What does AC-2 require?" to match on a single field.
+CoPilot Studio may search a single column for matching content. The `rag_content` column concatenates control ID, name, family, baseline, description, guidance, purpose, scope, and applicability into a structured text block. This enables queries like "What does AC-2 require?" to match on a single field.
 
 ### 3. Shared reader for both inputs
 Both Excel inputs share the same column structure (matching the DPS pipeline `ControlRow` schema). A single `load_controls()` function with a `source_label` parameter handles both, reducing code duplication.
 
 ### 4. Family derivation from control ID
-For NIST-style catalog controls, the family code (e.g., "AC") is extracted from the control ID via regex, then the full family name is looked up in the `family_map`. For Standard Controls, family is left blank unless explicitly provided in the input.
+For NIST-style catalog controls, the family code (e.g., "AC") is extracted from the control ID via regex, then the full family name is looked up in the `family_map`. If the Excel "Family" column contains a family code rather than a full name (e.g., "AC" instead of "Access Control"), the script detects this, promotes it to the `family` field, and resolves the full name from `family_map`. For Standard Controls, family is left blank unless explicitly provided in the input.
 
 ### 5. No merging between sources
 Both inputs produce separate rows. No cross-source deduplication or merging is performed. This keeps the logic simple and preserves both perspectives on controls.
@@ -51,8 +51,8 @@ Dataverse CSV import expects UTF-8 with BOM (`utf-8-sig`). The script writes thi
 ### 7. Carriage-return stripping
 Multiline text fields are normalized to `\n`-only line endings. Stray `\r` characters can interfere with Dataverse's CSV field delimiter detection.
 
-### 8. Duplicate control_id detection
-The script warns (but does not halt) when duplicate `control_id` values are found across both inputs, since `control_id` is the Dataverse primary/alternate key and must be unique for upsert operations.
+### 8. Duplicate control_id deduplication
+When duplicate `control_id` values are found across both inputs, the script keeps the first occurrence and drops subsequent duplicates with a per-row warning log. Catalog controls load before standard controls, so catalog takes priority by default. This prevents Dataverse import failures since `control_id` is the alternate key used for upsert operations.
 
 ### 9. YAML config following xlsx2docx pattern
 Self-contained config in the same directory, auto-detected by the script. CLI flags override config values. Same deep-merge pattern as xlsx2docx.py.
@@ -81,3 +81,20 @@ Same as the rest of the DPS project (`requirements.txt` in the project root):
 openpyxl>=3.1.0
 pyyaml>=6.0
 ```
+
+## Known Issues / Future Improvements
+
+### Medium Priority
+
+- **`compliance_date` stored as text** — Using Single Line Text instead of a Dataverse Date column loses native date filtering, sorting, and CoPilot date-aware reasoning. Queries like "controls due before Q3" won't work reliably. Requires consistent date formats in source data to switch.
+- **`baseline` stored as text** — A Dataverse Choice or multi-select field would enable CoPilot to filter by baseline level (Low/Moderate/High). Currently stored as a comma-separated string (e.g., "Low, Moderate, High") which CoPilot can't reliably filter on.
+- **No `rag_content` length check** — If concatenated text exceeds Dataverse's 100,000-character multiline text limit, the import will fail silently. A truncation or warning in `build_rag_content()` would prevent this.
+- **CSV uses `QUOTE_MINIMAL`** — Dataverse CSV import can be finicky with multiline fields. Switching `csv.DictWriter` to `quoting=csv.QUOTE_ALL` would be safer for consistent imports.
+- **No field-coverage summary** — Many columns are empty for catalog controls (baseline, purpose, scope, applicability, compliance_date, published_url) with no log visibility. A brief field-coverage report (e.g., "description: 100%, baseline: 0%") would help catch missing source data before importing.
+
+### Low Priority
+
+- **No parent-child control context** — NIST enhancements (e.g., AC-2(1)) lose their relationship to parent controls in the flat structure. A `parent_control_id` field or parent mention in `rag_content` would help CoPilot answer "what are the enhancements for AC-2?"
+- **No cross-reference extraction** — Supplemental guidance often references related controls ("See also: AC-6, IA-2") but these aren't extracted into a structured `related_controls` column. Would improve CoPilot's ability to navigate the control graph.
+- **Single `column_map` for both workbooks** — If the Standard Controls workbook uses different headers (e.g., "Standard ID" vs "Control ID"), columns won't map. No per-source mapping override exists in the config.
+- **Schema reference embedded as string literal** — The ~80-line `SCHEMA_REFERENCE` constant makes the script harder to maintain. Could be moved to a template file or generated programmatically from `SCHEMA_FIELDS` metadata to stay in sync with code changes.

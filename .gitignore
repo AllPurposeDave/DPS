@@ -1,9 +1,11 @@
 .DS_Store
 .claude
 .claude.md
+CICD/
 
 # Python virtual environments
 .venv/
+.venv-test/
 venv/
 env/
 

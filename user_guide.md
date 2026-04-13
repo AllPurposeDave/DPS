@@ -7,13 +7,16 @@
 3. [Quick Start](#quick-start)
 4. [Running the Pipeline](#running-the-pipeline)
 5. [Pipeline Steps](#pipeline-steps)
+   - [Validation Feedback Loop](#validation-feedback-loop) (Step 9)
 6. [Configuration Reference](#configuration-reference)
+   - Sections 1–18 (one per tab in `dps_config.xlsx`, ordered by pipeline step)
 7. [Output Reference](#output-reference)
 8. [File Lifecycle: What to Keep, What to Delete](#file-lifecycle-what-to-keep-what-to-delete)
 9. [Utilities](#utilities)
-   - [Word Counter](#word-counter-scriptsword_counterpy)
+   - [Acronym Definitions Lifecycle](#acronym-definitions-lifecycle)
    - [Control Attribute Analyzer](#control-attribute-analyzer-miscanalyze_control_attributespy)
 10. [Troubleshooting](#troubleshooting)
+11. [Appendix: Maintainer Notes](#appendix-maintainer-notes)
 
 ---
 
@@ -200,7 +203,7 @@ Scans every document for acronym candidates and generates a multi-sheet Excel au
 - Builds a cross-reference matrix showing which acronyms span which documents
 - Output Excel feeds into Steps 7 and 8 when acronym metadata is enabled
 
-**Key config section:** `acronym_finder` (Section 15 in `dps_config.xlsx`)
+**Key config section:** `acronym_finder` (see [Section 9: Acronym Finder](#section-9-acronym-finder))
 
 **Output files:**
 
@@ -338,7 +341,7 @@ Splits documents at Heading 1 boundaries to produce RAG-optimized sub-documents.
 - **Greedy H2 accumulation:** If an H1 section exceeds the limit, its H2 sub-sections are grouped together until adding the next one would cross the limit — then the split happens at that H2 boundary. Each chunk is as large as possible without exceeding the limit. This avoids unnecessary fragmentation from splitting at every H2.
 - Preserves paragraph formatting via XML deep copy
 
-> **Why `max_characters` matters for RAG:** RAG retrieval sends matching chunks to the LLM as context. Each chunk is retrieved as a unit — a 36k chunk where only 2k is relevant wastes 34k tokens of context budget every query. Smaller, focused chunks improve retrieval precision. Tune `max_characters` on the Thresholds sheet in `dps_config.xlsx` for your use case: use 18,000 for dense control-heavy docs, keep 36,000 for balanced policies, raise to 72,000 only for very sparse docs.
+> **Why `max_characters` matters for RAG:** RAG retrieval sends matching chunks to the LLM as context. Each chunk is retrieved as a unit — a 36k chunk where only 2k is relevant wastes 34k tokens of context budget every query. Smaller, focused chunks improve retrieval precision. Tune `max_characters` on the 5-Thresholds sheet in `dps_config.xlsx` for your use case: use 18,000 for dense control-heavy docs, keep 36,000 for balanced policies, raise to 72,000 only for very sparse docs.
 
 **Key config section:** `thresholds` (`max_characters`, `chars_per_page`)
 
@@ -393,7 +396,7 @@ Converts `.docx` files to clean Markdown with YAML frontmatter. Output is optimi
 - **Optimized** (default): reads from Step 4's heading-fixed files for cleaner heading structure
 - **Pure Conversion**: reads directly from `input/`, bypassing all transformations
 
-For full configuration details see [Section 13: DOCX to Markdown](#section-13-docx-to-markdown-docx2md) in the Configuration Reference.
+For full configuration details see [Section 17: DOCX to Markdown](#section-17-docx-to-markdown-docx2md) in the Configuration Reference.
 
 ---
 
@@ -403,7 +406,22 @@ For full configuration details see [Section 13: DOCX to Markdown](#section-13-do
 **Input:** Configurable — `input/` (Pure Conversion) or `output/4 - heading_fixes/` (Optimized, default)
 **Output:** `output/8 - jsonl/`
 
-Converts `.docx` files to chunked JSONL for RAG/vector DB ingestion. Each output file contains one JSON object per chunk with `text`, `PublishedURL`, `Tags`, heading context, and configurable metadata. Supports the same Pure/Optimized input modes as Step 7.
+Converts `.docx` files to chunked JSONL for RAG / vector DB ingestion. Each output file is named `<doc>.jsonl.txt` and contains one JSON object per chunk.
+
+- Each chunk carries `text`, `PublishedURL`, `Tags`, heading context (H1/H2/H3 breadcrumb), acronym definitions, and any custom fields
+- Chunks are sized by `max_chunk_chars` (default 1500) with `overlap_words` (default 30) carried across consecutive chunks so sentences cut mid-way still retrieve cleanly
+- Trailing chunks smaller than `min_chunk_chars` (default 100) are merged into the previous chunk to avoid tiny orphan chunks
+- Acronym definitions are read from `input/Acronym_Definitions.xlsx` (Status = "False Positive" rows are skipped; only acronyms with a definition are embedded)
+- Custom tags are read from the "Custom Tags" sheet in the same file — no separate tag file required
+- Supports the same Pure/Optimized input modes as Step 7
+
+**Key config section:** `docx2jsonl` (see [Section 18: DOCX to JSONL](#section-18-docx-to-jsonl-docx2jsonl))
+
+**Output files:**
+
+| File | Contents |
+|------|----------|
+| `*.jsonl.txt` | One chunked JSONL file per input `.docx`, one JSON object per line |
 
 ---
 
@@ -505,12 +523,12 @@ All settings live in a single Excel workbook: **`dps_config.xlsx`**. The pipelin
 
 ### How to Edit `dps_config.xlsx`
 
-The workbook has 20 sheets (Quick Start + README + 18 configuration sheets). Each sheet controls a different part of the pipeline.
+The workbook has 19 sheets (a README sheet plus 18 configuration sheets). Each sheet is prefixed with its pipeline step number (e.g., `0-Classification`, `4-Headings`). Global sheets (Input, Output, Pipeline) have no prefix. The section numbering below matches the tab order in the workbook.
 
 **General rules:**
 - **Close the file in Excel before running the pipeline.** An open file causes permission errors on Windows.
 - The **Setting** column (A) and **Value** column (B) are the only columns the pipeline reads. The **Description** column (C) is for your reference — editing it has no effect.
-- **Do not rename sheet tabs.** The parser matches sheets by exact name (e.g., `Input`, `Output`, `Headings`). A renamed sheet is silently skipped.
+- **Do not rename sheet tabs.** The parser matches sheets by exact name (e.g., `Input`, `Output`, `4-Headings`). A renamed sheet is silently skipped.
 - **Do not delete or rename `# Sub-header` rows** (rows starting with `#` in column A). These separate blocks within a sheet. Removing them merges blocks together and causes incorrect parsing.
 - **Do not rearrange columns.** The parser expects Setting | Value | Description order.
 - **Use Excel TRUE/FALSE for booleans** — not "yes"/"no" or "1"/"0". Cells with data validation dropdowns enforce this.
@@ -519,8 +537,8 @@ The workbook has 20 sheets (Quick Start + README + 18 configuration sheets). Eac
 
 **Adding new entries:**
 - To add a keyword (e.g., a new section keyword, search term, or exclude pattern), insert a new row in the appropriate list block and enter the value in column A.
-- To add a custom heading style, add it in **both** the `# Custom Heading Styles` list and the `# Heading Style Map` on the Headings sheet.
-- To add a control ID regex pattern, add a new row under `# Control ID Patterns` on the Control Extraction sheet. Test the regex first.
+- To add a custom heading style, add it in **both** the `# Custom Heading Styles` list and the `# Heading Style Map` on the **4-Headings** sheet.
+- To add a control ID regex pattern, add a new row under `# Control ID Patterns` on the **2-Control Extraction** sheet. Test the regex first.
 
 **Regenerating the template:**
 If the workbook becomes corrupted or you want to start fresh with all defaults:
@@ -528,44 +546,7 @@ If the workbook becomes corrupted or you want to start fresh with all defaults:
 python generate_config_template.py -o dps_config.xlsx
 ```
 
-### Maintainer: Changing Workbook Structure Safely
-
-This section is for updating the Excel config creator itself (`generate_config_template.py`), not normal day-to-day config edits.
-
-#### If you want to reorder columns
-
-1. Update the sheet builder headers and row writes in `generate_config_template.py`.
-2. Update parser column assumptions in `scripts/shared_utils.py` (for example `_parse_settings_rows()` and any sheet-specific column indexing).
-3. Regenerate and sanity-check parse:
-
-```bash
-python generate_config_template.py --from-yaml dps_config_fallback.yaml --output dps_config.xlsx
-python run_pipeline.py --list
-```
-
-#### If you want to rename worksheet tabs
-
-1. Change the tab name in `generate_config_template.py`.
-2. Update `load_config_xlsx()` sheet name mapping in `scripts/shared_utils.py`.
-3. Regenerate and run `python run_pipeline.py --list` to ensure the section still loads.
-
-Note: parser matching is exact by sheet name. Renaming only in Excel (without code updates) causes that section to be skipped.
-
-#### If you want to add or remove columns in table-like blocks
-
-Examples: Pipeline rows, Metadata Fields, section deletion table.
-
-1. Change table headers and row shapes in `generate_config_template.py`.
-2. Update the matching parser in `scripts/shared_utils.py` so new columns are read and removed columns are no longer expected.
-3. Update consuming script logic if parsed keys changed.
-4. Regenerate and run a step that uses the modified section.
-
-#### Source of truth and fallback
-
-- Primary human-edited config: `dps_config.xlsx`
-- Fallback/seed config: `dps_config_fallback.yaml`
-
-When changing generator defaults, keep YAML defaults aligned unless you intentionally want different fallback behavior.
+> **Maintainers:** Instructions for safely modifying the Excel generator itself (adding sheets, renaming tabs, reordering columns) live in the [Appendix: Maintainer Notes](#appendix-maintainer-notes).
 
 ### Section 1: Input
 
@@ -628,167 +609,21 @@ Controls where results are written and filenames for each step's output.
 
 ---
 
-### Section 3: Document Structure Detection
+### Section 3: Pipeline Steps
 
-Keywords the profiler (Step 0) matches against H1 headings to classify standard sections. Documents missing standard sections get flagged as higher priority.
+Enable or disable individual steps. You can still run disabled steps explicitly with `--step N`.
 
-| Key | Default Keywords | Description |
-|-----|-----------------|-------------|
-| `sections.purpose` | `purpose`, `policy purpose`, `1.0 purpose`, `document purpose` | Keywords identifying the Purpose section. |
-| `sections.scope` | `scope`, `policy scope`, `2.0 scope`, `applicability`, `applicability and scope` | Keywords identifying the Scope section. |
-| `sections.intent` | `intent`, `policy intent`, `3.0 intent`, `objective`, `policy objective`, `security objective` | Keywords identifying the Intent/Objective section. |
-| `sections.controls` | `controls`, `technical controls`, `security controls`, `4.0 controls`, `control requirements`, `requirements`, `policy requirements`, `implementation requirements` | Keywords identifying the Controls section. |
-| `sections.appendix` | `appendix`, `appendices`, `5.0 appendix`, `supplementary`, `reference`, `references`, `glossary`, `definitions` | Keywords identifying the Appendix section. |
+On the **Pipeline** sheet, each row is a step with columns: Step | Name | Script | Enabled | Description.
 
-**When to change:** Only if your organization uses different section names than listed above. For example, if your policies use "Policy Statement" instead of "Purpose", add `"policy statement"` to the `purpose` list.
+| Key | Description |
+|-----|-------------|
+| `Enabled` column | Set to FALSE to skip a step when running the full pipeline. The step can still be run explicitly with `--step N`. |
 
 ---
 
-### Section 4: Heading Detection
+### Section 4: Document Type Classification
 
-Controls how headings are detected, classified, and fixed across Steps 0 and 3.
-
-#### Built-in and Custom Styles
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `headings.builtin_styles` | `Heading 1` through `Heading 4` (both cases) | Standard Word heading style names. Rarely needs editing. |
-| `headings.custom_heading_styles` | `Policy Heading 1`, `Policy Heading 2`, `TOC Heading`, `AppendixHeading` | Custom heading style names used in your org's Word templates. Add styles here if they show up as "FAKE" in the profiler but are real headings in Word. |
-| `headings.custom_style_map` | See config file | Maps your org's custom style names to standard `Heading 1`/`2`/`3` (case-insensitive keys). Used by Step 4 to convert styles the splitter can recognize. |
-
-**How to find your org's custom styles:** In Word, click a heading, then check the Styles pane on the Home tab for the active style name.
-
-#### Fake Heading Detection
-
-A "fake heading" is bold text with no Word Heading style applied. The profiler flags these; the heading fixer converts them.
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `headings.fake_heading_min_font_size` | `12` | Minimum font size (pt) for bold text to be considered a fake heading. Lower to `11` if too few detected; raise to `13`-`14` if too many false positives. |
-| `headings.fake_heading_max_chars` | `200` | Maximum character length for profiler fake heading detection (wider net for review). |
-| `headings.fake_heading_max_chars_fixer` | `120` | Maximum character length for fixer fake heading conversion (tighter to avoid false positives). |
-
-#### Heading Level Assignment
-
-Regex patterns that determine what heading level to assign to a fake heading based on its numbering.
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `headings.heading1_pattern` | `^(?:\d+\.0\s+\|[IVXLC]+\.\s+)` | Matches H1 numbering (e.g., "1.0 Purpose", "III. Controls"). |
-| `headings.heading2_pattern` | `^(?:\d+\.\d+\s+\|[A-Z]\.\s+)` | Matches H2 numbering (e.g., "1.1 Access", "A. Overview"). |
-| `headings.heading3_pattern` | `^\d+\.\d+\.\d+\s+` | Matches H3 numbering (e.g., "1.1.1 Sub-section"). |
-| `headings.default_heading_level` | `2` | Default level when no numbering pattern matches. Change to `1` if your un-numbered bold headings are mostly top-level. |
-
----
-
-### Section 4B: Text Deletion & Document Cleanup
-
-Remove noise from documents during heading style fixing (Step 4). All cleanup operations cascade to Steps 5, 6, 7, and 8.
-
-#### Phrase & Section Deletion
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `text_deletions.enabled` | `false` | Set to `true` to activate phrase and section deletion. |
-| `text_deletions.case_sensitive` | `true` | Whether phrase matching is case-sensitive. |
-| `text_deletions.phrases` | `[]` (empty) | List of exact phrases to delete. After deletion, double-spaces are collapsed to single spaces. |
-| `text_deletions.section_deletions` | `[]` (empty) | List of section-level deletions. Each entry has `heading` (case-insensitive substring match on heading text), `delete` (TRUE/FALSE), and optional `description`. Deletes the heading and all content until the next heading of same or higher level. |
-
-#### Document Cleanup Toggles
-
-These boolean toggles enable additional cleanup operations independent of the `enabled` setting above:
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `text_deletions.remove_table_of_content` | `false` | Remove paragraphs with Word TOC styles (`TOC 1`, `TOC 2`, `TOC 3`, etc.). These are generated by Word's Insert Table of Contents feature and cannot be caught by section deletion. Eliminates page-number noise like `"4.1 Access Control .......... 12"` from Copilot retrieval. |
-| `text_deletions.remove_headers_footers` | `false` | Clear all page header and footer text (branding, page numbers, classification banners). Uses a safe approach — empties run text rather than removing XML parts. |
-| `text_deletions.remove_revision_tables` | `false` | Remove revision/change history tables detected by column headers containing "version" + "date" + "changes"/"description"/"author". Catches tables that don't live under a "Revision History" heading. |
-| `text_deletions.flatten_definition_tables` | `false` | Convert Terms & Definitions tables (under headings matching "Terms", "Definitions", or "Glossary") to prose paragraphs in the format `**Term**: Definition`. The section heading is preserved. |
-
-**Example phrases (on the Text Deletions sheet):**
-| Value | Description |
-|-------|-------------|
-| DRAFT - NOT FOR DISTRIBUTION | Watermark text |
-| CONFIDENTIAL | Classification banner |
-| [INSERT DATE] | Placeholder text |
-| TBD | Placeholder text |
-
-**Example section deletions:**
-| Section Heading | Delete | Description |
-|-----------------|--------|-------------|
-| Table of Contents | TRUE | Remove TOC section (under a heading) |
-| Revision History | TRUE | Version tracking noise |
-| Change History | TRUE | Version tracking noise |
-| Document Information | TRUE | Metadata already captured by Step 0/6 |
-
-Set `enabled` to TRUE and `case_sensitive` to TRUE or FALSE as needed in the settings block above the phrases list.
-
-> **Warning:** Deletions are permanent in the output files. Original input files are never modified. Review `heading_changes.csv` after running to verify what was removed.
-
----
-
-### Section 5: Cross-Reference Detection
-
-Controls cross-reference detection for Step 0 (profiling) and Step 2 (extraction).
-
-#### Profiler Patterns (Step 0)
-
-Regex patterns for counting cross-references during profiling. These are used for metrics only.
-
-| Key | Default Patterns |
-|-----|-----------------|
-| `cross_references.profiler_patterns` | `see section\s+[\d\.]+[a-z]?`, `refer to\s+(section\|the)`, `as described in\s+(the\|section)`, `per section\s+[\d\.]+`, `in accordance with\s+(the\|section)`, `as defined in\s+(the\|section)`, `as outlined in\s+(the\|section)`, `per the organization's\s+\w+`, `see the\s+\w+\s+policy`, `as specified in\s+(the\|section)` |
-
-#### Extraction Patterns (Step 2)
-
-Each entry has a `phrase` (lead-in text) and `type` (`"internal"` or `"external"`):
-
-- **Internal** patterns match `"<phrase> Section <number>"` (e.g., "See Section 4.3")
-- **External** patterns match `"<phrase> [the] <Document Name>"` where the final word is in `document_name_keywords`
-
-Default enabled patterns:
-
-| Phrase | Type |
-|--------|------|
-| `see` | internal |
-| `refer to` | internal |
-| `per` | internal |
-| `as described in` | internal, external |
-| `as defined in` | internal, external |
-| `refer to` | external |
-| `in accordance with` | external |
-
-Additional commented-out patterns in the config: `as outlined in`, `as specified in`, `pursuant to`, `noted in`, `as required by`, `consistent with`, `established in`, `governed by`, `mandated by`.
-
-#### Other Cross-Reference Settings
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `cross_references.detect_hyperlink_crossrefs` | `true` | Detect hyperlinks whose display text looks like a section or policy reference. |
-| `cross_references.detect_urls` | `true` | Extract URLs from hyperlinks and bare text. |
-| `cross_references.document_name_keywords` | `Policy`, `Standard`, `Plan`, `Procedure`, `Guide`, `Guideline`, `Program`, `Framework`, `Charter` | External patterns match document names ending in one of these keywords. Add keywords like `"Manual"`, `"Directive"`, `"Handbook"` if your org uses them. |
-
----
-
-### Section 6: Table Classification
-
-Keywords matched against table header rows to classify table types in Step 0.
-
-| Table Type | Keywords | Min Columns |
-|------------|----------|-------------|
-| `control_matrix` | control id, control, requirement, framework, nist, status, implementation, responsible, owner | 3 |
-| `applicability_table` | applies to, applicability, system, environment, in scope, yes, no, n/a | 2 |
-| `reference_table` | term, definition, acronym, glossary, abbreviation, description | 2 |
-| `crosswalk_table` | nist, cis, cmmc, iso, mapping, alignment, framework | 3 |
-| `role_responsibility` | role, responsibility, responsible, accountable, raci | 2 |
-
-**When to change:** Add keywords if your tables use different header terminology (e.g., add `"obligation"` to `control_matrix` if your org uses that instead of "requirement").
-
----
-
-### Section 7: Document Type Classification
-
-Auto-classifies documents into types based on content analysis in Step 0.
+Auto-classifies documents into types based on content analysis in Step 0. Settings live on the **0-Classification** sheet.
 
 | Type | Rule | Description |
 |------|------|-------------|
@@ -807,24 +642,52 @@ Auto-classifies documents into types based on content analysis in Step 0.
 
 ---
 
-### Section 8: Size & Optimization Thresholds
+### Section 5: Profiling Flags
+
+Thresholds the profiler (Step 0) uses to raise extra flags on documents with patterns that typically cause retrieval problems. All settings live on the **0-Profiling Flags** sheet.
+
+#### ControlDense
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `thresholds.max_characters` | `36000` | Maximum characters per sub-document. 36,000 ~ 20 pages, fits Copilot Studio / GPT-4o context window. Increase for larger context windows; decrease (try `18000`) for tighter splits. |
-| `thresholds.max_pages` | `20` | Approximate page equivalent (reporting only). |
-| `thresholds.paragraphs_per_page` | `30` | Used for page estimation. Lower to `20`-`25` if estimates are too high; raise to `35`-`40` if too low. |
-| `thresholds.chars_per_page` | `1800` | Characters per page for split manifest estimates. Lower (`1200`) for table-heavy docs; higher (`2200`) for dense prose. |
-| `thresholds.section_dominance_pct` | `50` | Flag sections exceeding this percentage of total document length. |
-| `thresholds.high_table_count` | `10` | Flag documents with more tables than this threshold. |
+| `control_dense.min_controls_per_page` | `5.0` | Flag a document when it has at least this many control IDs per approximate page. Dense control documents often split poorly at H1 boundaries and may need a smaller `max_characters` value. |
 
-**Key setting:** `max_characters` is the most impactful threshold. It determines how aggressively documents are split. Lower values produce smaller, more focused chunks; higher values preserve more context per chunk.
+#### HeadingVariance
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `heading_variance.max_level_skips` | `2` | Flag a document if this many heading-level jumps are detected (e.g., H1 → H3 with no H2 in between). Structural skips confuse the splitter. |
+| `heading_variance.max_fake_ratio` | `0.5` | Flag a document if this fraction of headings are "fake" (bold text with no Heading style). `0.5` = 50%. Raise to `0.7` if your org's templates rely heavily on unstyled bold headings. |
+
+#### TableDense
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `table_dense.min_table_content_pct` | `30` | Early-warning flag for documents with at least this much of their content inside tables. Complements the Type A classification (which only triggers at 40%). |
+
+**When to change:** These flags populate the "Flags" column of `document_inventory.xlsx`. Loosen thresholds if you're getting too many flags on otherwise healthy documents; tighten them to surface more borderline cases during profiling.
 
 ---
 
-### Section 9: Priority Scoring
+### Section 6: Table Classification
 
-Controls how the profiler (Step 0) ranks documents by optimization difficulty. Higher score = more work needed = process sooner.
+Keywords matched against table header rows to classify table types in Step 0. Settings live on the **0-Tables** sheet.
+
+| Table Type | Keywords | Min Columns |
+|------------|----------|-------------|
+| `control_matrix` | control id, control, requirement, framework, nist, status, implementation, responsible, owner | 3 |
+| `applicability_table` | applies to, applicability, system, environment, in scope, yes, no, n/a | 2 |
+| `reference_table` | term, definition, acronym, glossary, abbreviation, description | 2 |
+| `crosswalk_table` | nist, cis, cmmc, iso, mapping, alignment, framework | 3 |
+| `role_responsibility` | role, responsibility, responsible, accountable, raci | 2 |
+
+**When to change:** Add keywords if your tables use different header terminology (e.g., add `"obligation"` to `control_matrix` if your org uses that instead of "requirement").
+
+---
+
+### Section 7: Priority Scoring
+
+Controls how the profiler (Step 0) ranks documents by optimization difficulty. Higher score = more work needed = process sooner. Settings live on the **0-Priority Scoring** sheet.
 
 #### Weights
 
@@ -844,7 +707,7 @@ Weights are relative — adjust ratios to change what matters most for your envi
 
 Boost priority for frequently-used documents. Scale: 0-10, multiplied by 2.0 and added to priority.
 
-On the **Priority Scoring** sheet under `# Usage Frequency`, add rows with the filename in the Key column and score in the Value column:
+On the **0-Priority Scoring** sheet under `# Usage Frequency`, add rows with the filename in the Key column and score in the Value column:
 
 | Key | Value |
 |-----|-------|
@@ -855,9 +718,9 @@ Filenames must match exactly. Default: empty (no boost).
 
 ---
 
-### Section 10: Key Term Search
+### Section 8: Key Term Search
 
-Search for specific terms across all documents in Step 0. Results appear as columns in the Document Inventory Excel.
+Search for specific terms across all documents in Step 0. Results appear as columns in the Document Inventory Excel. Settings live on the **0-Search Terms** sheet.
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -868,9 +731,53 @@ Search for specific terms across all documents in Step 0. Results appear as colu
 
 ---
 
-### Section 11: Control Extraction
+### Section 9: Acronym Finder
 
-Controls how Step 2 extracts structured control data from documents. All settings are on the **Control Extraction** sheet in `dps_config.xlsx`.
+Controls how Step 1 (`scripts/acronym_finder.py`) detects acronym candidates. All settings live on the **1-Acronym Finder** sheet.
+
+#### Output
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `output_file` | `acronym_audit.xlsx` | Filename for the audit workbook written to `output/1 - acronyms/`. |
+
+#### Search Settings
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `search.min_length` | `2` | Minimum acronym character length. Raise to `3` to skip two-letter abbreviations that are often false positives. |
+| `search.max_length` | `8` | Maximum acronym character length. Rarely needs changing. |
+| `search.scan_tables` | `true` | Include acronyms found inside tables. Disable only if your tables are dominated by data that triggers false positives. |
+| `search.scan_headers_footers` | `true` | Include acronyms found in page headers and footers. |
+| `search.scan_textboxes` | `true` | Include acronyms found in floating text boxes. |
+| `search.min_global_occurrences` | `1` | Minimum number of appearances across ALL documents for an acronym to be reported. Raise to `2` or `3` to cut noise on large corpora. |
+| `search.min_doc_occurrences` | `1` | Minimum occurrences within a single document. |
+
+#### Detection Patterns
+
+Each pattern toggle enables or disables one class of acronym detection. Turn off whichever classes produce too many false positives in your corpus.
+
+| Key | Default | Matches |
+|-----|---------|---------|
+| `patterns.pure_caps` | `true` | `ABC`, `NIST`, `GCC` |
+| `patterns.caps_with_numbers` | `true` | `AC-2`, `800-53` |
+| `patterns.caps_with_hyphens` | `true` | `FedRAMP`, `ATO-P` |
+| `patterns.caps_with_slashes` | `true` | `IT/OT`, `CI/CD` |
+| `patterns.parenthetical_defs` | `true` | Captures expansions like `"Multi-Factor Authentication (MFA)"` |
+
+#### Ignore List
+
+A one-per-row list of uppercase words to skip entirely. Defaults include common English stop-words in caps (`THE`, `AND`, `FOR`, ...), Roman numerals (`II`, `III`, `IV`, ...), and document boilerplate (`DRAFT`, `FINAL`, `PAGE`, `TBD`, ...). Add your own to suppress recurring false positives across all future Step 1 runs — use this instead of deleting rows from `acronym_audit.xlsx`.
+
+**When to change:**
+- Add to `ignore_list` when the same false-positive acronym keeps showing up across runs (permanent suppression).
+- Use Status = "False Positive" in `input/Acronym_Definitions.xlsx` when the word is a real candidate you just don't want tagged (one-off suppression for downstream steps).
+
+---
+
+### Section 10: Control Extraction
+
+Controls how Step 2 extracts structured control data from documents. All settings are on the **2-Control Extraction** sheet in `dps_config.xlsx`.
 
 The sheet is organized into 7 blocks (separated by blue `# Sub-header` rows):
 
@@ -1001,21 +908,168 @@ Controls how the extractor identifies section headings within documents. These s
 
 ---
 
-### Section 11b: Pipeline Steps
+### Section 11: Cross-Reference Detection
 
-Enable or disable individual steps. You can still run disabled steps explicitly with `--step N`.
+Controls cross-reference detection for Step 0 (profiling) and Step 3 (extraction). Settings live on the **3-Cross References** sheet.
 
-On the **Pipeline** sheet, each row is a step with columns: Step | Name | Script | Enabled | Description.
+#### Profiler Patterns (Step 0)
 
-| Key | Description |
-|-----|-------------|
-| `Enabled` column | Set to FALSE to skip a step when running the full pipeline. The step can still be run explicitly with `--step N`. |
+Regex patterns for counting cross-references during profiling. These are used for metrics only.
+
+| Key | Default Patterns |
+|-----|-----------------|
+| `cross_references.profiler_patterns` | `see section\s+[\d\.]+[a-z]?`, `refer to\s+(section\|the)`, `as described in\s+(the\|section)`, `per section\s+[\d\.]+`, `in accordance with\s+(the\|section)`, `as defined in\s+(the\|section)`, `as outlined in\s+(the\|section)`, `per the organization's\s+\w+`, `see the\s+\w+\s+policy`, `as specified in\s+(the\|section)` |
+
+#### Extraction Patterns (Step 3)
+
+Each entry has a `phrase` (lead-in text) and `type` (`"internal"` or `"external"`):
+
+- **Internal** patterns match `"<phrase> Section <number>"` (e.g., "See Section 4.3")
+- **External** patterns match `"<phrase> [the] <Document Name>"` where the final word is in `document_name_keywords`
+
+Default enabled patterns:
+
+| Phrase | Type |
+|--------|------|
+| `see` | internal |
+| `refer to` | internal |
+| `per` | internal |
+| `as described in` | internal, external |
+| `as defined in` | internal, external |
+| `refer to` | external |
+| `in accordance with` | external |
+
+Additional commented-out patterns in the config: `as outlined in`, `as specified in`, `pursuant to`, `noted in`, `as required by`, `consistent with`, `established in`, `governed by`, `mandated by`.
+
+#### Other Cross-Reference Settings
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `cross_references.detect_hyperlink_crossrefs` | `true` | Detect hyperlinks whose display text looks like a section or policy reference. |
+| `cross_references.detect_urls` | `true` | Extract URLs from hyperlinks and bare text. |
+| `cross_references.document_name_keywords` | `Policy`, `Standard`, `Plan`, `Procedure`, `Guide`, `Guideline`, `Program`, `Framework`, `Charter` | External patterns match document names ending in one of these keywords. Add keywords like `"Manual"`, `"Directive"`, `"Handbook"` if your org uses them. |
 
 ---
 
-### Section 12: Metadata Injection
+### Section 12: Heading Detection
 
-Controls how Step 6 stamps sub-documents with identity metadata.
+Controls how headings are detected, classified, and fixed across Steps 0 and 4. Settings live on the **4-Headings** sheet.
+
+#### Built-in and Custom Styles
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `headings.builtin_styles` | `Heading 1` through `Heading 4` (both cases) | Standard Word heading style names. Rarely needs editing. |
+| `headings.custom_heading_styles` | `Policy Heading 1`, `Policy Heading 2`, `TOC Heading`, `AppendixHeading` | Custom heading style names used in your org's Word templates. Add styles here if they show up as "FAKE" in the profiler but are real headings in Word. |
+| `headings.custom_style_map` | See config file | Maps your org's custom style names to standard `Heading 1`/`2`/`3` (case-insensitive keys). Used by Step 4 to convert styles the splitter can recognize. |
+
+**How to find your org's custom styles:** In Word, click a heading, then check the Styles pane on the Home tab for the active style name.
+
+#### Fake Heading Detection
+
+A "fake heading" is bold text with no Word Heading style applied. The profiler flags these; the heading fixer converts them.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `headings.fake_heading_min_font_size` | `12` | Minimum font size (pt) for bold text to be considered a fake heading. Lower to `11` if too few detected; raise to `13`-`14` if too many false positives. |
+| `headings.fake_heading_max_chars` | `200` | Maximum character length for profiler fake heading detection (wider net for review). |
+| `headings.fake_heading_max_chars_fixer` | `120` | Maximum character length for fixer fake heading conversion (tighter to avoid false positives). |
+
+#### Heading Level Assignment
+
+Regex patterns that determine what heading level to assign to a fake heading based on its numbering.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `headings.heading1_pattern` | `^(?:\d+\.0\s+\|[IVXLC]+\.\s+)` | Matches H1 numbering (e.g., "1.0 Purpose", "III. Controls"). |
+| `headings.heading2_pattern` | `^(?:\d+\.\d+\s+\|[A-Z]\.\s+)` | Matches H2 numbering (e.g., "1.1 Access", "A. Overview"). |
+| `headings.heading3_pattern` | `^\d+\.\d+\.\d+\s+` | Matches H3 numbering (e.g., "1.1.1 Sub-section"). |
+| `headings.default_heading_level` | `2` | Default level when no numbering pattern matches. Change to `1` if your un-numbered bold headings are mostly top-level. |
+
+---
+
+### Section 13: Text Deletion & Document Cleanup
+
+Remove noise from documents during heading style fixing (Step 4). All cleanup operations cascade to Steps 5, 6, 7, and 8. Settings live on the **4-Text Deletions** sheet.
+
+#### Phrase & Section Deletion
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `text_deletions.enabled` | `false` | Set to `true` to activate phrase and section deletion. |
+| `text_deletions.case_sensitive` | `true` | Whether phrase matching is case-sensitive. |
+| `text_deletions.phrases` | `[]` (empty) | List of exact phrases to delete. After deletion, double-spaces are collapsed to single spaces. |
+| `text_deletions.section_deletions` | `[]` (empty) | List of section-level deletions. Each entry has `heading` (case-insensitive substring match on heading text), `delete` (TRUE/FALSE), and optional `description`. Deletes the heading and all content until the next heading of same or higher level. |
+
+#### Document Cleanup Toggles
+
+These boolean toggles enable additional cleanup operations independent of the `enabled` setting above:
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `text_deletions.remove_table_of_content` | `false` | Remove paragraphs with Word TOC styles (`TOC 1`, `TOC 2`, `TOC 3`, etc.). These are generated by Word's Insert Table of Contents feature and cannot be caught by section deletion. Eliminates page-number noise like `"4.1 Access Control .......... 12"` from Copilot retrieval. |
+| `text_deletions.remove_headers_footers` | `false` | Clear all page header and footer text (branding, page numbers, classification banners). Uses a safe approach — empties run text rather than removing XML parts. |
+| `text_deletions.remove_revision_tables` | `false` | Remove revision/change history tables detected by column headers containing "version" + "date" + "changes"/"description"/"author". Catches tables that don't live under a "Revision History" heading. |
+| `text_deletions.flatten_definition_tables` | `false` | Convert Terms & Definitions tables (under headings matching "Terms", "Definitions", or "Glossary") to prose paragraphs in the format `**Term**: Definition`. The section heading is preserved. |
+
+**Example phrases (on the 4-Text Deletions sheet):**
+| Value | Description |
+|-------|-------------|
+| DRAFT - NOT FOR DISTRIBUTION | Watermark text |
+| CONFIDENTIAL | Classification banner |
+| [INSERT DATE] | Placeholder text |
+| TBD | Placeholder text |
+
+**Example section deletions:**
+| Section Heading | Delete | Description |
+|-----------------|--------|-------------|
+| Table of Contents | TRUE | Remove TOC section (under a heading) |
+| Revision History | TRUE | Version tracking noise |
+| Change History | TRUE | Version tracking noise |
+| Document Information | TRUE | Metadata already captured by Step 0/6 |
+
+Set `enabled` to TRUE and `case_sensitive` to TRUE or FALSE as needed in the settings block above the phrases list.
+
+> **Warning:** Deletions are permanent in the output files. Original input files are never modified. Review `heading_changes.csv` after running to verify what was removed.
+
+---
+
+### Section 14: Document Structure Detection
+
+Keywords the profiler (Step 0) matches against H1 headings to classify standard sections. Documents missing standard sections get flagged as higher priority. Settings live on the **5-Sections** sheet.
+
+| Key | Default Keywords | Description |
+|-----|-----------------|-------------|
+| `sections.purpose` | `purpose`, `policy purpose`, `1.0 purpose`, `document purpose` | Keywords identifying the Purpose section. |
+| `sections.scope` | `scope`, `policy scope`, `2.0 scope`, `applicability`, `applicability and scope` | Keywords identifying the Scope section. |
+| `sections.intent` | `intent`, `policy intent`, `3.0 intent`, `objective`, `policy objective`, `security objective` | Keywords identifying the Intent/Objective section. |
+| `sections.controls` | `controls`, `technical controls`, `security controls`, `4.0 controls`, `control requirements`, `requirements`, `policy requirements`, `implementation requirements` | Keywords identifying the Controls section. |
+| `sections.appendix` | `appendix`, `appendices`, `5.0 appendix`, `supplementary`, `reference`, `references`, `glossary`, `definitions` | Keywords identifying the Appendix section. |
+
+**When to change:** Only if your organization uses different section names than listed above. For example, if your policies use "Policy Statement" instead of "Purpose", add `"policy statement"` to the `purpose` list.
+
+---
+
+### Section 15: Size & Optimization Thresholds
+
+Controls chunk-size limits and page-estimation parameters for Step 5 (Section Splitter). Settings live on the **5-Thresholds** sheet. Note: `max_characters` is also read by Step 0 (Profiler) for over-size flagging.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `thresholds.max_characters` | `36000` | Maximum characters per sub-document. 36,000 ~ 20 pages, fits Copilot Studio / GPT-4o context window. Increase for larger context windows; decrease (try `18000`) for tighter splits. Also read by Step 0 profiler for over-size flagging. |
+| `thresholds.max_pages` | `20` | Approximate page equivalent (reporting only). |
+| `thresholds.paragraphs_per_page` | `30` | Used for page estimation. Lower to `20`-`25` if estimates are too high; raise to `35`-`40` if too low. |
+| `thresholds.chars_per_page` | `1800` | Characters per page for split manifest estimates. Lower (`1200`) for table-heavy docs; higher (`2200`) for dense prose. |
+| `thresholds.section_dominance_pct` | `50` | Flag sections exceeding this percentage of total document length. |
+| `thresholds.high_table_count` | `10` | Flag documents with more tables than this threshold. |
+
+**Key setting:** `max_characters` is the most impactful threshold. It determines how aggressively documents are split. Lower values produce smaller, more focused chunks; higher values preserve more context per chunk.
+
+---
+
+### Section 16: Metadata Injection
+
+Controls how Step 6 stamps sub-documents with identity metadata. Settings live on the **6-Metadata** sheet.
 
 #### Placement and Formatting
 
@@ -1038,7 +1092,7 @@ Each metadata field can be independently enabled/disabled and reordered:
 | `intent` | Intent | `auto` | Extracted from profiler data (Step 0) or direct doc scan. |
 | `tags` | Tags | `auto` | Generated from doc type, sections, acronyms. |
 
-Custom field examples (on the **Metadata** sheet under `# Metadata Fields`):
+Custom field examples (on the **6-Metadata** sheet under `# Metadata Fields`):
 
 | Key | Label | Enabled | Source | Value |
 |-----|-------|---------|--------|-------|
@@ -1081,7 +1135,7 @@ Because matching is bidirectional, shorter entries match more broadly — `"Poli
 
 **Configuration**
 
-The default config points to `input/Doc_URL.xlsx`. These settings are on the **Metadata** sheet:
+The default config points to `input/Doc_URL.xlsx`. These settings are on the **6-Metadata** sheet:
 
 | Setting | Value | Description |
 |---------|-------|-------------|
@@ -1147,9 +1201,9 @@ Tags: Type-C, has-scope, has-controls, AC, MFA, CUI, FedRAMP-High, Priority, Inf
 
 ---
 
-### Section 13: DOCX to Markdown (`docx2md`)
+### Section 17: DOCX to Markdown (`docx2md`)
 
-All settings live under the `docx2md:` key in `dps_config.xlsx`. This section controls **Step 7** (`scripts/docx2md.py`) and its standalone invocation.
+All settings live under the `docx2md:` key in `dps_config.xlsx` on the **7-Docx2md** sheet. This section controls **Step 7** (`scripts/docx2md.py`) and its standalone invocation.
 
 #### General Settings
 
@@ -1202,33 +1256,48 @@ Reads all rows in `<sheet>` where `<key>` column matches the current `.docx` fil
 
 The `doc_url` source loads the URL mapping automatically when any field uses it — `include_doc_url: true` is not required when using `metadata_fields`.
 
-#### Renaming a Metadata Field Across the Dual Config Layers
+> **Maintainers:** Renaming a metadata field involves coordinated edits across the YAML fallback, generator defaults, Excel config, and the hardcoded `docx2jsonl.py` chunk key. See [Appendix: Maintainer Notes](#appendix-maintainer-notes).
 
-Metadata field names (the keys that appear in JSONL chunks and Markdown frontmatter) are defined in multiple places due to the dual config system. Renaming a field — for example, changing `acronyms` to `Tags` — requires updates in **all** of these locations or the old name will persist in some outputs.
+---
 
-**Where field names live:**
+### Section 18: DOCX to JSONL (`docx2jsonl`)
 
-| Layer | File | What to change |
-|-------|------|----------------|
-| **YAML fallback** | `dps_config_fallback.yaml` | Find the `- name: "oldName"` entry under `docx2md.metadata_fields` and change it |
-| **Generator defaults** | `generate_config_template.py` | Find the `{"name": "oldName", ...}` entry in the default `metadata_fields` list (look for `_build_docx2md_sheet`) and change it |
-| **Excel config** | `dps_config.xlsx` | Regenerate from YAML after updating the above: `python generate_config_template.py --from-yaml dps_config_fallback.yaml` |
-| **JSONL script** | `scripts/docx2jsonl.py` | Search for `chunk["oldName"]` and rename the key — this script hardcodes the acronym/tag field name rather than reading it from config |
+All settings live on the **8-Docx2jsonl** sheet. This section controls **Step 8** (`scripts/docx2jsonl.py`) and its standalone invocation.
 
-**Step-by-step:**
+#### Input Mode
 
-1. **Edit `dps_config_fallback.yaml`** — change the `name:` value in the `metadata_fields` list (under `docx2md:`)
-2. **Edit `generate_config_template.py`** — change the matching `{"name": ...}` entry in the default metadata fields
-3. **Regenerate the Excel config:**
-   ```bash
-   python generate_config_template.py --from-yaml dps_config_fallback.yaml --output dps_config.xlsx
-   ```
-4. **Edit `scripts/docx2jsonl.py`** — rename the hardcoded chunk key (e.g., `chunk["Tags"] = ...`)
-5. **Verify** — re-run Steps 7 and 8 on a test document and confirm the new key name appears in both `.md` frontmatter and `.jsonl.txt` output
+| Key | Default | Description |
+|-----|---------|-------------|
+| `pure_conversion` | `false` | `TRUE` = Pure Conversion (read directly from `input/`, bypassing all transformations). `FALSE` = Optimized (read from a pipeline step's output). |
+| `optimized_source_step` | `heading_fixes` | Step output folder key to read when `pure_conversion` is `FALSE`. Valid values: `heading_fixes`, `split_documents`, `metadata`. Default `heading_fixes` gives cleaner headings without the extra split/metadata overhead. |
 
-> **Why is this spread across so many files?** The Markdown converter (`docx2md.py`) reads field names dynamically from config, so updating config is enough for `.md` output. But `docx2jsonl.py` writes the acronym/tag field with a hardcoded key name, so it requires a code change too. The YAML fallback, generator, and Excel config are three representations of the same settings — all three must agree, and the generator is the bridge between them.
+#### Output
 
-> **Tip:** If you only use the Excel config (not the YAML fallback), you can skip step 1 and instead edit the field name directly on the **Docx2md** sheet in `dps_config.xlsx`. But you'll still need step 4 (the JSONL script edit), and the next time you regenerate the Excel from YAML, your manual edit will be overwritten unless the YAML is also updated.
+| Key | Default | Description |
+|-----|---------|-------------|
+| `output_directory` | `./output/8 - jsonl` | Where `.jsonl.txt` files are written (relative to the config file). |
+
+#### Chunking
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `max_chunk_chars` | `1500` | Maximum characters per chunk. Lower for tighter retrieval (e.g., `1000`); raise for fewer, larger chunks. |
+| `overlap_words` | `30` | Words to overlap between consecutive chunks. Overlap preserves context across chunk boundaries so a sentence cut mid-way still retrieves cleanly. |
+| `min_chunk_chars` | `100` | Trailing chunks smaller than this are merged into the previous chunk, avoiding tiny orphan chunks at the end of a document. |
+
+#### Acronym Definitions
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `acronym_definitions_file` | `./input/Acronym_Definitions.xlsx` | Path to the human-verified acronym Excel. Step 8 reads the "Acronym Definitions" sheet (Status = "False Positive" rows are skipped) and embeds definitions into chunk metadata. Same file used by Steps 6 and 7. |
+
+#### Tag Mapping
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `tag_file` | `""` (empty) | Optional Excel file mapping documents to tags. Leave empty to use the "Custom Tags" sheet inside `Acronym_Definitions.xlsx` instead (recommended). |
+
+> **Tip:** Step 8 writes one `.jsonl.txt` file per input `.docx`. Each line is a JSON object containing `text`, `PublishedURL`, `Tags`, heading context, and acronym metadata. For ingestion into a vector DB, either concatenate the files or ingest them one at a time.
 
 ---
 
@@ -1464,22 +1533,6 @@ If you add new source documents or want to refresh the acronym scan:
 
 ---
 
-### Word Counter (`scripts/word_counter.py`)
-
-Standalone utility for counting words in `.docx` files. Not part of the pipeline — run it separately.
-
-```bash
-# Count words in split documents (default)
-python scripts/word_counter.py
-
-# Count words in a specific folder
-python scripts/word_counter.py --input ./output/5\ -\ metadata
-```
-
-Outputs `word_counts.csv` with per-document and total word counts.
-
----
-
 ### Control Attribute Analyzer (`Misc/analyze_control_attributes.py`)
 
 Standalone diagnostic utility. Scans all input `.docx` files for every control ID match and captures formatting and context attributes for each hit. Use this to identify false positives and fine-tune your `control_id_patterns`, whitelist, and blacklist before running Step 2.
@@ -1493,19 +1546,6 @@ python Misc/analyze_control_attributes.py ./input ./output/2\ -\ controls
 Outputs `control_attributes_analysis.csv` (written to the Step 2 controls output folder) with one row per control ID match. Columns include: `source_file`, `paragraph_index`, `control_id`, `match_position`, `paragraph_text`, `context_before`, `context_after`, `paragraph_bold`, `paragraph_italic`, `paragraph_underline`, `font_size_pt`, `font_name`, `paragraph_style`, `is_heading_style`, `paragraph_source` (Text or Table[row][col]), `sentence_contains_period`.
 
 **Typical workflow:** Run this first, filter the CSV by `paragraph_source` and `paragraph_bold` to distinguish real controls from table cross-references, then adjust your config patterns accordingly.
-
----
-
-### Baseline & Name Parser Tests (`scripts/test_parse_baseline_and_name.py`)
-
-Developer test script for the `parse_baseline_and_name` function in `extract_controls.py`. Verifies correct parsing of control header lines in all supported formats (ID-first, name-before-ID, trailing baselines, em-dashes, etc.). Not needed for normal pipeline use.
-
-```bash
-# Run from the DPS project root
-python scripts/test_parse_baseline_and_name.py
-```
-
-Prints PASS/FAIL for each test case and exits with a non-zero code if any tests fail.
 
 ---
 
@@ -1555,7 +1595,7 @@ Then copy your custom values from the old file into the fresh template.
 
 #### Zero controls extracted (Step 2)
 
-Your control IDs likely use a different format than the default regex patterns. Check your documents for the ID format, then add a matching pattern on the **Control Extraction** sheet under `# Control ID Patterns`. Test patterns at [regex101.com](https://regex101.com).
+Your control IDs likely use a different format than the default regex patterns. Check your documents for the ID format, then add a matching pattern on the **2-Control Extraction** sheet under `# Control ID Patterns`. Test patterns at [regex101.com](https://regex101.com).
 
 Common alternative patterns:
 
@@ -1567,13 +1607,13 @@ Common alternative patterns:
 #### Too many fake headings detected (Step 0/4)
 
 Fake heading detection flags bold text under a character limit. If you're getting false positives:
-- On the **Headings** sheet, raise `fake_heading_min_font_size` from `12` to `13` or `14`
+- On the **4-Headings** sheet, raise `fake_heading_min_font_size` from `12` to `13` or `14`
 - Lower `fake_heading_max_chars_fixer` from `120` to `80` or `100`
 - Review `heading_changes.csv` to see exactly what was converted
 
 #### Real headings showing up as "FAKE" in the profiler
 
-Your documents likely use custom Word heading styles. In Word, click the heading and check the Styles pane for the style name, then on the **Headings** sheet add it to:
+Your documents likely use custom Word heading styles. In Word, click the heading and check the Styles pane for the style name, then on the **4-Headings** sheet add it to:
 - `# Custom Heading Styles` list (for profiler recognition)
 - `# Heading Style Map` (for Step 4 conversion — map your style name to `Heading 1`, `Heading 2`, or `Heading 3`)
 
@@ -1581,7 +1621,7 @@ Your documents likely use custom Word heading styles. In Word, click the heading
 
 #### Word temp files being processed
 
-Word creates invisible `~$` lock files when a document is open. These are excluded by default via `input.exclude_patterns`. If you see errors about corrupted files, close the documents in Word before running the pipeline, or add the pattern to the exclude list on the **Input** sheet.
+Word creates invisible `~$` lock files when a document is open. These are excluded by default via `input.exclude_patterns`. If you see errors about corrupted files, close the documents in Word before running the pipeline, or add the pattern to the exclude list on the **Input** sheet (global — no step prefix).
 
 #### Resuming a failed batch run (Step 2)
 
@@ -1595,7 +1635,7 @@ To force a fresh run, delete `output/2 - controls/checkpoint.json` before runnin
 
 #### Sub-documents are too large or too small (Step 5)
 
-On the **Thresholds** sheet, adjust `max_characters`:
+On the **5-Thresholds** sheet, adjust `max_characters`:
 - **Too large:** Lower from `36000` to `18000` for tighter splits
 - **Too small:** Raise to `50000` or higher if your context window supports it
 
@@ -1603,7 +1643,7 @@ On the **Thresholds** sheet, adjust `max_characters`:
 
 Step 6 tries to get scope and intent from Step 0's profiler data first. If that's unavailable, it falls back to scanning the document directly. For best results:
 1. Run Step 0 first so `document_profiles.json` exists
-2. Check that your documents have sections matching the keywords on the **Sections** sheet (scope and intent categories)
+2. Check that your documents have sections matching the keywords on the **5-Sections** sheet (scope and intent categories)
 
 #### Pipeline stops at a failed step
 
@@ -1629,3 +1669,80 @@ Where `N` is the step that failed. You don't need to re-run earlier successful s
 | Pasted a regex with curly/smart quotes | Pattern fails to match | Replace curly quotes with straight quotes. Disable Excel autocorrect for the cell |
 | Saved as `.xls` instead of `.xlsx` | `InvalidFileException` error | Re-save as `.xlsx` (File → Save As → Excel Workbook) |
 | File is password-protected | Pipeline can't open the file | Remove protection (File → Info → Protect Workbook → remove password) |
+
+---
+
+## Appendix: Maintainer Notes
+
+This appendix is for contributors updating the pipeline code itself (the Excel config generator, the shared parser, and the hardcoded JSONL field names). It is **not** needed for normal day-to-day use of the pipeline.
+
+### Source of Truth and Fallback
+
+- **Primary human-edited config:** `dps_config.xlsx`
+- **Fallback / seed config:** `dps_config_fallback.yaml`
+
+When changing generator defaults, keep the YAML defaults aligned unless you intentionally want different fallback behavior. The workflow is: edit the YAML → regenerate the Excel from YAML → verify the parse.
+
+```bash
+python generate_config_template.py --from-yaml dps_config_fallback.yaml --output dps_config.xlsx
+python run_pipeline.py --list
+```
+
+### Changing Workbook Structure Safely
+
+Normal config edits (values, adding keyword rows) do **not** need any of this. These instructions are only for structural changes to the workbook itself.
+
+#### Reordering columns
+
+1. Update the sheet builder headers and row writes in `generate_config_template.py`.
+2. Update parser column assumptions in `scripts/shared_utils.py` (for example `_parse_settings_rows()` and any sheet-specific column indexing).
+3. Regenerate and sanity-check the parse:
+   ```bash
+   python generate_config_template.py --from-yaml dps_config_fallback.yaml --output dps_config.xlsx
+   python run_pipeline.py --list
+   ```
+
+#### Renaming worksheet tabs
+
+1. Change the tab name in `generate_config_template.py`.
+2. Update `load_config_xlsx()` sheet-name mapping in `scripts/shared_utils.py`.
+3. Regenerate and run `python run_pipeline.py --list` to confirm the section still loads.
+
+> Parser matching is **exact by sheet name**. Renaming only in Excel (without updating the code) silently causes that section to be skipped.
+
+#### Adding or removing columns in table-like blocks
+
+Examples: Pipeline rows, Metadata Fields, the section-deletion table.
+
+1. Change table headers and row shapes in `generate_config_template.py`.
+2. Update the matching parser in `scripts/shared_utils.py` so new columns are read and removed columns are no longer expected.
+3. Update consuming script logic if parsed keys changed.
+4. Regenerate and run a step that exercises the modified section.
+
+### Renaming a Metadata Field Across the Dual Config Layers
+
+Metadata field names (the keys that appear in JSONL chunks and Markdown frontmatter) are defined in multiple places due to the dual config system. Renaming a field — for example, changing `acronyms` to `Tags` — requires updates in **all** of these locations or the old name will persist in some outputs.
+
+**Where field names live:**
+
+| Layer | File | What to change |
+|-------|------|----------------|
+| **YAML fallback** | `dps_config_fallback.yaml` | Find the `- name: "oldName"` entry under `docx2md.metadata_fields` and change it |
+| **Generator defaults** | `generate_config_template.py` | Find the `{"name": "oldName", ...}` entry in the default `metadata_fields` list (look in `_build_docx2md_sheet`) and change it |
+| **Excel config** | `dps_config.xlsx` | Regenerate from YAML after updating the above: `python generate_config_template.py --from-yaml dps_config_fallback.yaml` |
+| **JSONL script** | `scripts/docx2jsonl.py` | Search for `chunk["oldName"]` and rename the key — this script hardcodes the acronym/tag field name rather than reading it from config |
+
+**Step-by-step:**
+
+1. **Edit `dps_config_fallback.yaml`** — change the `name:` value in the `metadata_fields` list (under `docx2md:`).
+2. **Edit `generate_config_template.py`** — change the matching `{"name": ...}` entry in the default metadata fields.
+3. **Regenerate the Excel config:**
+   ```bash
+   python generate_config_template.py --from-yaml dps_config_fallback.yaml --output dps_config.xlsx
+   ```
+4. **Edit `scripts/docx2jsonl.py`** — rename the hardcoded chunk key (e.g., `chunk["Tags"] = ...`).
+5. **Verify** — re-run Steps 7 and 8 on a test document and confirm the new key name appears in both `.md` frontmatter and `.jsonl.txt` output.
+
+> **Why is this spread across so many files?** The Markdown converter (`docx2md.py`) reads field names dynamically from config, so updating config is enough for `.md` output. `docx2jsonl.py` writes the acronym/tag field with a hardcoded key name, so it requires a code change too. The YAML fallback, generator, and Excel config are three representations of the same settings — all three must agree, and the generator is the bridge between them.
+
+> **Tip:** If you only use the Excel config (not the YAML fallback), you can skip step 1 and instead edit the field name directly on the **7-Docx2md** sheet in `dps_config.xlsx`. You'll still need step 4 (the JSONL script edit), and the next time you regenerate the Excel from YAML your manual edit will be overwritten unless the YAML is also updated.

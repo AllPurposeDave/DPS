@@ -13,8 +13,6 @@ and organize it by topic. That's the ingest job.
 ## Triggers
 - `"ingest @<filename>"` → run the **ingest loop** below.
   One doc per invocation. The user brings the doc into context with `@`.
-- Raw docs must be **20,000 characters or fewer**. If a doc exceeds this,
-  the user must split it before ingesting.
 
 ## The ingest loop (one doc per invocation)
 The user invokes `ingest @<filename>`.
@@ -27,7 +25,7 @@ The user invokes `ingest @<filename>`.
    (e.g., ingesting `acme-policy-appendix-a.md` and `acme-policy` is
    listed in INDEX). If a prefix match is found, **stop and confirm
    with the user** before appending as a chunk:
-   > "`<filename>` looks like a chunk of `[[<parent-slug>]]`. Append to
+  > "`<filename>` looks like a chunk of `[<parent-slug>](policies/<parent-slug>.md)`. Append to
    > it, or file as a standalone policy?"
    If chunk: append chunk content to the parent's `## Controls` section
    under a matching subheading. If standalone: continue with step 3.
@@ -51,8 +49,7 @@ The user invokes `ingest @<filename>`.
      that synonym to the topic's `aliases:` list.
    - d. **More specific than an existing topic** (e.g., policy is about
      SIEM log retention, existing topic is `logging-retention`) → create
-     a subtopic file with `parent: <existing-slug>` in frontmatter. Link
-     it from the parent's `## Related topics`.
+     a subtopic file. Link it from the parent's `## Related topics`.
    - e. **Genuinely new area** → create a new topic file. Seed `aliases:`
      with 2–3 alternative phrasings.
 7. Update `wiki/INDEX.md`: add the policy under `## By Policy`; ensure
@@ -64,16 +61,16 @@ The user invokes `ingest @<filename>`.
 Triggered when `ingest @<filename>` produces a slug that already exists
 in `wiki/policies/`. Stop and ask the user:
 
-> This slug already exists: `[[<slug>]]` (filed `<added>`). How should
+> This slug already exists: `[<slug>](policies/<slug>.md)` (filed `<added>`). How should
 > I handle this update?
 > 1. **Overwrite** — minor edits, typos, clarifications.
 > 2. **Version as `-v2`** — major rewrite, controls added or removed.
 > 3. **Abort** — don't touch anything.
 
-- **Overwrite**: rewrite the policy page, bump `updated: YYYY-MM-DD` in
-  frontmatter. Git history preserves the diff.
+- **Overwrite**: rewrite the policy page in place.
+  Git history preserves the diff.
 - **Version**: write a new page `<slug>-v2.md` (or `-v3`, etc.), add
-  `> Superseded by [[<slug>-v2]]` at the top of the old page, update
+  `> Superseded by [<slug>-v2](<slug>-v2.md)` at the top of the old page, update
   INDEX to point `## By Policy` at the new version.
 - **Abort**: no-op.
 
@@ -89,7 +86,6 @@ if needed.
 source: raw/<filename>
 published_url: https://www.url.com/...   # from PublishedURL in the source; null if missing
 added: YYYY-MM-DD
-updated: null                              # bumped on overwrite-updates
 topics: [topic-slug-1, topic-slug-2]      # free-form topics
 ---
 # <Policy Title>
@@ -101,20 +97,19 @@ topics: [topic-slug-1, topic-slug-2]      # free-form topics
 <verbatim controls; preserve IDs and numbering; do not compress or paraphrase>
 
 ## Related
-- Topics: [[topic-slug-1]], [[topic-slug-2]]
+- Topics: [topic-slug-1](../topics/topic-slug-1.md), [topic-slug-2](../topics/topic-slug-2.md)
 
 ## Raw
 [original](../../raw/<filename>)
 ```
 
 ## Topic template (`wiki/topics/<slug>.md`)
-Free-form subject area pages. Subtopics set `parent:` to the parent slug.
+Free-form subject area pages.
 
 ```markdown
 ---
 slug: <slug>
 kind: topic
-parent: null                # or <parent-slug> for a subtopic
 aliases: [alt-name-1, alt-name-2]   # alternate names the topic is known by
 added: YYYY-MM-DD
 ---
@@ -123,11 +118,11 @@ added: YYYY-MM-DD
 <1–3 sentence description of what this topic covers.>
 
 ## Policies
-- [[policy-slug-1]] — one-line hook of what this policy says on the topic
-- [[policy-slug-2]] — one-line hook of what this policy says on the topic
+- [policy-slug-1](../policies/policy-slug-1.md) — one-line hook of what this policy says on the topic
+- [policy-slug-2](../policies/policy-slug-2.md) — one-line hook of what this policy says on the topic
 
 ## Related topics
-- [[other-topic]]
+- [other-topic](other-topic.md)
 
 ## Notes
 <optional: open questions, cross-topic observations>
@@ -138,12 +133,12 @@ added: YYYY-MM-DD
 # InfoSec Policy Wiki — Index
 
 ## By Topic
-- [[privileged-access]] — PAM, break-glass, elevation
-- [[logging-retention]] — log storage, retention windows
-  - [[logging-retention-siem]] — SIEM-specific retention (subtopic)
+- [privileged-access](topics/privileged-access.md) — PAM, break-glass, elevation
+- [logging-retention](topics/logging-retention.md) — log storage, retention windows
+  - [logging-retention-siem](topics/logging-retention-siem.md) — SIEM-specific retention (subtopic)
 
 ## By Policy
-- [[acme-access-control-policy]] — 2026-03, controls access and sessions
+- [acme-access-control-policy](policies/acme-access-control-policy.md) — 2026-03, controls access and sessions
 ```
 
 Rewrite this file at the end of every ingest. Keep hooks under ~80 chars.
@@ -159,5 +154,5 @@ Nest subtopics under their parent in `## By Topic` for visual hierarchy.
   Preserve `Scope`, `Purpose`, and `Controls` sections.
 - **Always** confirm before treating a filename as a chunk of an existing
   policy — shared naming prefixes are not proof of parent/child.
-- Use `[[wikilinks]]` everywhere for cross-refs.
+- Use Markdown links everywhere for cross-refs.
 
