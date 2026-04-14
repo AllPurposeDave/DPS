@@ -17,6 +17,37 @@ This produces a **many-to-many mapping**: each source control can match multiple
 6. Run:  python scripts/merge.py
 ```
 
+## Workflow at a Glance
+
+```
+  ┌─────────────────┐
+  │ input/*.xlsx    │  (you place the Excel with two worksheets)
+  │ config.yaml     │  (you edit to match the Excel layout)
+  │ CLAUDE.md       │  (system prompt — edit between BEGIN/END markers)
+  └────────┬────────┘
+           │  python scripts/setup.py
+           ▼
+  ┌─────────────────┐
+  │ reference/*.md  │  (human-readable control lists)
+  │ batches/*.md    │  (NN_of_MM_…md — self-contained prompts)
+  └────────┬────────┘
+           │  for each batch: open fresh chat →
+           │    @batches/<file>.md Follow the instructions in the batch file.
+           │  save model output →
+           ▼
+  ┌─────────────────┐
+  │ results/*.json  │  (one JSON file per batch, named per the batch)
+  └────────┬────────┘
+           │  python scripts/merge.py
+           ▼
+  ┌─────────────────────────────┐
+  │ output/*_GapAnalysis.xlsx   │  (Source Unique / Target Unique / Full Mapping)
+  │ output/mapping_cache.json   │
+  └─────────────────────────────┘
+```
+
+You can re-run `merge.py` at any point — it produces a partial output and reports which source controls are still unmapped.
+
 ---
 
 ## Prerequisites
@@ -29,7 +60,7 @@ This produces a **many-to-many mapping**: each source control can match multiple
 pip install -r requirements.txt
 ```
 
-> **Context injection note:** Files are not read automatically — all context must be manually added to each chat using `@FILE-Name` syntax. See Step 5 for the exact prompt pattern.
+> **Context injection note:** Files are not read automatically — the batch file must be manually added to each chat using `@FILE-Name` syntax. Batches are fully self-contained (instructions, source controls, and target reference are all inlined), so only the batch file needs to be attached. See Step 5 for the exact prompt pattern.
 
 ---
 
@@ -136,16 +167,14 @@ Review the output to verify correct control counts and batch breakdown.
 
 ### Step 5: Process Batches
 
-For each `.md` file in `batches/`, open a new chat session and use this prompt pattern:
+Batch files are globally numbered (e.g. `01_of_48_…`, `02_of_48_…`) so you can track progress at a glance. For each `.md` file in `batches/`, open a new chat session and use this prompt pattern:
 
-> **`@CLAUDE.md @batches/<filename>.md` Follow the instructions in the batch file.**
+> **`@batches/<filename>.md` Follow the instructions in the batch file.**
 
-The `@` mentions inject the file contents directly into the model's context. Both files must be included:
-- `@CLAUDE.md` — provides the output format rules and confidence level definitions
-- `@batches/<filename>.md` — provides the source controls, target reference, and save instructions
+Only the batch file needs to be attached — the system prompt, source controls, target reference, and save path are all inlined into every batch file by `setup.py`. (CLAUDE.md is the source of truth for the system prompt; it is extracted at setup time and does not need to be attached at chat time.)
 
 The model will:
-1. Read the injected batch file (contains source controls and target reference)
+1. Read the injected batch file (contains instructions, source controls, and target reference)
 2. Analyze each source control against the target controls
 3. Output a JSON mapping
 
@@ -207,7 +236,9 @@ Every match includes a confidence level (`high`, `medium`, `low`) and a rational
 | Small source, small target (<100 each) | Standard mode, batch_size 8-10 |
 | Small source, large target (200+) | Chunked mode, batch_size 5-8 |
 | Large source, large target | Chunked mode, batch_size 5, group_by domain |
-| NIST-based target (dense language) | Chunked mode, max_controls_per_chunk 40-60 |
+| NIST 800-53 target (dense language, 400+ base controls) | Chunked mode, separator `-`, max_controls_per_chunk 40-60 |
+| NIST 800-53 with enhancements (1000+ controls) | Chunked mode, batch_size 3-5, max_controls_per_chunk 30-40 |
+| Custom framework (non-prefixed IDs) | Standard mode, or add a family column and use `strategy: "column"` |
 
 **Factors that affect accuracy:**
 - **Batch size** — fewer source controls per prompt = more attention per control
@@ -217,13 +248,25 @@ Every match includes a confidence level (`high`, `medium`, `low`) and a rational
 
 ---
 
+## Customizing the System Prompt
+
+The mapping instructions (confidence levels, rules, common pitfalls) live in `CLAUDE.md` between `<!-- BEGIN:SYSTEM_PROMPT -->` and `<!-- END:SYSTEM_PROMPT -->` markers. `setup.py` extracts that block and inlines it into every generated batch file.
+
+To tune the prompt for a specific mapping project (e.g. emphasize certain edge cases for NIST 800-53, add domain-specific pitfalls for HIPAA):
+
+1. Edit between the markers in `CLAUDE.md`
+2. Rerun `python scripts/setup.py` to regenerate batches
+3. Reprocess any in-flight batches with the updated prompt
+
+Supported placeholders inside the prompt block: `{source_name}`, `{target_name}`, `{target_scope_detail}`. If you include JSON examples with literal `{` or `}`, escape them as `{{` and `}}` (standard Python `.format()` convention).
+
 ## File Structure
 
 ```
 Control-Mapping-Template/
 ├── config.yaml              ← Edit this first
 ├── README.md                ← You are here
-├── CLAUDE.md                ← Instructions for AI or LLM sessions
+├── CLAUDE.md                ← Canonical system prompt (inlined into each batch by setup.py)
 ├── requirements.txt         ← Python dependencies
 ├── input/                   ← Place your Excel file here
 │   └── controls.xlsx

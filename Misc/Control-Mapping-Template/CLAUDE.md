@@ -1,69 +1,59 @@
 # Control Mapping Template
 
 ## Environment
-This project is designed for interactive AI chat sessions in VS Code (e.g. Claude Sonnet 4.5 or similar). Context is NOT loaded automatically — every relevant file must be explicitly added to the chat using `@FILE-Name` syntax before prompting.
+This project is designed for interactive AI chat sessions in VS Code (e.g. Claude Sonnet 4.5 or similar). Batches are fully self-contained — `setup.py` inlines the canonical system prompt below into every batch file, so you only need to `@`-mention the batch file itself.
 
 ## Standard Prompt Pattern
 ```
-@CLAUDE.md @batches/<filename>.md Follow the instructions in the batch file.
+@batches/<filename>.md Follow the instructions in the batch file.
 ```
-Both `@CLAUDE.md` and the target batch file must be included in every chat.
 
 ## What This Project Does
 Maps controls from a **source** framework against a **target** framework to identify coverage gaps. Configured via `config.yaml`. See `README.md` for full user guide.
 
-## How to Process a Batch File
-
-When the batch file content is provided via `@` context injection:
-
-1. The batch file contains all instructions, source controls, target reference, and the expected output filename
-2. For each source control, identify matching target controls from the reference provided
-3. Output **ONLY valid JSON** — no markdown fences, no commentary, no preamble
-
-### Output Format
-```json
-{
-  "CTRL-01": {
-    "matches": [
-      {"target_id": "TGT-01", "confidence": "high", "rationale": "One sentence."},
-      {"target_id": "TGT-05", "confidence": "medium", "rationale": "One sentence."}
-    ],
-    "unique_to_source": false,
-    "gap_rationale": ""
-  }
-}
-```
-
-### Confidence Levels
-- **high** — Target control directly addresses the same requirement
-- **medium** — Partial overlap or broader scope covers the intent
-- **low** — Tangential relationship only
-
-### Rules
-- Include ALL relevant matches (high, medium, and low confidence)
-- `unique_to_source` = true ONLY when no high or medium matches exist
-- One-sentence rationale per match explaining the relationship
-- If unique, explain the gap in `gap_rationale`
-- In chunked mode: `unique_to_source` refers to THIS target group only — merge.py resolves the full picture
-
-## Operating Modes
-
-### Standard Mode
-Each batch contains source controls + the full target catalog.
-
-### Chunked Mode
-Each batch contains source controls + one target family group. The same source controls appear in multiple batches (one per target group). This is expected — merge.py combines results automatically.
-
 ## Scripts
 - `python scripts/setup.py` — Reads `config.yaml` + Excel, generates `reference/` and `batches/`
 - `python scripts/merge.py` — Combines `results/*.json` into `output/` Excel. Handles deduplication across chunked results.
+
+## Maintaining the System Prompt
+This file is the single source of truth for the batch-processing instructions. The block between `BEGIN:SYSTEM_PROMPT` and `END:SYSTEM_PROMPT` markers below is extracted by `setup.py` and injected into every generated batch file.
+
+To change the rules: edit between the markers, then rerun `python scripts/setup.py` to regenerate the batches. Placeholders `{source_name}`, `{target_name}`, and `{target_scope_detail}` are filled in per batch.
+
+<!-- BEGIN:SYSTEM_PROMPT -->
+## Instructions
+
+You are an information security expert specializing in security frameworks and control mapping.
+
+For **EACH** {source_name} control listed below, identify which {target_name} controls address the same security requirement or capability. A "match" means the {target_name} control substantively addresses the same security concern, even if scope or language differs.
+
+**Target scope for this batch**: {target_scope_detail}
+
+### Confidence Levels — be precise
+- **high**: The {target_name} control **directly and specifically requires** the same capability. The rationale must NOT use words like "partially," "broadly," "related to," or "touches on." If you need those words, it is medium, not high.
+- **medium**: Partial overlap — the {target_name} control covers some but not all of the {source_name} requirement, or addresses it at a broader scope.
+- **low**: Tangential relationship only — shared vocabulary or domain but different actual requirements.
+
+### Common Pitfalls to Avoid
+- **Keyword matching is not semantic matching.** The word "access" in a physical-security control does NOT match a logical-access control. "Audit" in a financial-audit context does NOT match security-audit logging. Read both controls fully before deciding.
+- **Umbrella controls are not automatic matches.** A {target_name} control like "maintain a security program" is too broad to be a high match for a specific technical requirement. Mark it medium or low.
+
+### Rules
+- Include ALL relevant matches, even low confidence ones
+- Set `unique_to_source` to `true` ONLY if there are NO high or medium matches **in this target group**
+- Provide a one-sentence rationale for each match explaining the **specific** overlap
+- If no matches exist in this target group, return an empty matches array
+
+### Output Format
+Respond with ONLY valid JSON (no markdown code fences, no extra text). The JSON object has one key per source control ID, with a `matches` array, `unique_to_source` boolean, and `gap_rationale` string. See each batch file for the exact example and save path.
+<!-- END:SYSTEM_PROMPT -->
 
 ## File Structure
 ```
 config.yaml       — Framework names, column mappings, batch size, chunking settings
 input/             — Excel file (two worksheets, one per framework)
 reference/         — Generated: extracted controls as markdown
-batches/           — Generated: self-contained prompt files
+batches/           — Generated: self-contained prompt files (system prompt is inlined)
 results/           — User saves JSON output here (one file per batch)
 scripts/setup.py   — Generates reference/ and batches/
 scripts/merge.py   — Combines results/ into output/

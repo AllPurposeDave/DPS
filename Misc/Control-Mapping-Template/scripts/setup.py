@@ -8,6 +8,7 @@ Usage:
 
 import argparse
 import math
+import re
 import sys
 from collections import OrderedDict
 from pathlib import Path
@@ -26,6 +27,25 @@ PROJECT_DIR = SCRIPT_DIR.parent
 def load_config(config_path):
     with open(config_path) as f:
         return yaml.safe_load(f)
+
+
+SYSTEM_PROMPT_MARKER = re.compile(
+    r"<!--\s*BEGIN:SYSTEM_PROMPT\s*-->(.*?)<!--\s*END:SYSTEM_PROMPT\s*-->",
+    re.DOTALL,
+)
+
+
+def load_system_prompt(claude_md_path):
+    """Extract the canonical system prompt block from CLAUDE.md."""
+    if not claude_md_path.exists():
+        print(f"ERROR: CLAUDE.md not found at {claude_md_path}")
+        sys.exit(1)
+    text = claude_md_path.read_text(encoding="utf-8")
+    match = SYSTEM_PROMPT_MARKER.search(text)
+    if not match:
+        print(f"ERROR: BEGIN:SYSTEM_PROMPT / END:SYSTEM_PROMPT markers not found in {claude_md_path}")
+        sys.exit(1)
+    return match.group(1).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -344,30 +364,7 @@ BATCH_TEMPLATE = """\
 
 ---
 
-## Instructions
-
-You are an information security expert specializing in security frameworks and control mapping.
-
-For **EACH** {source_name} control listed below, identify which {target_name} controls
-address the same security requirement or capability. A "match" means the {target_name}
-control substantively addresses the same security concern, even if scope or language differs.
-
-**Target scope for this batch**: {target_scope_detail}
-
-### Confidence Levels — be precise
-- **high**: The {target_name} control **directly and specifically requires** the same capability. The rationale must NOT use words like "partially," "broadly," "related to," or "touches on." If you need those words, it is medium, not high.
-- **medium**: Partial overlap — the {target_name} control covers some but not all of the {source_name} requirement, or addresses it at a broader scope.
-- **low**: Tangential relationship only — shared vocabulary or domain but different actual requirements.
-
-### Common Pitfalls to Avoid
-- **Keyword matching is not semantic matching.** The word "access" in a physical-security control does NOT match a logical-access control. "Audit" in a financial-audit context does NOT match security-audit logging. Read both controls fully before deciding.
-- **Umbrella controls are not automatic matches.** A {target_name} control like "maintain a security program" is too broad to be a high match for a specific technical requirement. Mark it medium or low.
-
-### Rules
-- Include ALL relevant matches, even low confidence ones
-- Set `unique_to_source` to `true` ONLY if there are NO high or medium matches **in this target group**
-- Provide a one-sentence rationale for each match explaining the **specific** overlap
-- If no matches exist in this target group, return an empty matches array
+{system_prompt}
 
 ---
 
@@ -428,7 +425,8 @@ def format_source_controls(controls, supplemental_labels):
 
 def write_batch_file(batch, batch_dir, source_name, target_name,
                      target_reference, target_count, supplemental_labels,
-                     target_scope="Full Catalog", target_scope_detail=None):
+                     system_prompt, target_scope="Full Catalog",
+                     target_scope_detail=None):
     """Write a self-contained batch prompt file."""
     controls = batch["controls"]
     control_ids = ", ".join(c["id"] for c in controls)
@@ -439,6 +437,12 @@ def write_batch_file(batch, batch_dir, source_name, target_name,
         target_scope_detail = f"All {target_count} {target_name} controls"
 
     source_section = format_source_controls(controls, supplemental_labels)
+
+    formatted_system_prompt = system_prompt.format(
+        source_name=source_name,
+        target_name=target_name,
+        target_scope_detail=target_scope_detail,
+    )
 
     content = BATCH_TEMPLATE.format(
         batch_label=batch["label"],
@@ -453,6 +457,7 @@ def write_batch_file(batch, batch_dir, source_name, target_name,
         target_count=target_count,
         example_id=example_id,
         result_filename=result_filename,
+        system_prompt=formatted_system_prompt,
     )
 
     filepath = batch_dir / f"{batch['name']}.md"
@@ -471,6 +476,8 @@ def main():
     args = parser.parse_args()
 
     config = load_config(args.config)
+
+    system_prompt = load_system_prompt(PROJECT_DIR / "CLAUDE.md")
 
     input_path = PROJECT_DIR / config["input_file"]
     if not input_path.exists():
@@ -548,12 +555,15 @@ def main():
             print(f"    {tc['label']}: {len(tc['controls'])} controls "
                   f"({', '.join(unique_families)})")
 
+        total_planned = len(source_batches) * len(target_chunks)
+        pad = len(str(total_planned))
         total_batches = 0
         for src_batch in source_batches:
             for tgt_chunk in target_chunks:
-                # Create cross-product batch name
-                cross_name = f"{src_batch['name']}_x_{tgt_chunk['name']}"
-                cross_label = f"{src_batch['label']} × {tgt_chunk['label']}"
+                total_batches += 1
+                prefix = f"{total_batches:0{pad}d}_of_{total_planned}"
+                cross_name = f"{prefix}_{src_batch['name']}_x_{tgt_chunk['name']}"
+                cross_label = f"[{total_batches}/{total_planned}] {src_batch['label']} × {tgt_chunk['label']}"
 
                 cross_batch = {
                     "name": cross_name,
@@ -576,10 +586,10 @@ def main():
                     source_cfg["name"], target_cfg["name"],
                     chunk_reference, len(tgt_chunk["controls"]),
                     source_sup_labels,
+                    system_prompt,
                     target_scope=tgt_chunk["label"],
                     target_scope_detail=scope_detail,
                 )
-                total_batches += 1
 
         print(f"\n  Generated {total_batches} batch files "
               f"({len(source_batches)} source × {len(target_chunks)} target)")
@@ -588,13 +598,22 @@ def main():
         # --- STANDARD MODE: source batches with full target catalog ---
         target_reference = build_target_reference(target_controls, target_sup_labels)
 
+        total_planned = len(source_batches)
+        pad = len(str(total_planned))
         total_batches = 0
-        for batch in source_batches:
+        for i, batch in enumerate(source_batches, start=1):
+            prefix = f"{i:0{pad}d}_of_{total_planned}"
+            numbered_batch = {
+                **batch,
+                "name": f"{prefix}_{batch['name']}",
+                "label": f"[{i}/{total_planned}] {batch['label']}",
+            }
             filepath = write_batch_file(
-                batch, batch_dir,
+                numbered_batch, batch_dir,
                 source_cfg["name"], target_cfg["name"],
                 target_reference, len(target_controls),
                 source_sup_labels,
+                system_prompt,
             )
             ids = ", ".join(c["id"] for c in batch["controls"])
             print(f"  {filepath.name}: {len(batch['controls'])} controls ({ids})")
@@ -612,7 +631,7 @@ def main():
     print(f"  Reference files:  reference/source_controls.md, reference/target_controls.md")
     print(f"\nNext steps:")
     print(f"  1. Open each batch file in batches/")
-    print(f"  2. Tell Claude Code: 'Read batches/<file>.md and follow its instructions'")
+    print(f"  2. Tell Claude: 'Read batches/<file>.md and follow its instructions'")
     print(f"  3. Save output to results/<batch_name>_result.json")
     print(f"  4. When all batches are done, run: python scripts/merge.py")
 

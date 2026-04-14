@@ -8,7 +8,7 @@
 #   1. Place your Excel file in input/ (one file, two worksheets)
 #   2. Update every field below to match YOUR Excel layout
 #   3. Run:  python scripts/setup.py
-#   4. Process each batch file in batches/ with Claude Code
+#   4. Process each batch file in batches/ with Claude
 #   5. Save JSON output to results/
 #   6. Run:  python scripts/merge.py
 #
