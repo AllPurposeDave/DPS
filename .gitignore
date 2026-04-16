@@ -17,6 +17,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .ipynb_checkpoints/
+.coverage
+.coverage.*
+htmlcov/
 
 # Environment / secrets
 .env

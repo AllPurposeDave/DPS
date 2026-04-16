@@ -30,9 +30,11 @@ One doc per invocation. The user brings the doc into context with `@`.
    `PublishedURL:` header line). Empty if absent — never invent.
 3. Find control blocks. A block starts where a control ID appears in a
    markdown heading (`#`, `##`, `###`), a bolded line (`**...**`), or a
-   table row. ID regex: `\b[A-Z]{2,4}[-.\s]?\d{1,3}[-.]?\d{1,4}\b`
-   (e.g. `AC-1.001`, `MON02.001`, `IA-5(1)`). **Ignore inline references**
-   like "see also AC-1.002" — those are not new controls.
+   table row. Control IDs look like a short letter prefix followed by
+   numbers with optional dots, dashes, or parens — e.g. `AC-1`,
+   `AC-1.001`, `MON02.001`, `IA-5(1)`, `PR.AC-1`, `CM-7(1)(a)`. **Ignore
+   inline references** like "see also AC-1.002" and plain section numbers
+   like `4.2.1` — those are not new controls.
 4. For each block, fill a row:
    - `control_id` — verbatim.
    - `control_name` — title around the ID. Example:

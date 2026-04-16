@@ -2,19 +2,6 @@
 
 Checklists for the human owner alongside the automated ingest process.
 
-## Pre-ingest checklist
-
-- [ ] Appendix controls get stripped by default — move any numbered
-      controls or control matrices into the main `Controls` section
-      before ingesting.
-- [ ] Confirm `PublishedURL` in the header is correct. Missing URLs
-      will be filed as `published_url: null`.
-
-## Mid-ingest review: topic page size
-
-Every **10–15 docs**, review topic pages for bloat (>3,000 chars or
->15 policy entries). Split into subtopics or trim hooks as needed,
-then update INDEX.
 
 ## Ingest decision points
 

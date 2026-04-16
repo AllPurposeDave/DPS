@@ -1189,6 +1189,35 @@ def _build_docx2md_sheet(wb, cfg: dict):
     _add_setting(ws, "output_directory", d2m.get("output_directory", "./output/7 - markdown"),
                  "Where converted .md files are written [default: ./output/7 - markdown]")
 
+    _add_subheader(ws, "Output File Splitting")
+    _add_setting(ws, "character_limit", d2m.get("character_limit", 0),
+                 "Soft char cap per .md file. Splits at heading boundaries only (never mid-sentence); a single oversized section is kept whole. Filename gets last section header appended. 0 = no splitting [default: 0]")
+    _add_setting(ws, "max_controls_per_file", d2m.get("max_controls_per_file", 0),
+                 "Soft cap on control IDs per .md file (counted via control_extraction.control_id_patterns). Splits at heading boundaries; a single oversized section is kept whole. Combined with character_limit — whichever triggers first splits. 0 = disabled. Recommended: 15 [default: 0]")
+    _add_setting(ws, "scope_statements_keep", d2m.get("scope_statements_keep", False),
+                 "When TRUE, clone the sections listed under 'Scope Statement Headings' into every split chunk after the first so each RAG chunk keeps scope context. When FALSE, splitting behaves normally. [default: FALSE]")
+    for r in range(2, ws.max_row + 1):
+        if ws.cell(row=r, column=1).value == "scope_statements_keep":
+            _add_bool_validation(ws, "B", r, r)
+
+    _add_subheader(ws, "Scope Statement Headings")
+    ws.append(["## Headings whose sections get cloned to every split chunk after the first.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(["## Only applied when scope_statements_keep is TRUE. Case-insensitive exact match on heading text.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(["## One heading per row (column A). Defaults: Purpose, Applicability and Scope.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    for h in d2m.get("scope_statement_headings", ["Purpose", "Applicability and Scope"]):
+        ws.append([h, "", ""])
+
+    _add_subheader(ws, "Headings to Delete")
+    ws.append(["## Sections whose heading + content (up to the next heading of any level) are removed from the .md output.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(["## Case-insensitive exact match on heading text. One heading per row (column A). Leave empty to keep all sections.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    for h in d2m.get("headings_to_delete", []):
+        ws.append([h, "", ""])
+
     _add_subheader(ws, "Image Handling")
     _add_setting(ws, "image_handling", d2m.get("image_handling", "extract"),
                  '"extract", "placeholder", or "skip" [default: extract]')

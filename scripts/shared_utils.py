@@ -549,6 +549,10 @@ def _parse_docx2md_sheet(ws):
                 fields.append(field)
             if fields:
                 result["metadata_fields"] = fields
+        elif "scope statement heading" in name_lower:
+            result["scope_statement_headings"] = _parse_list_column(block_rows)
+        elif "headings to delete" in name_lower:
+            result["headings_to_delete"] = _parse_list_column(block_rows)
         else:
             settings = _parse_settings_rows(block_rows)
             result.update(settings)

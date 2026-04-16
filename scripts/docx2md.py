@@ -71,6 +71,78 @@ _SMART_QUOTE_MAP = {
 _ZERO_WIDTH_RE = re.compile("[\u200b\u200c\u200d\ufeff]")
 
 
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+
+
+def _split_body_at_sections(body_lines: list, char_limit: int,
+                             base_chars: int,
+                             control_limit: int = 0,
+                             control_regex: "re.Pattern | None" = None) -> list[dict]:
+    """Pack body lines into chunks at heading boundaries.
+
+    Each chunk is a dict {"lines": [...], "last_header": str|None}.
+    A section (heading + its content, up to the next heading of equal or
+    shallower level) is the smallest splittable unit — a single oversized
+    section is kept whole (overflow is preferred to splitting mid-section).
+
+    Splits when EITHER limit would be exceeded:
+      - char_limit > 0   and accumulated chars + next section > char_limit
+      - control_limit > 0 and accumulated controls + next section > control_limit
+    """
+    # Parse into sections. A section starts at a heading line; content before
+    # the first heading forms a headerless preamble section.
+    sections: list[dict] = []
+    current = {"header": None, "level": 0, "lines": []}
+    for line in body_lines:
+        m = _HEADING_RE.match(line)
+        if m:
+            if current["lines"] or current["header"]:
+                sections.append(current)
+            current = {
+                "header": m.group(2).strip(),
+                "level": len(m.group(1)),
+                "lines": [line],
+            }
+        else:
+            current["lines"].append(line)
+    if current["lines"] or current["header"]:
+        sections.append(current)
+
+    # Greedy pack: add sections until the next one would exceed a limit,
+    # then start a new chunk. An oversized section goes in alone.
+    chunks: list[dict] = []
+    cur_lines: list[str] = []
+    cur_chars = base_chars
+    cur_controls = 0
+    cur_last_header: "str | None" = None
+
+    for section in sections:
+        sec_chars = sum(len(s) + 1 for s in section["lines"])
+        sec_controls = 0
+        if control_limit > 0 and control_regex is not None:
+            sec_controls = len(control_regex.findall("\n".join(section["lines"])))
+
+        char_overflow = char_limit > 0 and (cur_chars + sec_chars > char_limit)
+        ctrl_overflow = control_limit > 0 and (cur_controls + sec_controls > control_limit)
+        if cur_lines and (char_overflow or ctrl_overflow):
+            chunks.append({"lines": cur_lines, "last_header": cur_last_header})
+            cur_lines = []
+            cur_chars = base_chars
+            cur_controls = 0
+            cur_last_header = None
+
+        cur_lines.extend(section["lines"])
+        cur_chars += sec_chars
+        cur_controls += sec_controls
+        if section["header"]:
+            cur_last_header = section["header"]
+
+    if cur_lines:
+        chunks.append({"lines": cur_lines, "last_header": cur_last_header})
+
+    return chunks
+
+
 def _clean_text(text: str, config_d2m: dict) -> str:
     """Apply smart-quote and zero-width cleanup to a text string."""
     if config_d2m.get("clean_smart_quotes", True):
@@ -266,14 +338,33 @@ class DocxToMarkdown:
         # Heading detection config
         self.custom_style_map = build_custom_style_map(config)
 
-        # Control ID heading promotion
-        self.control_id_patterns: list[re.Pattern] = []
-        self.require_bold_control_id = False
-        if self.d2m.get("promote_control_ids_to_heading", False):
-            ctrl_cfg = config.get("control_extraction", {})
-            self.require_bold_control_id = ctrl_cfg.get("require_bold_control_id", False)
-            for pat in ctrl_cfg.get("control_id_patterns", []):
-                self.control_id_patterns.append(re.compile(pat))
+        # Control ID patterns — loaded from control_extraction config and reused
+        # for both heading promotion and the max_controls_per_file split trigger.
+        ctrl_cfg = config.get("control_extraction", {})
+        ctrl_patterns_raw = ctrl_cfg.get("control_id_patterns", [])
+        self.control_id_patterns: list[re.Pattern] = [re.compile(p) for p in ctrl_patterns_raw]
+        self.promote_control_ids = self.d2m.get("promote_control_ids_to_heading", False)
+        self.require_bold_control_id = ctrl_cfg.get("require_bold_control_id", False)
+        # Combined regex for counting controls when splitting (mirrors extract_controls.py)
+        if ctrl_patterns_raw:
+            combined = "|".join(f"({p})" for p in ctrl_patterns_raw)
+            self._combined_control_re: "re.Pattern | None" = re.compile(combined)
+        else:
+            self._combined_control_re = None
+
+        # Scope-clone + heading-delete filters (applied pre-split)
+        self.scope_statements_keep = bool(self.d2m.get("scope_statements_keep", False))
+        self.scope_statement_headings = {
+            str(h).strip().lower()
+            for h in (self.d2m.get("scope_statement_headings") or [])
+            if str(h).strip()
+        }
+        self.headings_to_delete = {
+            str(h).strip().lower()
+            for h in (self.d2m.get("headings_to_delete") or [])
+            if str(h).strip()
+        }
+        self._scope_clone_lines: list[str] = []
 
         # State
         self.lines: list[str] = []
@@ -328,8 +419,20 @@ class DocxToMarkdown:
                     self._end_list()
                     self._process_table(table_map[child_id])
             except Exception as exc:
-                self._warn("element", f"Processing error: {exc}", "")
-                self.lines.append(f"[Conversion error: {exc}]")
+                has_img = False
+                try:
+                    xml_str = child.xml
+                    has_img = "a:blip" in xml_str or "v:imagedata" in xml_str
+                except Exception:
+                    pass
+                if has_img:
+                    self.image_counter += 1
+                    self.stats["images"] += 1
+                    self._warn("image", f"Image paragraph failed: {exc}", "")
+                    self.lines.append(f"--image {self.image_counter} placeholder--")
+                else:
+                    self._warn("element", f"Processing error: {exc}", "")
+                    self.lines.append(f"[Conversion error: {exc}]")
                 self.lines.append("")
 
         # Extract text boxes
@@ -343,13 +446,15 @@ class DocxToMarkdown:
         if self.d2m.get("metadata_placement", "top") == "top_and_bottom":
             self.lines.extend(self._build_bottom_metadata(doc))
 
-        # Write .md file
+        # Write .md file(s) — optionally split at section boundaries
         stem = os.path.splitext(self.filename)[0]
         safe_name = sanitize_filename(stem, max_len=100)
-        md_path = os.path.join(self.output_dir, f"{safe_name}.md")
         ensure_output_dir(self.output_dir)
-        with open(md_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(self.lines))
+
+        # Apply heading-delete removals and collect scope-clone sections
+        self._apply_heading_filters()
+
+        output_files = self._write_markdown(safe_name)
 
         # Extract images
         if self.d2m.get("image_handling", "extract") == "extract":
@@ -357,7 +462,7 @@ class DocxToMarkdown:
 
         elapsed = time.time() - start
         status = "warning" if self.warnings else "success"
-        return self._result(status, elapsed, output_file=f"{safe_name}.md")
+        return self._result(status, elapsed, output_file=output_files)
 
     # ------------------------------------------------------------------
     # Bottom metadata block
@@ -462,7 +567,7 @@ class DocxToMarkdown:
                     return int(m.group(1))
 
         # Control ID heading promotion
-        if self.control_id_patterns:
+        if self.promote_control_ids and self.control_id_patterns:
             text = para.text.strip()
             if self.require_bold_control_id and not is_paragraph_bold(para):
                 pass  # skip non-bold paragraphs when bold is required
@@ -521,11 +626,11 @@ class DocxToMarkdown:
 
     def _render_inline(self, para, doc) -> str:
         """Walk paragraph XML children to render runs and hyperlinks in order."""
-        # Collect (text, bold, italic, strike) segments so adjacent runs with
-        # identical formatting can be merged before applying markdown markers.
-        # This prevents mid-word `***` artifacts caused by Word splitting a
-        # single formatted word across multiple runs.
-        segments: list = []  # each item: (text, bold, italic, strike) or ("hyperlink", str)
+        # Italics are intentionally dropped: DOCX often italicises incidental
+        # text, which adds noise to RAG. Bold and strike are preserved.
+        # Segments are merged across runs with matching (bold, strike) to avoid
+        # mid-word `**` artifacts from Word splitting formatted words.
+        segments: list = []  # each item: (text, bold, strike) or ("hyperlink", str)
 
         for child in para._element:
             tag = child.tag
@@ -539,12 +644,11 @@ class DocxToMarkdown:
                 if not text:
                     continue
                 rpr = child.find(qn("w:rPr"))
-                bold = italic = strike = False
+                bold = strike = False
                 if rpr is not None:
                     bold = rpr.find(qn("w:b")) is not None
-                    italic = rpr.find(qn("w:i")) is not None
                     strike = rpr.find(qn("w:strike")) is not None
-                segments.append((text, bold, italic, strike))
+                segments.append((text, bold, strike))
 
             elif tag == qn("w:hyperlink"):
                 segments.append(("hyperlink", self._render_hyperlink(child, doc)))
@@ -558,27 +662,29 @@ class DocxToMarkdown:
                 parts.append(seg[1])
                 i += 1
                 continue
-            text, bold, italic, strike = seg
-            # Accumulate adjacent runs with the same format
+            text, bold, strike = seg
             j = i + 1
             while j < len(segments) and segments[j][0] != "hyperlink":
-                _, b2, it2, st2 = segments[j]
-                if b2 == bold and it2 == italic and st2 == strike:
+                _, b2, st2 = segments[j]
+                if b2 == bold and st2 == strike:
                     text += segments[j][0]
                     j += 1
                 else:
                     break
             i = j
-            # Apply markdown formatting to merged text
-            if strike:
-                text = f"~~{text}~~"
-            if bold and italic:
-                text = f"***{text}***"
-            elif bold:
-                text = f"**{text}**"
-            elif italic:
-                text = f"*{text}*"
-            parts.append(text)
+            # Lift leading/trailing whitespace outside emphasis so we don't
+            # emit invalid markdown like `**Description: **`.
+            lead_len = len(text) - len(text.lstrip())
+            trail_len = len(text) - len(text.rstrip())
+            lead = text[:lead_len]
+            trail = text[len(text) - trail_len:] if trail_len else ""
+            core = text.strip()
+            if core:
+                if strike:
+                    core = f"~~{core}~~"
+                if bold:
+                    core = f"**{core}**"
+            parts.append(lead + core + trail)
 
         text = "".join(parts)
         return _clean_text(text, self.d2m)
@@ -595,22 +701,22 @@ class DocxToMarkdown:
             return ""
 
         rpr = run_elem.find(qn("w:rPr"))
-        bold = italic = strike = False
+        bold = strike = False
         if rpr is not None:
             bold = rpr.find(qn("w:b")) is not None
-            italic = rpr.find(qn("w:i")) is not None
             strike = rpr.find(qn("w:strike")) is not None
 
-        if strike:
-            text = f"~~{text}~~"
-        if bold and italic:
-            text = f"***{text}***"
-        elif bold:
-            text = f"**{text}**"
-        elif italic:
-            text = f"*{text}*"
-
-        return text
+        lead_len = len(text) - len(text.lstrip())
+        trail_len = len(text) - len(text.rstrip())
+        lead = text[:lead_len]
+        trail = text[len(text) - trail_len:] if trail_len else ""
+        core = text.strip()
+        if core:
+            if strike:
+                core = f"~~{core}~~"
+            if bold:
+                core = f"**{core}**"
+        return lead + core + trail
 
     def _render_hyperlink(self, hyperlink_elem, doc) -> str:
         """Render a w:hyperlink element as a markdown link."""
@@ -840,7 +946,7 @@ class DocxToMarkdown:
                                f"paragraph")
 
         # Placeholder fallback
-        self.lines.append(f"[Image: {alt_text}]")
+        self.lines.append(f"--image {self.image_counter} placeholder--")
         self.lines.append("")
         self._add_inventory("image", f"Placeholder: {alt_text}")
 
@@ -894,6 +1000,161 @@ class DocxToMarkdown:
 
         except Exception as exc:
             self._warn("text_box", f"Error extracting text boxes: {exc}", "")
+
+    # ------------------------------------------------------------------
+    # Output writing & splitting
+    # ------------------------------------------------------------------
+
+    def _apply_heading_filters(self) -> None:
+        """Remove sections whose heading matches headings_to_delete, and collect
+        scope-statement sections for cloning into split chunks.
+
+        A section is a heading line plus every following line up to (but not
+        including) the next heading of any level. Matching is case-insensitive
+        and exact on the trimmed heading text.
+        """
+        want_delete = bool(self.headings_to_delete)
+        want_clone = self.scope_statements_keep and bool(self.scope_statement_headings)
+        if not (want_delete or want_clone):
+            return
+
+        has_fm = bool(self.lines) and self.lines[0].lstrip().startswith("---")
+        fm_block = self.lines[0] if has_fm else None
+        body = self.lines[1:] if has_fm else list(self.lines)
+
+        out: list[str] = []
+        scope_sections: list[list[str]] = []
+        i = 0
+        n = len(body)
+        while i < n:
+            line = body[i]
+            m = _HEADING_RE.match(line)
+            if not m:
+                out.append(line)
+                i += 1
+                continue
+            heading_text = m.group(2).strip().lower()
+            j = i + 1
+            while j < n and not _HEADING_RE.match(body[j]):
+                j += 1
+            section = body[i:j]
+            if want_delete and heading_text in self.headings_to_delete:
+                i = j
+                continue
+            if want_clone and heading_text in self.scope_statement_headings:
+                scope_sections.append(section)
+            out.extend(section)
+            i = j
+
+        self.lines = ([fm_block] + out) if has_fm else out
+
+        if scope_sections:
+            clone: list[str] = []
+            for sec in scope_sections:
+                clone.extend(sec)
+                if clone and clone[-1] != "":
+                    clone.append("")
+            self._scope_clone_lines = clone
+
+    def _write_markdown(self, safe_name: str) -> list[str]:
+        """Write self.lines to one or more .md files. Returns list of filenames.
+
+        If docx2md.character_limit is set and total content exceeds it, splits
+        at heading boundaries (never mid-section). Each chunk keeps the
+        frontmatter, with the last section header appended to title and filename.
+        """
+        try:
+            char_limit = int(self.d2m.get("character_limit", 0) or 0)
+        except (TypeError, ValueError):
+            char_limit = 0
+        try:
+            control_limit = int(self.d2m.get("max_controls_per_file", 0) or 0)
+        except (TypeError, ValueError):
+            control_limit = 0
+
+        control_regex = self._combined_control_re if control_limit > 0 else None
+
+        total_chars = sum(len(s) + 1 for s in self.lines)
+        total_controls = (
+            len(control_regex.findall("\n".join(self.lines))) if control_regex else 0
+        )
+        char_split_needed = char_limit > 0 and total_chars > char_limit
+        ctrl_split_needed = control_limit > 0 and total_controls > control_limit
+
+        if not (char_split_needed or ctrl_split_needed):
+            md_path = os.path.join(self.output_dir, f"{safe_name}.md")
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(self.lines))
+            return [f"{safe_name}.md"]
+
+        # Separate frontmatter (single multi-line element at index 0) from body
+        frontmatter = ""
+        body = list(self.lines)
+        if body and body[0].lstrip().startswith("---"):
+            frontmatter = body[0]
+            body = body[1:]
+
+        base_chars = len(frontmatter) + 1 if frontmatter else 0
+        chunks = _split_body_at_sections(
+            body, char_limit, base_chars,
+            control_limit=control_limit, control_regex=control_regex,
+        )
+
+        # Fall back to single file if splitting didn't find any boundary
+        if len(chunks) <= 1:
+            md_path = os.path.join(self.output_dir, f"{safe_name}.md")
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(self.lines))
+            return [f"{safe_name}.md"]
+
+        written: list[str] = []
+        for idx, chunk in enumerate(chunks, 1):
+            suffix = chunk["last_header"] or f"Part {idx}"
+            safe_suffix = sanitize_filename(suffix, max_len=80) or f"Part {idx}"
+            chunk_name = f"{safe_name} - {safe_suffix}"
+            if len(chunk_name) > 180:
+                chunk_name = chunk_name[:180].rstrip()
+
+            # Avoid overwrite if two chunks sanitize to the same header
+            unique_name = chunk_name
+            dup = 2
+            while f"{unique_name}.md" in written or os.path.exists(
+                    os.path.join(self.output_dir, f"{unique_name}.md")):
+                unique_name = f"{chunk_name} ({dup})"
+                dup += 1
+
+            patched_fm = self._patch_frontmatter_title(frontmatter, safe_suffix) \
+                if frontmatter else ""
+
+            parts: list[str] = []
+            if patched_fm:
+                parts.append(patched_fm)
+            if idx > 1 and self._scope_clone_lines:
+                parts.extend(self._scope_clone_lines)
+            parts.extend(chunk["lines"])
+
+            md_path = os.path.join(self.output_dir, f"{unique_name}.md")
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(parts))
+            written.append(f"{unique_name}.md")
+
+        return written
+
+    @staticmethod
+    def _patch_frontmatter_title(frontmatter: str, suffix: str) -> str:
+        """Append ' - <suffix>' to the title: line in a YAML frontmatter block."""
+        if not frontmatter or not suffix:
+            return frontmatter
+        out = []
+        patched = False
+        for line in frontmatter.splitlines():
+            if not patched:
+                m = re.match(r'^(title:\s*)"(.*)"(\s*)$', line)
+                if m:
+                    line = f'{m.group(1)}"{m.group(2)} - {suffix}"{m.group(3)}'
+                    patched = True
+            out.append(line)
+        return "\n".join(out)
 
     # ------------------------------------------------------------------
     # Post-processing
@@ -976,17 +1237,29 @@ class DocxToMarkdown:
         })
 
     def _result(self, status: str, elapsed: float, error_msg: str = "",
-                output_file: str = "") -> dict:
-        """Build the result dict for logging."""
-        md_path = os.path.join(self.output_dir, output_file) if output_file else ""
-        file_size = 0
-        if md_path and os.path.exists(md_path):
-            file_size = round(os.path.getsize(md_path) / 1024, 1)
+                output_file=""):
+        """Build the result dict for logging.
+
+        output_file may be a string (single file) or a list (split output).
+        """
+        if isinstance(output_file, list):
+            files = [f for f in output_file if f]
+            display = "; ".join(files)
+        else:
+            files = [output_file] if output_file else []
+            display = output_file
+
+        size_bytes = 0
+        for f in files:
+            p = os.path.join(self.output_dir, f)
+            if os.path.exists(p):
+                size_bytes += os.path.getsize(p)
+        file_size = round(size_bytes / 1024, 1) if size_bytes else 0
 
         return {
             "filename": self.filename,
             "status": status,
-            "output_file": output_file,
+            "output_file": display,
             "error_msg": error_msg,
             "paragraphs": self.stats["paragraphs"],
             "tables": self.stats["tables"],
