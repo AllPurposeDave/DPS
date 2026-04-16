@@ -566,7 +566,7 @@ Every sheet follows one of three layout patterns. Understanding these is critica
 | **5-Sections** | List (by category) | Keywords the profiler fuzzy-matches against H1 headings (purpose, scope, intent, controls, appendix) |
 | **5-Thresholds** | Settings | `max_characters` (chunk size limit), page estimation ratios, flagging thresholds |
 | **6-Metadata** | Settings + List | Placement, styling, field definitions (key/label/source), URL lookup config, tag generation, static tags |
-| **7-Docx2md** | Settings + List | Pure vs optimized mode, image handling, table strategy, heading cleanup, frontmatter fields |
+| **7-Docx2md** | Settings + List | Pure vs optimized mode, image handling, table strategy, heading cleanup, frontmatter fields, output file splitting (char/control-count triggers), scope-statement cloning, heading-delete list |
 | **8-Docx2jsonl** | Settings | Chunking params, acronym definitions file, tag mapping |
 
 ### Critical Conventions (Must Follow When Editing)
@@ -751,11 +751,21 @@ Each step below documents its exact inputs, outputs, config dependencies, extern
 | **Reads from** | `input/` (if `pure_conversion=True`) OR `output/4 - heading_fixes/` (default, configurable via `optimized_source_step`) |
 | **Writes to** | `output/7 - markdown/*.md`, timestamped log Excel |
 | **Config sections** | Input, Output, 4-Headings (custom_style_map only), 7-Docx2md, 6-Metadata (URL only), 2-Control Extraction (optional) |
-| **Key config keys** | `docx2md.pure_conversion`, `docx2md.optimized_source_step`, `docx2md.include_metadata_frontmatter`, `docx2md.metadata_fields[].name/source/default`, `docx2md.image_handling`, `docx2md.table_strategy`, `docx2md.heading_normalization`, `docx2md.max_heading_level`, `docx2md.max_consecutive_blank_lines`, `docx2md.clean_smart_quotes`, `docx2md.strip_zero_width_chars`, `docx2md.extract_text_boxes`, `docx2md.include_doc_url`, `docx2md.metadata_placement`, `docx2md.promote_control_ids_to_heading`, `docx2md.log_file_prefix`, `headings.custom_style_map`, `metadata.url.*`, `control_extraction.control_id_patterns` (for heading promotion), `control_extraction.require_bold_control_id` |
+| **Key config keys** | `docx2md.pure_conversion`, `docx2md.optimized_source_step`, `docx2md.include_metadata_frontmatter`, `docx2md.metadata_fields[].name/source/default`, `docx2md.image_handling`, `docx2md.table_strategy`, `docx2md.heading_normalization`, `docx2md.max_heading_level`, `docx2md.max_consecutive_blank_lines`, `docx2md.clean_smart_quotes`, `docx2md.strip_zero_width_chars`, `docx2md.extract_text_boxes`, `docx2md.include_doc_url`, `docx2md.metadata_placement`, `docx2md.promote_control_ids_to_heading`, `docx2md.log_file_prefix`, `docx2md.character_limit`, `docx2md.max_controls_per_file`, `docx2md.scope_statements_keep`, `docx2md.scope_statement_headings`, `docx2md.headings_to_delete`, `headings.custom_style_map`, `metadata.url.*`, `control_extraction.control_id_patterns` (for heading promotion and control-count splitting), `control_extraction.require_bold_control_id` |
 | **External files** | `input/Doc_URL.xlsx` (for `PublishedURL` frontmatter field), any Excel referenced in `metadata_fields[].source` with `excel_lookup_list:` prefix (e.g., `input/Acronym_Definitions.xlsx`) |
 | **Shared utils** | `load_config`, `setup_argparse`, `iter_docx_files`, `ensure_output_dir`, `get_heading_level`, `is_paragraph_bold`, `match_doc_name`, `resolve_path`, `sanitize_filename` |
 
-**Notes:** Input source is configurable — `pure_conversion` reads raw input, `optimized_source_step` selects which step's output to use. The `run_pipeline.py` runner resolves this via `_build_converter_args()`. Reads `control_extraction.control_id_patterns` for optional heading promotion — changing control patterns affects this step too.
+**Notes:** Input source is configurable — `pure_conversion` reads raw input, `optimized_source_step` selects which step's output to use. The `run_pipeline.py` runner resolves this via `_build_converter_args()`. Reads `control_extraction.control_id_patterns` for optional heading promotion and (when enabled) for counting controls during file splitting — changing control patterns affects this step too.
+
+**Markdown output splitting (per-document):** Two independent triggers, both section-boundary aware (never mid-section; a single oversized section is kept whole):
+- `character_limit` — soft char cap per `.md` file (`0` = disabled).
+- `max_controls_per_file` — soft cap on control IDs per `.md` file, counted via `control_extraction.control_id_patterns` (`0` = disabled; recommended `15`).
+
+Whichever limit trips first at a heading boundary triggers a split. Each chunk retains frontmatter with the last section header appended to the title.
+
+**Scope-statement cloning:** When `scope_statements_keep=TRUE`, the sections whose heading text matches entries in `scope_statement_headings` (case-insensitive, exact trimmed match; defaults: `Purpose`, `Applicability and Scope`) are cloned to the top of every split chunk after the first — right after frontmatter, before the chunk's own body. The scope section still appears naturally in whichever chunk contains its original position. No effect on unsplit single-file output.
+
+**Heading-delete list:** `headings_to_delete` drops entire sections (heading line + all following content up to the next heading of any level) from the `.md` output. Case-insensitive exact match on trimmed heading text. Applied after post-processing, before splitting, so deleted content does not count toward `character_limit` or `max_controls_per_file`. Distinct from the Step 4 "Sections to Delete" feature, which operates on the source `.docx` body (same-or-higher-level boundary rule) rather than the rendered markdown.
 
 ---
 
