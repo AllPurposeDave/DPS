@@ -1,118 +1,77 @@
 # InfoSec Policy Wiki — Query Contract
 
 You (Claude) are the librarian of an InfoSec policy knowledge base.
-Users ask questions about policies. You read the index, find the relevant
-pages, and synthesize answers with citations. That's the whole query job.
+Users ask questions about policies. You determine which domain folder holds
+the answer, read only the relevant files, and synthesize answers with
+citations. That's the whole query job.
+
+The wiki's three-folder structure mirrors the SharePoint library and the
+three Copilot Studio topics. When querying, think like a Copilot topic
+router: classify the query into a domain first, then retrieve within scope.
 
 ## Reading discipline (save context)
 The wiki can grow large. **Do not pre-read `wiki/` at the start of a session.**
 
-1. **Always start with `wiki/INDEX.md`.** It is the only file you read by
-   default. Every topic and policy has a one-line hook there.
-2. From the index, decide which specific files are actually relevant and
-   read only those.
-3. Do not glob or walk `wiki/policies/` or `wiki/topics/` to "get oriented".
-   If a file isn't referenced in the index, it shouldn't exist.
-4. If the index is stale or missing entries, raise that as a bug in your
-   response — the ingest person will fix it.
+1. Read `wiki/INDEX.md` only if you need a listing of what's in each domain
+   folder. INDEX is a generated manifest — every file in every domain folder
+   appears there with a one-line hook.
+2. Classify the query into one or more domains. Read files from the relevant
+   domain folder(s) only.
+3. Do not walk all three folders "just to be safe". If a query is clearly
+   about access, don't read `system-protection/` unless the answer depends
+   on a system-protection control (cross-domain queries — see below).
+4. If a relevant file isn't findable, say so. Do not invent content.
 
 ## Triggers
-- `"lookup"`, `"what does policy say about..."`, `"compare..."`,
-  `"query"` → run the **query workflow** below.
-- `"consolidate topics"` → run the **topic consolidation pass**.
+- `lookup`, `what does policy say about...`, `compare...`, `query` →
+  run the **query workflow** below.
+
+## The three domains
+
+| Domain folder | Covers | Families |
+|---------------|--------|----------|
+| `wiki/access-and-identity/` | Access, authentication, personnel vetting | AC, IA, PS |
+| `wiki/system-protection/` | Configuration, encryption, engineering, physical | CM, SC, SI, SA, MP, MA, PE |
+| `wiki/operations-and-response/` | Audit, incident, continuity, risk, governance | AU, IR, CP, RA, PL, PM, CA, AT, org-general |
 
 ## The query workflow
-1. Read `wiki/INDEX.md`. Nothing else yet.
-2. Identify candidate topic and policy pages relevant to the question.
-3. Read only those pages.
-4. Synthesize the answer with inline Markdown link citations. Quote
-   controls verbatim when precision matters. **Always include the source
-   URL** from each cited policy's `published_url` frontmatter — format as
-   `[<slug>](policies/<slug>.md) ([source](<url>))`. If a policy has no `published_url`,
-   say "source URL not captured" in the citation.
 
-## Topic consolidation (on demand)
-Triggered by `consolidate topics`. Use between batches of ingests to
-catch topic sprawl before it sets in.
+1. **Classify the query** into a domain:
+   - "Who can access...", "authentication", "MFA", "privileged", "password",
+     "account", "contractor access" → `access-and-identity/`
+   - "Configuration", "baseline", "encryption", "patching", "physical",
+     "maintenance", "media", "vendor risk" → `system-protection/`
+   - "Audit", "logging", "incident", "recovery", "risk assessment",
+     "training", "compliance", "ATO" → `operations-and-response/`
+2. **Read only files from the target domain folder** that look relevant
+   based on filename (family prefix + slug). If filenames are unclear,
+   use INDEX.md's one-line hooks to narrow down.
+3. **For cross-domain queries** (e.g., "incident response access
+   procedures"), read from multiple domain folders and synthesize with
+   citations from each.
+4. **Synthesize the answer** with inline Markdown citations. Quote
+   requirement text verbatim when precision matters. Format citations as:
+   `[<doc-title>](<domain-folder>/<slug>.md) ([source](<published_url>))`
+5. If a cited policy has no `published_url`, say "source URL not captured"
+   in the citation.
 
-1. Read `wiki/INDEX.md` → `## By Topic`.
-2. Read every topic page listed (this is the one workflow that scans
-   topics in bulk).
-3. Flag potential duplicates or near-duplicates: similar slugs, heavily
-   overlapping `aliases:`, same policies listed, overlapping descriptions.
-4. Propose merges in your response: "`[a](topics/a.md)` and `[b](topics/b.md)` look like the
-   same topic — merge into `[a](topics/a.md)`? I'll rewrite the policy references
-   and update INDEX."
-5. Wait for user approval before merging. On approval: rewrite affected
-   policy pages' `topics:` frontmatter, rewrite affected topic pages'
-   backlinks, delete the merged-away topic file, update INDEX.
+## Citation format
 
-## Topic template (reference — for understanding what you're reading)
-Free-form subject area pages.
-
-```markdown
----
-slug: <slug>
-kind: topic
-aliases: [alt-name-1, alt-name-2]
-added: YYYY-MM-DD
----
-# <Name>
-
-<1–3 sentence description of what this topic covers.>
-
-## Policies
-- [policy-slug-1](../policies/policy-slug-1.md) — one-line hook of what this policy says on the topic
-- [policy-slug-2](../policies/policy-slug-2.md) — one-line hook of what this policy says on the topic
-
-## Related topics
-- [other-topic](other-topic.md)
-
-## Notes
-<optional: open questions, cross-topic observations>
+```
+According to [AC-2 Account Management](access-and-identity/ac-account-management.md)
+([source](https://example.com/policies/ac)), accounts must be reviewed
+quarterly...
 ```
 
-## Policy template (reference — for understanding what you're reading)
-
-```markdown
----
-source: raw/<filename>
-published_url: https://www.url.com/...   # from PublishedURL in the source; null if missing
-added: YYYY-MM-DD
-topics: [topic-slug-1, topic-slug-2]      # free-form topics
----
-# <Policy Title>
-
-**Scope:** <verbatim or faithful>
-**Purpose:** <verbatim or faithful>
-
-## Controls
-<verbatim controls; preserve IDs and numbering; do not compress or paraphrase>
-
-## Related
-- Topics: [topic-slug-1](../topics/topic-slug-1.md), [topic-slug-2](../topics/topic-slug-2.md)
-
-## Raw
-[original](../../raw/<filename>)
-```
-
-## INDEX template (reference — for understanding the structure)
-
-```markdown
-# InfoSec Policy Wiki — Index
-
-## By Topic
-- [privileged-access](topics/privileged-access.md) — PAM, break-glass, elevation
-- [logging-retention](topics/logging-retention.md) — log storage, retention windows
-   - [logging-retention-siem](topics/logging-retention-siem.md) — SIEM-specific retention (subtopic)
-
-## By Policy
-- [acme-access-control-policy](policies/acme-access-control-policy.md) — 2026-03, controls access and sessions
-```
+If a single answer pulls from multiple policies, cite each separately.
 
 ## Rules
-- **Always start with INDEX.md** — never walk directories.
-- **Always cite the `published_url`** from the policy page. It's the
-  source of truth link.
-- Use Markdown links everywhere for cross-refs.
-
+- **Classify before reading.** The domain folder structure is the retrieval
+  scope. Read within scope.
+- **Read only what's relevant.** Do not globally walk the wiki.
+- **Cite with `PublishedURL`.** It's the authoritative source link. If
+  absent, note it explicitly.
+- **Quote verbatim** when precision matters. Do not paraphrase requirements.
+- **Flag missing or stale content** if the answer seems incomplete. The
+  ingest owner will fix it.
+- Use Markdown links everywhere for cross-references.
