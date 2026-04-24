@@ -17,7 +17,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -73,22 +73,6 @@ def _add_setting(ws, setting: str, value: Any, description: str = ""):
     # Style the description cell
     r = ws.max_row
     ws.cell(row=r, column=3).font = DESC_FONT
-
-
-def _add_list_rows(ws, values: List[Any], descriptions: Optional[List[str]] = None):
-    """Add Value | Description rows for list items."""
-    for i, val in enumerate(values):
-        desc = descriptions[i] if descriptions and i < len(descriptions) else ""
-        ws.append([val, desc])
-        ws.cell(row=ws.max_row, column=2).font = DESC_FONT
-
-
-def _add_map_rows(ws, mapping: Dict[str, Any], descriptions: Optional[Dict[str, str]] = None):
-    """Add Key | Value | Description rows for mappings."""
-    for key, val in mapping.items():
-        desc = descriptions.get(key, "") if descriptions else ""
-        ws.append([key, val, desc])
-        ws.cell(row=ws.max_row, column=3).font = DESC_FONT
 
 
 def _add_bool_validation(ws, col_letter: str, min_row: int, max_row: int):
@@ -580,6 +564,12 @@ def _build_text_deletions_sheet(wb, cfg: dict):
                  "Set TRUE to activate text deletion during Step 4 [default: FALSE]")
     _add_setting(ws, "case_sensitive", td.get("case_sensitive", True),
                  "TRUE for exact case match, FALSE for case-insensitive [default: TRUE]")
+    _add_setting(ws, "strip_tracked_changes", td.get("strip_tracked_changes", False),
+                 "Accept all tracked changes (ins kept, del removed) before any text op [default: FALSE]")
+    _add_setting(ws, "remove_comments", td.get("remove_comments", False),
+                 "Strip comment annotations: inline markers + comments.xml part [default: FALSE]")
+    _add_setting(ws, "remove_inline_page_numbers", td.get("remove_inline_page_numbers", False),
+                 "Delete paragraphs that are page-number-only (see patterns below) [default: FALSE]")
     _add_setting(ws, "remove_table_of_content", td.get("remove_table_of_content", False),
                  "Remove Word TOC-styled paragraphs (TOC 1, TOC 2, etc.) [default: FALSE]")
     _add_setting(ws, "remove_headers_footers", td.get("remove_headers_footers", False),
@@ -592,9 +582,10 @@ def _build_text_deletions_sheet(wb, cfg: dict):
     # Bool validations
     for r in range(2, ws.max_row + 1):
         val = ws.cell(row=r, column=1).value
-        if val in ("enabled", "case_sensitive", "remove_table_of_content",
-                   "remove_headers_footers", "remove_revision_tables",
-                   "flatten_definition_tables"):
+        if val in ("enabled", "case_sensitive",
+                   "strip_tracked_changes", "remove_comments", "remove_inline_page_numbers",
+                   "remove_table_of_content", "remove_headers_footers",
+                   "remove_revision_tables", "flatten_definition_tables"):
             _add_bool_validation(ws, "B", r, r)
 
     _add_subheader(ws, "Phrases to Delete")
@@ -603,12 +594,31 @@ def _build_text_deletions_sheet(wb, cfg: dict):
     for phrase in (td.get("phrases") or []):
         ws.append([phrase, "", ""])
 
+    _add_subheader(ws, "Page Number Patterns")
+    ws.append(["## Regex patterns used ONLY when remove_inline_page_numbers=TRUE.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(["## A paragraph is deleted when its ENTIRE stripped text matches any pattern (case-insensitive).", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(["## One regex per row in column A. Leave the defaults unless your docs need something custom.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    default_page_patterns = [
+        r"^Page\s+\d+(\s+of\s+\d+)?$",
+        r"^\d+$",
+        r"^-\s*\d+\s*-$",
+    ]
+    for pat in (td.get("inline_page_number_patterns") or default_page_patterns):
+        ws.append([pat, "", ""])
+
     _add_subheader(ws, "Sections to Delete")
-    ws.append(["## Delete an entire section: heading + all content until the next heading of same or higher level.", "", ""])
+    ws.append(["## GLOBAL section deletions — applied to EVERY document.", "", ""])
     ws.cell(row=ws.max_row, column=1).font = DESC_FONT
-    ws.append(["## Match is case-insensitive substring on the heading text. Originals are never modified.", "", ""])
+    ws.append(["## Match is case-insensitive SUBSTRING on the heading text (e.g. 'Appendix' matches 'APPENDIX A: REFERENCES').", "", ""])
     ws.cell(row=ws.max_row, column=1).font = DESC_FONT
-    ws.append(["## Example: 'Appendix A' deletes the Appendix A heading and everything below it until the next H1/H2.", "", ""])
+    ws.append(["## Deletes the heading paragraph + all content until the next heading of the same or higher level.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(["## Use this when the same section exists across many docs and should be removed from all of them.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(["## Originals are never modified.", "", ""])
     ws.cell(row=ws.max_row, column=1).font = DESC_FONT
 
     # Column headers for the section deletion sub-table
@@ -632,6 +642,39 @@ def _build_text_deletions_sheet(wb, cfg: dict):
     # Bool validation for Delete column (B) in section deletion rows
     data_start = section_header_row + 1
     _add_bool_validation(ws, "B", data_start, ws.max_row)
+
+    # ── Per-Document Section Deletions ─────────────────────────────────────
+    _add_subheader(ws, "Per-Doc Section Deletions")
+    ws.append(["## PER-DOCUMENT section deletions — applied ONLY to the listed file.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(["## Populate this AFTER running Step 0 (profiler) — copy exact filenames from section_inventory.csv.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(["## Document Name: exact basename including '.docx' (e.g. 'Access Control Policy.docx').", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(["## Sections: EXACT heading match (case-insensitive, stripped). Separate multiple headings with commas.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(["## Both lists COMBINE — each doc gets the global deletions PLUS its per-doc deletions.", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(["## Example: 'Access Control Policy.docx' | 'Appendix B: Vendor List, 12.3 Legacy Systems' | 'Remove obsolete sections'", "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+
+    # Column headers for the per-doc sub-table
+    ws.append(["Document Name", "Sections to Delete (comma-separated)", "Description"])
+    for cell in ws[ws.max_row]:
+        cell.font = SUBHEADER_FONT
+        cell.fill = SUBHEADER_FILL
+        cell.border = THIN_BORDER
+
+    for entry in (td.get("per_doc_section_deletions") or []):
+        doc_name = entry.get("doc_name", "")
+        headings = entry.get("headings") or []
+        headings_str = ", ".join(headings) if isinstance(headings, list) else str(headings)
+        desc = entry.get("description", "")
+        ws.append([doc_name, headings_str, desc])
+
+    # Leave empty rows for user additions
+    for _ in range(5):
+        ws.append(["", "", ""])
 
     _finalize_sheet(ws)
 
@@ -1041,11 +1084,11 @@ def _build_pipeline_sheet(wb, cfg: dict):
     defaults = [
         (0, "Step 0 - Document Profiler", "policy_profiler.py", True,
          "Scan all docs, extract metadata, classify types, score priority, count words"),
-        (1, "Step 1 - Acronym Finder", "acronym_finder.py", True,
+        (1, "Step 1 - Acronym Finder", "acronym_finder.py", False,
          "Scan all docs for acronym candidates and generate audit Excel"),
-        (2, "Step 2 - Control Extractor", "extract_controls.py", True,
+        (2, "Step 2 - Control Extractor", "extract_controls.py", False,
          "Extract structured control data from compliance docs"),
-        (3, "Step 3 - Cross-Reference Extractor", "cross_reference_extractor.py", True,
+        (3, "Step 3 - Cross-Reference Extractor", "cross_reference_extractor.py", False,
          "Capture all cross-refs BEFORE any structural changes"),
         (4, "Step 4 - Heading Style Fixer", "heading_style_fixer.py", True,
          "Convert fake bold headings to real Word Heading styles"),
@@ -1055,9 +1098,9 @@ def _build_pipeline_sheet(wb, cfg: dict):
          "Add identity metadata to sub-documents"),
         (7, "Step 7 - DOCX to Markdown", "docx2md.py", True,
          "Convert .docx files to clean Markdown with YAML frontmatter"),
-        (8, "Step 8 - DOCX to JSONL", "docx2jsonl.py", True,
+        (8, "Step 8 - DOCX to JSONL", "docx2jsonl.py", False,
          "Convert .docx files to chunked JSONL for RAG/vector DB ingestion"),
-        (9, "Step 9 - Control Validator", "validate_controls.py", True,
+        (9, "Step 9 - Control Validator", "validate_controls.py", False,
          "Validate all Step 2 controls are present in Step 5 split documents"),
     ]
 
@@ -1160,7 +1203,13 @@ def _build_metadata_sheet(wb, cfg: dict):
             _add_bool_validation(ws, "B", r, r)
 
     _add_subheader(ws, "Static Tags")
-    ws.append(['## Tags added to ALL documents (one per row, e.g. "InfoSec", "GCC-High")', "", ""])
+    ws.append(['## Org-wide tags applied to EVERY document. Single source of truth for all pipeline outputs.', "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(['## Applied by: Step 6 (Word doc tags field), Step 7 (.md frontmatter Tags), Step 8 (per-chunk JSONL tags).', "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(['## Merged with per-document tags (Custom Tags sheet) — duplicates are removed case-insensitively.', "", ""])
+    ws.cell(row=ws.max_row, column=1).font = DESC_FONT
+    ws.append(['## One tag per row in column A (e.g. "InfoSec", "GCC-High", "FedRAMP-High"). Leave empty to skip.', "", ""])
     ws.cell(row=ws.max_row, column=1).font = DESC_FONT
     for tag in tags.get("static_tags", []):
         ws.append([tag, "", ""])
@@ -1304,7 +1353,7 @@ def _build_docx2md_sheet(wb, cfg: dict):
         {"name": "Acronyms",    "source": "excel_lookup_dict:./input/Acronym_Definitions.xlsx:Acronym Definitions:Document:Acronym:Definition", "default": "",
          "source_type": "Excel lookup (dict)",   "source_of_truth": "input/Acronym_Definitions.xlsx > Acronym Definitions",  "example_output": '["AC = Access Control", "MFA = Multi-Factor Auth"]'},
         {"name": "Tags",        "source": "excel_lookup_list:./input/Acronym_Definitions.xlsx:Custom Tags:Document_Name:Tags", "default": "",
-         "source_type": "Excel lookup (list)",   "source_of_truth": "input/Acronym_Definitions.xlsx > Custom Tags",          "example_output": '["access control", "CUI", "FedRAMP-High"]'},
+         "source_type": "Excel lookup (list) + static_tags", "source_of_truth": "Custom Tags sheet (per-doc) merged with 6-Metadata Static Tags (org-wide)", "example_output": '["access control", "CUI", "InfoSec"]'},
     ]
 
     ws.append(["## Metadata fields: Name | Source | Default", "", "",

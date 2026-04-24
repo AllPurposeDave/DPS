@@ -208,16 +208,21 @@ def _get_heading_level(para) -> int | None:
     return None
 
 
-def apply_section_deletions(doc, config: dict) -> list[dict]:
+def apply_section_deletions(doc, config: dict, filename: str = "") -> list[dict]:
     """
     Delete entire sections (heading + body) based on configured section headings.
 
-    For each entry in text_deletions.section_deletions where delete=True,
-    finds paragraphs with a Heading style whose text contains the configured
-    heading string (case-insensitive substring match). Removes that heading
-    paragraph and all subsequent body elements (paragraphs and tables) until
-    the next heading of the same or higher level (lower or equal number).
+    Two sources are combined (union):
+      - text_deletions.section_deletions           — global list, case-insensitive
+                                                      SUBSTRING match against heading text.
+      - text_deletions.per_doc_section_deletions   — per-document list, keyed by
+                                                      exact basename. Uses EXACT match
+                                                      (stripped, case-insensitive) so
+                                                      headings copied from the profiler
+                                                      remove only the intended section.
 
+    Removes the matching heading paragraph and all subsequent body elements
+    (paragraphs and tables) until the next heading of the same or higher level.
     Works on the document's XML body directly so both paragraphs and tables
     within the section are removed.
 
@@ -228,16 +233,32 @@ def apply_section_deletions(doc, config: dict) -> list[dict]:
         return []
 
     section_deletions = deletion_cfg.get("section_deletions", [])
-    if not section_deletions:
-        return []
+    per_doc_deletions = deletion_cfg.get("per_doc_section_deletions", [])
 
-    # Build list of active section headings to delete
-    targets = []
+    # Global targets — substring match
+    global_targets = []
     for entry in section_deletions:
         if entry.get("delete", True):
-            targets.append(entry["heading"].strip().lower())
-    if not targets:
+            global_targets.append(entry["heading"].strip().lower())
+
+    # Per-doc targets — exact match, scoped to the current filename
+    per_doc_targets: list[str] = []
+    if filename:
+        for entry in per_doc_deletions:
+            if str(entry.get("doc_name", "")).strip() == filename:
+                for h in entry.get("headings") or []:
+                    h_clean = str(h).strip().lower()
+                    if h_clean:
+                        per_doc_targets.append(h_clean)
+
+    if not global_targets and not per_doc_targets:
         return []
+
+    # Build the scan list: (target_value, match_type). Order doesn't matter for
+    # correctness — we re-scan the document per target because removals shift
+    # sibling indices.
+    scan_list = [(t, "global_substring") for t in global_targets] + \
+                [(t, "per_doc_exact") for t in per_doc_targets]
 
     from lxml import etree
 
@@ -247,7 +268,7 @@ def apply_section_deletions(doc, config: dict) -> list[dict]:
 
     # We iterate repeatedly because removing elements shifts indices.
     # Process one target section at a time.
-    for target in targets:
+    for target, match_type in scan_list:
         # Scan paragraphs for a heading match
         while True:
             found = False
@@ -255,8 +276,13 @@ def apply_section_deletions(doc, config: dict) -> list[dict]:
                 level = _get_heading_level(para)
                 if level is None:
                     continue
-                if target not in para.text.strip().lower():
-                    continue
+                para_text_cmp = para.text.strip().lower()
+                if match_type == "per_doc_exact":
+                    if para_text_cmp != target:
+                        continue
+                else:
+                    if target not in para_text_cmp:
+                        continue
 
                 # Found a matching heading — collect elements to remove
                 found = True
@@ -302,12 +328,173 @@ def apply_section_deletions(doc, config: dict) -> list[dict]:
                     "heading_level": level,
                     "paragraphs_removed": count_paras,
                     "tables_removed": count_tables,
+                    "match_type": match_type,
                 })
                 break  # Restart scan (indices shifted)
 
             if not found:
                 break  # No more matches for this target
 
+    return records
+
+
+_W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_W_NSMAP = {"w": _W_NS}
+
+DEFAULT_PAGE_NUMBER_PATTERNS = [
+    r"^Page\s+\d+(\s+of\s+\d+)?$",
+    r"^\d+$",
+    r"^-\s*\d+\s*-$",
+]
+
+
+def strip_tracked_changes(doc, config: dict) -> list[dict]:
+    """
+    Accept all tracked changes in the document body:
+      - <w:ins> wrappers are unwrapped (their <w:r> children are kept)
+      - <w:del> elements (and their <w:delText> content) are removed
+      - <w:moveTo> is unwrapped; <w:moveFrom> is removed
+      - Formatting-change markers (<w:pPrChange>, <w:rPrChange>, etc.) are removed
+
+    Must run BEFORE any paragraph/text operation because python-docx does not
+    iterate runs nested inside <w:ins>; unwrapping makes that content visible
+    to the rest of the pipeline.
+    """
+    deletion_cfg = config.get("text_deletions", {})
+    if not deletion_cfg.get("strip_tracked_changes", False):
+        return []
+
+    body_root = doc.element.body
+    counts = {"ins_unwrapped": 0, "del_removed": 0, "moves_handled": 0, "change_markers_removed": 0}
+
+    # Accept inserts: unwrap <w:ins> (move children up, remove wrapper)
+    for ins in body_root.xpath(".//w:ins"):
+        parent = ins.getparent()
+        if parent is None:
+            continue
+        idx = list(parent).index(ins)
+        for child in list(ins):
+            parent.insert(idx, child)
+            idx += 1
+        parent.remove(ins)
+        counts["ins_unwrapped"] += 1
+
+    # Reject deletes: remove <w:del> entirely
+    for d in body_root.xpath(".//w:del"):
+        parent = d.getparent()
+        if parent is not None:
+            parent.remove(d)
+            counts["del_removed"] += 1
+
+    # Moves: treat moveTo like ins, moveFrom like del
+    for mt in body_root.xpath(".//w:moveTo"):
+        parent = mt.getparent()
+        if parent is None:
+            continue
+        idx = list(parent).index(mt)
+        for child in list(mt):
+            parent.insert(idx, child)
+            idx += 1
+        parent.remove(mt)
+        counts["moves_handled"] += 1
+    for mf in body_root.xpath(".//w:moveFrom"):
+        parent = mf.getparent()
+        if parent is not None:
+            parent.remove(mf)
+            counts["moves_handled"] += 1
+
+    # Formatting-change markers
+    change_tags = ["pPrChange", "rPrChange", "sectPrChange", "tblPrChange",
+                   "tblGridChange", "trPrChange", "tcPrChange", "numberingChange"]
+    for tag in change_tags:
+        for elem in body_root.xpath(f".//w:{tag}"):
+            parent = elem.getparent()
+            if parent is not None:
+                parent.remove(elem)
+                counts["change_markers_removed"] += 1
+
+    if not any(counts.values()):
+        return []
+    return [{
+        "removal_type": "tracked_changes_accepted",
+        **counts,
+    }]
+
+
+def remove_comments(doc, config: dict) -> list[dict]:
+    """
+    Strip inline comment markers from the body AND drop the comments part
+    from the docx package so no comment annotation text can leak into
+    downstream extraction. Removes:
+      - <w:commentRangeStart>, <w:commentRangeEnd>, <w:commentReference> inline markers
+      - relationships to comments.xml / commentsExtended.xml / commentsIds.xml /
+        commentsExtensible.xml (drops the parts from the package on save)
+    """
+    deletion_cfg = config.get("text_deletions", {})
+    if not deletion_cfg.get("remove_comments", False):
+        return []
+
+    body_root = doc.element.body
+    inline_markers_removed = 0
+    for tag in ["commentRangeStart", "commentRangeEnd", "commentReference"]:
+        for elem in body_root.xpath(f".//w:{tag}"):
+            parent = elem.getparent()
+            if parent is not None:
+                parent.remove(elem)
+                inline_markers_removed += 1
+
+    parts_dropped = []
+    for rel_id, rel in list(doc.part.rels.items()):
+        if "comments" in rel.reltype.lower():
+            parts_dropped.append(rel.reltype.rsplit("/", 1)[-1])
+            doc.part.drop_rel(rel_id)
+
+    if not inline_markers_removed and not parts_dropped:
+        return []
+    return [{
+        "removal_type": "comments_removed",
+        "inline_markers_removed": inline_markers_removed,
+        "parts_dropped": ", ".join(parts_dropped),
+    }]
+
+
+def remove_inline_page_numbers(doc, config: dict) -> list[dict]:
+    """
+    Delete paragraphs whose ENTIRE stripped text matches any configured
+    page-number regex. Useful for cleaning exports where page numbers end
+    up as standalone body paragraphs (e.g. 'Page 5', 'Page 5 of 20', bare
+    digit '5', '- 5 -'). Matching is case-insensitive.
+    """
+    deletion_cfg = config.get("text_deletions", {})
+    if not deletion_cfg.get("remove_inline_page_numbers", False):
+        return []
+
+    raw_patterns = deletion_cfg.get("inline_page_number_patterns") or DEFAULT_PAGE_NUMBER_PATTERNS
+    compiled = []
+    for p in raw_patterns:
+        try:
+            compiled.append(re.compile(p, re.IGNORECASE))
+        except re.error:
+            continue  # Skip invalid regex silently — operator can see it's absent in the change log
+    if not compiled:
+        return []
+
+    records = []
+    for para in list(doc.paragraphs):
+        text = para.text.strip()
+        if not text:
+            continue
+        for pat in compiled:
+            if pat.fullmatch(text):
+                records.append({
+                    "removal_type": "inline_page_number",
+                    "text_preview": text[:80],
+                    "matched_pattern": pat.pattern,
+                })
+                parent = para._element.getparent()
+                if parent is not None:
+                    parent.remove(para._element)
+                break
     return records
 
 
@@ -522,13 +709,20 @@ def flatten_definition_tables(doc, config: dict) -> list[dict]:
 
 def process_document(filepath: str, output_dir: str, config: dict) -> dict:
     """
-    Process a single .docx file: remove TOC, clear headers/footers,
-    apply text deletions, fix heading styles, remove revision tables,
-    flatten definition tables, apply section deletions, save as _fixed.docx.
+    Process a single .docx file. Pipeline order:
+      0. Accept tracked changes (must run first — affects XML structure)
+      1. Strip comment markers + drop comments part
+      2. Remove TOC-styled paragraphs
+      3. Clear headers/footers
+      4. Remove inline page-number paragraphs
+      5. Apply phrase-level text deletions
+      6. Fix heading styles
+      7. Remove orphan revision tables
+      8. Flatten definition tables to prose
+      9. Apply section deletions (needs correct heading styles)
+    Saves as _fixed.docx.
 
-    Returns a dict with keys:
-        heading_changes, deletion_records, section_deletion_records,
-        toc_records, hf_records, revision_table_records, definition_records
+    Returns a dict with keys for every step's records.
     """
     headings_cfg = config.get("headings", {})
     max_chars = headings_cfg.get("fake_heading_max_chars_fixer", 120)
@@ -540,16 +734,25 @@ def process_document(filepath: str, output_dir: str, config: dict) -> dict:
     filename = os.path.basename(filepath)
     base_name = os.path.splitext(filename)[0]
 
-    # 1. Remove TOC-styled paragraphs (no heading dependency)
+    # 0. Accept all tracked changes (must run before anything else touches text)
+    tracked_change_records = strip_tracked_changes(doc, config)
+
+    # 1. Strip comments (inline markers + comments.xml part)
+    comment_records = remove_comments(doc, config)
+
+    # 2. Remove TOC-styled paragraphs (no heading dependency)
     toc_records = remove_table_of_content(doc, config)
 
-    # 2. Clear headers and footers (no heading dependency)
+    # 3. Clear headers and footers (no heading dependency)
     hf_records = remove_headers_footers(doc, config)
 
-    # 3. Apply text deletions (before heading analysis)
+    # 4. Remove paragraphs that are only page-number text
+    page_number_records = remove_inline_page_numbers(doc, config)
+
+    # 5. Apply text deletions (before heading analysis)
     deletion_records = apply_text_deletions(doc, config)
 
-    # 4. Fix heading styles
+    # 6. Fix heading styles
     changes = []
     for idx, para in enumerate(doc.paragraphs):
         original_style = para.style.name if para.style else "None"
@@ -579,14 +782,14 @@ def process_document(filepath: str, output_dir: str, config: dict) -> dict:
                 "paragraph_text_preview": text_preview,
             })
 
-    # 5. Remove orphan revision tables (after heading fixes)
+    # 7. Remove orphan revision tables (after heading fixes)
     revision_table_records = remove_revision_tables(doc, config)
 
-    # 6. Flatten definition tables to prose (after heading fixes)
+    # 8. Flatten definition tables to prose (after heading fixes)
     definition_records = flatten_definition_tables(doc, config)
 
-    # 7. Apply section deletions LAST (needs correct heading styles)
-    section_deletion_records = apply_section_deletions(doc, config)
+    # 9. Apply section deletions LAST (needs correct heading styles)
+    section_deletion_records = apply_section_deletions(doc, config, filename)
 
     # Save the fixed document
     output_path = os.path.join(output_dir, f"{base_name}_fixed.docx")
@@ -600,6 +803,9 @@ def process_document(filepath: str, output_dir: str, config: dict) -> dict:
         "hf_records": hf_records,
         "revision_table_records": revision_table_records,
         "definition_records": definition_records,
+        "tracked_change_records": tracked_change_records,
+        "comment_records": comment_records,
+        "page_number_records": page_number_records,
     }
 
 
@@ -632,6 +838,9 @@ def main():
     total_hf_clearings = 0
     total_revision_tables = 0
     total_definitions_flattened = 0
+    total_tracked_change_docs = 0
+    total_comment_strips = 0
+    total_page_number_removals = 0
     files_processed = 0
     files_failed = 0
 
@@ -646,6 +855,9 @@ def main():
             hf_records = result["hf_records"]
             revision_table_records = result["revision_table_records"]
             definition_records = result["definition_records"]
+            tracked_change_records = result["tracked_change_records"]
+            comment_records = result["comment_records"]
+            page_number_records = result["page_number_records"]
 
             # Tag heading changes
             for c in changes:
@@ -664,13 +876,14 @@ def main():
                 })
             # Convert section deletion records to CSV rows
             for s in section_deletion_records:
+                match_type = s.get("match_type", "global_substring")
                 all_changes.append({
                     "doc_name": filename,
                     "paragraph_index": "",
                     "original_style": f"Heading {s['heading_level']}",
                     "new_style": "[SECTION DELETED]",
                     "paragraph_text_preview": s["heading_deleted"][:80],
-                    "change_type": "section_deletion",
+                    "change_type": f"section_deletion ({match_type})",
                     "phrase_deleted": f"{s['paragraphs_removed']} para(s) + {s['tables_removed']} table(s) removed",
                 })
             # Convert TOC removal records to CSV rows
@@ -717,6 +930,47 @@ def main():
                     "change_type": "definition_table_flattened",
                     "phrase_deleted": f"{df['rows_flattened']} row(s) converted",
                 })
+            # Convert tracked-change records to CSV rows
+            for tc in tracked_change_records:
+                preview = (
+                    f"ins:{tc.get('ins_unwrapped', 0)} del:{tc.get('del_removed', 0)} "
+                    f"moves:{tc.get('moves_handled', 0)} markers:{tc.get('change_markers_removed', 0)}"
+                )
+                all_changes.append({
+                    "doc_name": filename,
+                    "paragraph_index": "",
+                    "original_style": "",
+                    "new_style": "[TRACKED CHANGES ACCEPTED]",
+                    "paragraph_text_preview": preview,
+                    "change_type": "tracked_changes_accepted",
+                    "phrase_deleted": "",
+                })
+            # Convert comment-strip records to CSV rows
+            for cm in comment_records:
+                preview = (
+                    f"markers:{cm.get('inline_markers_removed', 0)} "
+                    f"parts:{cm.get('parts_dropped', '')}"
+                )
+                all_changes.append({
+                    "doc_name": filename,
+                    "paragraph_index": "",
+                    "original_style": "",
+                    "new_style": "[COMMENTS REMOVED]",
+                    "paragraph_text_preview": preview,
+                    "change_type": "comments_removed",
+                    "phrase_deleted": "",
+                })
+            # Convert inline-page-number records to CSV rows
+            for pn in page_number_records:
+                all_changes.append({
+                    "doc_name": filename,
+                    "paragraph_index": "",
+                    "original_style": "",
+                    "new_style": "[PAGE NUMBER REMOVED]",
+                    "paragraph_text_preview": pn["text_preview"],
+                    "change_type": "inline_page_number_removed",
+                    "phrase_deleted": pn["matched_pattern"],
+                })
 
             all_changes.extend(changes)
             total_deletions += len(deletion_records)
@@ -725,9 +979,20 @@ def main():
             total_hf_clearings += len(hf_records)
             total_revision_tables += len(revision_table_records)
             total_definitions_flattened += len(definition_records)
+            if tracked_change_records:
+                total_tracked_change_docs += 1
+            if comment_records:
+                total_comment_strips += 1
+            total_page_number_removals += len(page_number_records)
             files_processed += 1
 
             parts = [f"{len(changes)} heading(s) fixed"]
+            if tracked_change_records:
+                parts.append("tracked changes accepted")
+            if comment_records:
+                parts.append("comments stripped")
+            if page_number_records:
+                parts.append(f"{len(page_number_records)} page-number para(s) removed")
             if deletion_records:
                 parts.append(f"{len(deletion_records)} deletion(s)")
             if section_deletion_records:
@@ -765,6 +1030,9 @@ def main():
     print(f"Total headers/footers cleared: {total_hf_clearings}")
     print(f"Total revision tables removed: {total_revision_tables}")
     print(f"Total definition tables flattened: {total_definitions_flattened}")
+    print(f"Docs w/ tracked changes accepted: {total_tracked_change_docs}")
+    print(f"Docs w/ comments stripped:  {total_comment_strips}")
+    print(f"Total page-number paragraphs removed: {total_page_number_removals}")
     print(f"\nFixed documents written to: {output_dir}")
     print(f"Change log written to: {csv_path}")
 

@@ -165,6 +165,7 @@ def _build_frontmatter(doc, filepath: str, config: dict,
         return ""
 
     fields = list(d2m.get("metadata_fields", _default_metadata_fields()))
+    static_tags = config.get("metadata", {}).get("tags", {}).get("static_tags", []) or []
 
     lines = ["---"]
 
@@ -174,6 +175,24 @@ def _build_frontmatter(doc, filepath: str, config: dict,
         default = field.get("default", "")
         value = _resolve_metadata_value(doc, filepath, source, default,
                                         url_mapping=url_mapping, config=config)
+
+        # Merge org-wide static_tags into the Tags field so metadata.tags.static_tags
+        # is the single source of truth for both Word-doc tags (Step 6) and
+        # .md frontmatter tags (Step 7). Case-insensitive dedup; existing values kept.
+        if static_tags and name.lower() == "tags":
+            if isinstance(value, list):
+                merged = list(value)
+            elif value and value != default:
+                merged = [value]
+            else:
+                merged = []
+            seen = {t.lower() for t in merged}
+            for t in static_tags:
+                if t.lower() not in seen:
+                    merged.append(t)
+                    seen.add(t.lower())
+            value = merged
+
         if isinstance(value, list):
             items = ", ".join(f'"{v}"' for v in value)
             value = f"[{items}]"

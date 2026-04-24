@@ -174,26 +174,29 @@ def build_target_reference(controls, supplemental_labels):
 # Target chunking
 # ---------------------------------------------------------------------------
 
-def chunk_target_controls(controls, chunking_cfg):
+def chunk_target_controls(controls, chunking_cfg, target_sup_labels=None):
     """Split target controls into family-based chunks.
 
     Returns a list of dicts: {"name": str, "label": str, "controls": list}
     """
+    if target_sup_labels is None:
+        target_sup_labels = ["Domain", "Title"]
     strategy = chunking_cfg.get("strategy", "prefix")
 
     if strategy == "prefix":
-        return _chunk_by_prefix(controls, chunking_cfg)
+        return _chunk_by_prefix(controls, chunking_cfg, target_sup_labels)
     elif strategy == "column":
-        return _chunk_by_column(controls, chunking_cfg)
+        return _chunk_by_column(controls, chunking_cfg, target_sup_labels)
     else:
         print(f"  WARNING: Unknown chunking strategy '{strategy}', using all controls as one chunk")
         return [{"name": "all", "label": "All Controls", "controls": controls}]
 
 
-def _chunk_by_prefix(controls, chunking_cfg):
+def _chunk_by_prefix(controls, chunking_cfg, target_sup_labels):
     """Group controls by their ID prefix (e.g., AC-1 → AC)."""
     separator = chunking_cfg.get("separator", "-")
     max_per_chunk = chunking_cfg.get("max_controls_per_chunk", 60)
+    max_chars = chunking_cfg.get("max_chars_per_chunk", 0)
 
     # Extract prefix for each control
     families = OrderedDict()
@@ -201,9 +204,17 @@ def _chunk_by_prefix(controls, chunking_cfg):
         prefix = ctrl["id"].split(separator)[0].strip() if separator in ctrl["id"] else ctrl["id"]
         families.setdefault(prefix, []).append(ctrl)
 
+    # Sort controls within each family so enhancements (e.g., AC-2(1)) sit next
+    # to their base (AC-2). This matters both for the packing logic and the
+    # final reference the model reads.
+    for prefix, ctrls in families.items():
+        ctrls.sort(key=lambda c: _id_sort_key(c["id"], separator))
+
     # Combine small families if max_per_chunk > 0
-    if max_per_chunk > 0:
-        return _combine_small_families(families, max_per_chunk)
+    if max_per_chunk > 0 or max_chars > 0:
+        return _combine_small_families(
+            families, max_per_chunk, max_chars, separator, target_sup_labels,
+        )
     else:
         return [
             {"name": _sanitize_name(prefix), "label": f"Family: {prefix}", "controls": ctrls}
@@ -211,10 +222,12 @@ def _chunk_by_prefix(controls, chunking_cfg):
         ]
 
 
-def _chunk_by_column(controls, chunking_cfg):
+def _chunk_by_column(controls, chunking_cfg, target_sup_labels):
     """Group controls by a column value."""
     col_idx = chunking_cfg.get("group_by_column")
     max_per_chunk = chunking_cfg.get("max_controls_per_chunk", 60)
+    max_chars = chunking_cfg.get("max_chars_per_chunk", 0)
+    separator = chunking_cfg.get("separator", "-")
 
     if col_idx is None:
         print("  WARNING: column strategy requires group_by_column, falling back to one chunk")
@@ -228,8 +241,13 @@ def _chunk_by_column(controls, chunking_cfg):
         group_key = ctrl.get("Domain", "Ungrouped")
         groups.setdefault(group_key, []).append(ctrl)
 
-    if max_per_chunk > 0:
-        return _combine_small_families(groups, max_per_chunk)
+    for key, ctrls in groups.items():
+        ctrls.sort(key=lambda c: _id_sort_key(c["id"], separator))
+
+    if max_per_chunk > 0 or max_chars > 0:
+        return _combine_small_families(
+            groups, max_per_chunk, max_chars, separator, target_sup_labels,
+        )
     else:
         return [
             {"name": _sanitize_name(key), "label": key, "controls": ctrls}
@@ -237,41 +255,178 @@ def _chunk_by_column(controls, chunking_cfg):
         ]
 
 
-def _combine_small_families(families, max_per_chunk):
-    """Combine small families into larger chunks up to max_per_chunk."""
+# ---------------------------------------------------------------------------
+# ID parsing — base ID and sort key (handles enhancements like AC-2(1)(a))
+# ---------------------------------------------------------------------------
+
+_ENH_RE = re.compile(r"\d+")
+
+
+def _base_id(ctrl_id, separator):
+    """Return the base control ID, stripping any enhancement suffix.
+
+    Examples with separator="-":
+      AC-2       -> AC-2
+      AC-2(1)    -> AC-2
+      AC-2(1)(a) -> AC-2
+      A&A-01     -> A&A-01
+    """
+    paren = ctrl_id.find("(")
+    if paren >= 0:
+        return ctrl_id[:paren].strip()
+    return ctrl_id.strip()
+
+
+def _id_sort_key(ctrl_id, separator):
+    """Build a sort key so enhancements sit immediately after their base.
+
+    Returns a tuple (main_int, enhancement_ints, raw_suffix). A control with no
+    leading integer after the separator (e.g., a free-form ID) falls back to
+    string sort via the final tuple element.
+    """
+    if separator in ctrl_id:
+        prefix, _, rest = ctrl_id.partition(separator)
+    else:
+        prefix, rest = ctrl_id, ""
+    # rest looks like "2", "2(1)", "2(1)(a)", "01.1", etc.
+    # Split off the base integer (everything before the first non-digit or "(").
+    i = 0
+    while i < len(rest) and rest[i].isdigit():
+        i += 1
+    try:
+        main_num = int(rest[:i]) if i > 0 else -1
+    except ValueError:
+        main_num = -1
+    remainder = rest[i:]
+    enhancement_nums = tuple(int(m) for m in _ENH_RE.findall(remainder))
+    # Trailing string keeps letter-suffixes (e.g. "(1)(a)") in deterministic order
+    return (prefix, main_num, enhancement_nums, remainder)
+
+
+# ---------------------------------------------------------------------------
+# Chunk packing — size-aware combination and splitting
+# ---------------------------------------------------------------------------
+
+def _estimate_chunk_chars(controls, target_sup_labels):
+    """Measure how many chars `controls` will occupy in an embedded target block.
+
+    Uses build_target_reference output length — exact and cheap.
+    """
+    if not controls:
+        return 0
+    return len(build_target_reference(controls, target_sup_labels))
+
+
+def _combine_small_families(families, max_per_chunk, max_chars=0,
+                            separator="-", target_sup_labels=None):
+    """Pack families into chunks respecting BOTH control-count and char budgets.
+
+    - Families larger than max_per_chunk (or max_chars) get split via
+      _split_family_by_range, preserving base-control + enhancements adjacency.
+    - Smaller families are combined up to the same limits.
+    """
+    if target_sup_labels is None:
+        target_sup_labels = ["Domain", "Title"]
+
     chunks = []
     current_names = []
     current_controls = []
 
-    for family_name, ctrls in families.items():
-        # If this single family exceeds the limit, it gets its own chunk
-        if len(ctrls) > max_per_chunk:
-            # Flush current accumulation first
-            if current_controls:
-                chunks.append(_make_chunk(current_names, current_controls))
-                current_names = []
-                current_controls = []
-            chunks.append({
-                "name": _sanitize_name(family_name),
-                "label": f"Family: {family_name}",
-                "controls": ctrls,
-            })
-            continue
-
-        # Would adding this family exceed the limit?
-        if current_controls and len(current_controls) + len(ctrls) > max_per_chunk:
+    def _flush():
+        nonlocal current_names, current_controls
+        if current_controls:
             chunks.append(_make_chunk(current_names, current_controls))
             current_names = []
             current_controls = []
 
+    def _exceeds(controls):
+        if max_per_chunk > 0 and len(controls) > max_per_chunk:
+            return True
+        if max_chars > 0 and _estimate_chunk_chars(controls, target_sup_labels) > max_chars:
+            return True
+        return False
+
+    for family_name, ctrls in families.items():
+        # Does this single family on its own exceed either budget?
+        if _exceeds(ctrls):
+            _flush()
+            sub_chunks = _split_family_by_range(
+                family_name, ctrls, max_per_chunk, max_chars,
+                separator, target_sup_labels,
+            )
+            chunks.extend(sub_chunks)
+            continue
+
+        # Would combining this family with what we've accumulated exceed budgets?
+        if current_controls and _exceeds(current_controls + ctrls):
+            _flush()
+
         current_names.append(family_name)
         current_controls.extend(ctrls)
 
-    # Flush remaining
-    if current_controls:
-        chunks.append(_make_chunk(current_names, current_controls))
-
+    _flush()
     return chunks
+
+
+def _split_family_by_range(family_name, ctrls, max_per_chunk, max_chars,
+                           separator, target_sup_labels):
+    """Split an oversize single family into numeric-range sub-chunks.
+
+    Enhancements (AC-2(1), AC-2(1)(a)) are kept with their base control (AC-2)
+    — the unit of packing is the "base group". Chunks are labeled with their
+    first and last IDs so the model sees `Family: AC (AC-01..AC-14(3))`.
+    """
+    # Already sorted by _id_sort_key in _chunk_by_prefix/_chunk_by_column.
+    base_groups = OrderedDict()
+    for ctrl in ctrls:
+        base = _base_id(ctrl["id"], separator)
+        base_groups.setdefault(base, []).append(ctrl)
+
+    sub_chunks = []
+    current = []
+
+    def _flush():
+        nonlocal current
+        if current:
+            first_id = current[0]["id"]
+            last_id = current[-1]["id"]
+            name = _sanitize_name(f"{family_name}_{first_id}_to_{last_id}")
+            label = f"Family: {family_name} ({first_id}..{last_id})"
+            sub_chunks.append({"name": name, "label": label, "controls": list(current)})
+            current = []
+
+    for base, group in base_groups.items():
+        # If a single base group alone busts the budget, emit it on its own and warn.
+        projected_count = len(group)
+        projected_chars = _estimate_chunk_chars(group, target_sup_labels)
+        single_exceeds = (
+            (max_per_chunk > 0 and projected_count > max_per_chunk)
+            or (max_chars > 0 and projected_chars > max_chars)
+        )
+        if single_exceeds:
+            _flush()
+            first_id = group[0]["id"]
+            last_id = group[-1]["id"]
+            print(f"  WARNING: base control {base} + enhancements = "
+                  f"{projected_count} controls / {projected_chars} chars — exceeds chunk budget; "
+                  f"emitting as its own chunk")
+            name = _sanitize_name(f"{family_name}_{first_id}_to_{last_id}")
+            label = f"Family: {family_name} ({first_id}..{last_id})"
+            sub_chunks.append({"name": name, "label": label, "controls": list(group)})
+            continue
+
+        # Would appending this base group to current exceed a budget? Flush first.
+        if current:
+            combined = current + group
+            combined_count = len(combined)
+            combined_chars = _estimate_chunk_chars(combined, target_sup_labels)
+            if ((max_per_chunk > 0 and combined_count > max_per_chunk)
+                    or (max_chars > 0 and combined_chars > max_chars)):
+                _flush()
+        current.extend(group)
+
+    _flush()
+    return sub_chunks
 
 
 def _make_chunk(names, controls):
@@ -403,18 +558,29 @@ The JSON object has one key per source control ID:
 """
 
 
-def format_source_controls(controls, supplemental_labels):
-    """Format source controls for embedding in a batch prompt."""
+def format_source_controls(controls, supplemental_labels, prompt_fields=None):
+    """Format source controls for embedding in a batch prompt.
+
+    `prompt_fields` is the subset of supplemental labels to embed. If None, all
+    supplemental fields are embedded (legacy behavior). Description is always shown.
+    """
+    if prompt_fields is None:
+        allowed = set(supplemental_labels)
+    else:
+        allowed = set(prompt_fields)
+
     lines = []
     for ctrl in controls:
         lines.append(f"### {ctrl['id']}")
-        if ctrl.get("Title"):
+        if "Title" in allowed and ctrl.get("Title"):
             lines.append(f"**Title**: {ctrl['Title']}")
-        if ctrl.get("Domain"):
+        if "Domain" in allowed and ctrl.get("Domain"):
             lines.append(f"**Domain**: {ctrl['Domain']}")
         lines.append(f"**Description**: {ctrl['description']}")
         for label in supplemental_labels:
             if label in ("Domain", "Title"):
+                continue
+            if label not in allowed:
                 continue
             value = ctrl.get(label, "")
             if value:
@@ -426,7 +592,7 @@ def format_source_controls(controls, supplemental_labels):
 def write_batch_file(batch, batch_dir, source_name, target_name,
                      target_reference, target_count, supplemental_labels,
                      system_prompt, target_scope="Full Catalog",
-                     target_scope_detail=None):
+                     target_scope_detail=None, prompt_fields=None):
     """Write a self-contained batch prompt file."""
     controls = batch["controls"]
     control_ids = ", ".join(c["id"] for c in controls)
@@ -436,7 +602,7 @@ def write_batch_file(batch, batch_dir, source_name, target_name,
     if target_scope_detail is None:
         target_scope_detail = f"All {target_count} {target_name} controls"
 
-    source_section = format_source_controls(controls, supplemental_labels)
+    source_section = format_source_controls(controls, supplemental_labels, prompt_fields)
 
     formatted_system_prompt = system_prompt.format(
         source_name=source_name,
@@ -516,6 +682,10 @@ def main():
     source_sup_labels = [s["label"] for s in source_cfg["columns"].get("supplemental", [])]
     target_sup_labels = [s["label"] for s in target_cfg["columns"].get("supplemental", [])]
 
+    # Which source fields to embed in batch prompts (defaults to Title+Domain if unset).
+    # Description is always embedded; unlisted fields stay in reference/ only.
+    source_prompt_fields = source_cfg.get("prompt_fields", ["Title", "Domain"])
+
     write_reference_file(
         ref_dir / "source_controls.md",
         source_cfg["name"], source_controls, source_sup_labels,
@@ -546,7 +716,7 @@ def main():
 
     if chunking_enabled:
         # --- CHUNKED MODE: source_batch × target_chunk ---
-        target_chunks = chunk_target_controls(target_controls, chunking_cfg)
+        target_chunks = chunk_target_controls(target_controls, chunking_cfg, target_sup_labels)
         print(f"\n  Target chunking: ON ({len(target_chunks)} target groups)")
         for tc in target_chunks:
             families = [c["id"].split(chunking_cfg.get("separator", "-"))[0]
@@ -589,6 +759,7 @@ def main():
                     system_prompt,
                     target_scope=tgt_chunk["label"],
                     target_scope_detail=scope_detail,
+                    prompt_fields=source_prompt_fields,
                 )
 
         print(f"\n  Generated {total_batches} batch files "
@@ -614,6 +785,7 @@ def main():
                 target_reference, len(target_controls),
                 source_sup_labels,
                 system_prompt,
+                prompt_fields=source_prompt_fields,
             )
             ids = ", ".join(c["id"] for c in batch["controls"])
             print(f"  {filepath.name}: {len(batch['controls'])} controls ({ids})")

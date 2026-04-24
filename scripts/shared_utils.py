@@ -253,6 +253,30 @@ def _parse_text_deletions_sheet(ws):
         name_lower = name.lower()
         if "setting" in name_lower:
             result.update(_parse_settings_rows(block_rows))
+        elif "per-doc" in name_lower or "per_doc" in name_lower or "per doc" in name_lower:
+            # Parse Document Name | Sections (comma-separated) | Description rows
+            per_doc = []
+            for row in block_rows:
+                if not row or _is_comment(row):
+                    continue
+                doc_name = row[0] if row[0] else None
+                if doc_name is None or not str(doc_name).strip():
+                    continue
+                doc_name = str(doc_name).strip()
+                # Skip the sub-table column header row
+                if doc_name.lower() == "document name":
+                    continue
+                raw_headings = str(row[1]).strip() if len(row) > 1 and row[1] else ""
+                headings = [h.strip() for h in raw_headings.split(",") if h.strip()]
+                if not headings:
+                    continue
+                desc = str(row[2]).strip() if len(row) > 2 and row[2] else ""
+                per_doc.append({
+                    "doc_name": doc_name,
+                    "headings": headings,
+                    "description": desc,
+                })
+            result["per_doc_section_deletions"] = per_doc
         elif "section" in name_lower:
             # Parse Section Heading | Delete (TRUE/FALSE) | Description rows
             section_deletions = []
@@ -282,9 +306,20 @@ def _parse_text_deletions_sheet(ws):
             result["section_deletions"] = section_deletions
         elif "phrase" in name_lower:
             result["phrases"] = _parse_list_column(block_rows)
+        elif "page" in name_lower and "number" in name_lower:
+            result["inline_page_number_patterns"] = _parse_list_column(block_rows)
     # Ensure keys exist even if empty
     result.setdefault("phrases", [])
     result.setdefault("section_deletions", [])
+    result.setdefault("per_doc_section_deletions", [])
+    result.setdefault("inline_page_number_patterns", [
+        r"^Page\s+\d+(\s+of\s+\d+)?$",
+        r"^\d+$",
+        r"^-\s*\d+\s*-$",
+    ])
+    result.setdefault("strip_tracked_changes", False)
+    result.setdefault("remove_comments", False)
+    result.setdefault("remove_inline_page_numbers", False)
     result.setdefault("remove_table_of_content", False)
     result.setdefault("remove_headers_footers", False)
     result.setdefault("remove_revision_tables", False)
@@ -794,7 +829,7 @@ def is_heading_style(style) -> bool:
     separately by the custom_style_map in dps_config.yaml.
 
     TWEAK: To also accept "Title" as a heading, change the regex to:
-        r"^(Heading \d|Title)$"
+        r"^(Heading \\d|Title)$"
     """
     if style is None:
         return False

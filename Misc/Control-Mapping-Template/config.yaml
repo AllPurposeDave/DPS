@@ -41,6 +41,15 @@ source:
         label: "Guidelines"              # Column F: Implementation Guidelines
   header_row: 1                          # Row number with headers (1-based); data starts next row
 
+  # Which supplemental fields to EMBED in every batch prompt.
+  # Description is always shown; ID is always shown; this list controls the rest.
+  # Fields omitted here still appear in reference/source_controls.md — they just
+  # won't bloat per-batch prompts. Keeping prompts lean helps models under ~15k
+  # chars of context (Sonnet 4.5 accuracy degrades past that threshold).
+  prompt_fields:
+    - "Title"
+    - "Domain"
+
 # ---------------------------------------------------------------------------
 # TARGET — the framework being mapped TO (full catalog embedded in prompts)
 # ---------------------------------------------------------------------------
@@ -81,9 +90,16 @@ target:
     separator: "-"                       # For "prefix" strategy: character separating family
                                          # from number. "A&A-01" with separator "-" → family "A&A"
     group_by_column: null                # For "column" strategy: column index to group by
-    max_controls_per_chunk: 50           # Combine small families until this limit.
-                                         # Prevents tiny families (2-3 controls) from each
-                                         # getting their own batch. Set to 0 to never combine.
+    max_controls_per_chunk: 30           # Soft ceiling on controls per target chunk.
+                                         # Small families combine until this limit.
+                                         # Large families (e.g., NIST AC with 100+ controls
+                                         # plus enhancements) split by ID numeric range,
+                                         # keeping each base control + its enhancements
+                                         # together as an atomic unit.
+    max_chars_per_chunk: 7000            # Hard ceiling on embedded target-reference size.
+                                         # Whichever limit (count OR chars) is hit first
+                                         # triggers a chunk flush/split. Keeps full batch
+                                         # files under ~12k chars for Sonnet 4.5 accuracy.
 
 # ---------------------------------------------------------------------------
 # BATCHING — how source controls are chunked into manageable prompts

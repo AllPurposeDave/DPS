@@ -287,10 +287,20 @@ headings:
 text_deletions:
   enabled: false    # Set to true to activate deletion
   case_sensitive: true
+  strip_tracked_changes: false     # Accept all tracked changes (ins kept, del removed) before any text op
+  remove_comments: false           # Strip comment annotations (inline markers + comments.xml part)
+  remove_inline_page_numbers: false # Delete paragraphs whose entire text matches a page-number pattern
   remove_table_of_content: false   # Remove Word TOC-styled paragraphs (TOC 1, TOC 2, etc.)
   remove_headers_footers: false    # Clear all page header and footer content
   remove_revision_tables: false    # Remove tables with Version/Date/Changes columns
   flatten_definition_tables: false # Convert Terms & Definitions tables to prose paragraphs
+
+  # Regex patterns applied ONLY when remove_inline_page_numbers=true. A paragraph
+  # is deleted when its entire stripped text matches any pattern (case-insensitive).
+  inline_page_number_patterns:
+    - "^Page\\s+\\d+(\\s+of\\s+\\d+)?$"
+    - "^\\d+$"
+    - "^-\\s*\\d+\\s*-$"
 
   # Phrases to delete (exact match). Leading/trailing whitespace is trimmed.
   # After deletion, double-spaces are collapsed to single spaces.
@@ -303,13 +313,29 @@ text_deletions:
 
   # Section-level deletions — remove an entire section (heading + all content
   # until the next heading of same or higher level). Match is case-insensitive
-  # substring on the heading text. Originals are never modified.
+  # substring on the heading text. Applies to EVERY document. Originals are
+  # never modified.
   # Example:
   #   section_deletions:
   #     - heading: "Appendix A"
   #       delete: true
   #       description: "Remove Appendix A and all content below it"
   section_deletions: []
+
+  # Per-document section deletions — applied ONLY to the listed file.
+  # Populate AFTER running Step 0 (profiler): copy exact filenames from
+  # section_inventory.csv. doc_name must be the exact basename including
+  # '.docx'. headings use EXACT match (case-insensitive, stripped).
+  # This list COMBINES with section_deletions — each doc gets the global
+  # rules PLUS its per-doc rules.
+  # Example:
+  #   per_doc_section_deletions:
+  #     - doc_name: "Access Control Policy.docx"
+  #       headings:
+  #         - "Appendix B: Vendor List"
+  #         - "12.3 Legacy Systems"
+  #       description: "Remove obsolete sections from access policy"
+  per_doc_section_deletions: []
 
 
 # ============================================================================
@@ -938,6 +964,35 @@ docx2md:
 
   # Where converted .md files are written (relative to config file location)
   output_directory: "./output/7 - markdown"
+
+  # --- Output file splitting ---
+  # Soft char cap per .md file. Splits at heading boundaries only (never
+  # mid-sentence); a single oversized section is kept whole. Filename gets
+  # the last section header appended. 0 = no splitting.
+  character_limit: 0
+
+  # Soft cap on control IDs per .md file (counted via
+  # control_extraction.control_id_patterns). Splits at heading boundaries;
+  # a single oversized section is kept whole. Combined with character_limit —
+  # whichever triggers first splits. 0 = disabled. Recommended: 15.
+  max_controls_per_file: 0
+
+  # When TRUE, clone the sections listed under scope_statement_headings into
+  # every split chunk after the first so each RAG chunk keeps scope context.
+  # When FALSE, splitting behaves normally.
+  scope_statements_keep: false
+
+  # Headings whose sections get cloned to every split chunk after the first.
+  # Only applied when scope_statements_keep is TRUE. Case-insensitive exact
+  # match on heading text.
+  scope_statement_headings:
+    - "Purpose"
+    - "Applicability and Scope"
+
+  # Sections whose heading + content (up to the next heading of any level) are
+  # removed from the .md output. Case-insensitive exact match on heading text.
+  # Leave empty to keep all sections.
+  headings_to_delete: []
 
   # --- Image handling ---
   # "extract"     → save images to disk + insert markdown references

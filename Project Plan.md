@@ -121,19 +121,28 @@ Builds Word documents from Excel config templates.
 [Deploy]       Upload to SharePoint, configure Copilot Studio agent
 ```
 
-## Tag System Architecture (Step 6)
+## Tag System Architecture (Steps 6 / 7 / 8)
 
-Step 6 generates tags from **five sources**, merged in this order (duplicates auto-removed, first occurrence wins):
+Tags originate from **five sources**. Step 6 merges all five into the Word doc tags field. Steps 7 (.md frontmatter) and 8 (JSONL chunks) share the per-document Custom Tags sheet and the org-wide `static_tags` list, keeping `metadata.tags.static_tags` as the **single source of truth** for org-wide labels across every output format.
 
-| # | Source | Example Output | Config Key | Per-Document? |
-|---|--------|---------------|------------|---------------|
-| 1 | **Doc type** from profiler (Step 0) | `Type-C` | `metadata.tags.include_doc_type` | Yes (auto) |
-| 2 | **Sections found** from profiler | `has-scope`, `has-controls` | `metadata.tags.include_sections_found` | Yes (auto) |
-| 3 | **Unique acronyms** from Acronym Definitions | `AC`, `MFA`, `IR` | `metadata.tags.max_acronym_tags`, `max_tag_doc_count` | Yes (auto) |
-| 4 | **Custom tags** from "Custom Tags" sheet | `CUI`, `FedRAMP-High`, `Priority` | *(automatic — sheet in Acronym Definitions file)* | Yes (user-defined) |
-| 5 | **Static tags** from config | `InfoSec`, `GCC-High` | `metadata.tags.static_tags` | No (all docs) |
+| # | Source | Example Output | Config Key | Per-Document? | Step 6 (Word) | Step 7 (.md) | Step 8 (JSONL) |
+|---|--------|---------------|------------|---------------|---------------|--------------|----------------|
+| 1 | **Doc type** from profiler (Step 0) | `Type-C` | `metadata.tags.include_doc_type` | Yes (auto) | Yes | No | No |
+| 2 | **Sections found** from profiler | `has-scope`, `has-controls` | `metadata.tags.include_sections_found` | Yes (auto) | Yes | No | No |
+| 3 | **Unique acronyms** from Acronym Definitions | `AC`, `MFA`, `IR` | `metadata.tags.max_acronym_tags`, `max_tag_doc_count` | Yes (auto) | Yes | No | No |
+| 4 | **Custom tags** from "Custom Tags" sheet | `CUI`, `FedRAMP-High`, `Priority` | *(automatic — sheet in Acronym Definitions file)* | Yes (user-defined) | Yes | Yes | Yes |
+| 5 | **Static tags** from config | `InfoSec`, `GCC-High` | `metadata.tags.static_tags` | No (all docs) | Yes | Yes | Yes |
 
-**Result example:** `Type-C, has-scope, has-controls, AC, MFA, CUI, FedRAMP-High, InfoSec`
+Merge order in each output (duplicates removed case-insensitively, first occurrence wins):
+- **Step 6 (Word doc tags):** doc type → sections → acronyms → custom tags → static tags
+- **Step 7 (.md frontmatter `Tags:`):** custom tags → static tags
+- **Step 8 (JSONL per-chunk `tags`):** custom tags → static tags
+
+**Result examples** for "Access Control Policy":
+- *Step 6:* `Type-C, has-scope, has-controls, AC, MFA, CUI, FedRAMP-High, InfoSec`
+- *Step 7 / Step 8:* `["CUI", "FedRAMP-High", "Priority", "InfoSec"]`
+
+To change org-wide labels, edit **6-Metadata → Static Tags** once — all three steps pick it up on the next run.
 
 ### Consolidated Input File Design
 
@@ -143,7 +152,7 @@ All per-document metadata lives in **one workbook** — `input/Acronym_Definitio
 |-------|---------|---------|---------|
 | **Acronym Definitions** | Document \| Acronym \| Definition \| Status \| Notes | Human-verified acronym glossary. Status column lets reviewers mark rows without deleting them. | Steps 6, 7, 8 |
 | **Per Document** | Document \| Acronym \| Occurrences \| Found In \| Definition(s) | Per-doc occurrence detail | Steps 6, 7, 8 (fallback) |
-| **Custom Tags** | Document_Name \| Tags | Per-document custom tags (comma-separated) | Steps 6, 8 |
+| **Custom Tags** | Document_Name \| Tags | Per-document custom tags (comma-separated) | Steps 6, 7, 8 |
 
 Step 1's audit output (`acronym_audit.xlsx`) includes all these sheets — including a pre-populated "Custom Tags" sheet with document names and format instructions filled in. Users curate the audit output into `Acronym_Definitions.xlsx` and fill in custom tags at the same time.
 
@@ -187,8 +196,9 @@ input/Acronym_Definitions.xlsx
     │       Reads: Acronym Definitions + Custom Tags sheets
     │       Filters: Skips Status="False Positive" rows
     │
-    ├──→ Step 7 (docx2md.py)          → acronym lists in YAML frontmatter
-    │       Reads: via excel_lookup_list/dict config sources
+    ├──→ Step 7 (docx2md.py)          → acronym + tag lists in YAML frontmatter
+    │       Reads: Custom Tags + Acronym Definitions (via excel_lookup_list/dict)
+    │       Merges: metadata.tags.static_tags into the Tags frontmatter field
     │       Matches: match_doc_name() substring matching
     │
     └──→ Step 8 (docx2jsonl.py)       → Acronyms + tags fields in JSONL chunks

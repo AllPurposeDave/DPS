@@ -216,25 +216,38 @@ def load_tag_mapping(tag_file: str, sheet_name: str | None = None) -> dict[str, 
     return mapping
 
 
-def _resolve_tags(tag_mapping: dict, doc_name: str) -> list[str]:
-    """Resolve tags for a document name."""
+def _resolve_tags(tag_mapping: dict, doc_name: str,
+                  static_tags: list[str] | None = None) -> list[str]:
+    """Resolve tags for a document name, merging any org-wide static_tags.
+
+    Per-doc tags come from tag_mapping (Custom Tags sheet). static_tags comes
+    from metadata.tags.static_tags and is applied to every doc so that the
+    metadata config is the single source of truth across Word, .md, and jsonl.
+    Case-insensitive dedup; per-doc tags are kept first in the list.
+    """
     stem = os.path.splitext(doc_name)[0].lower()
 
     # Exact match
     if stem in tag_mapping:
-        return tag_mapping[stem]
+        per_doc = list(tag_mapping[stem])
+    elif stem.replace("_", " ") in tag_mapping:
+        per_doc = list(tag_mapping[stem.replace("_", " ")])
+    else:
+        per_doc = []
+        for key, tags in tag_mapping.items():
+            if key in stem or stem in key:
+                per_doc = list(tags)
+                break
 
-    # Try with spaces instead of underscores
-    stem_spaced = stem.replace("_", " ")
-    if stem_spaced in tag_mapping:
-        return tag_mapping[stem_spaced]
+    if not static_tags:
+        return per_doc
 
-    # Partial match
-    for key, tags in tag_mapping.items():
-        if key in stem or stem in key:
-            return tags
-
-    return []
+    seen = {t.lower() for t in per_doc}
+    for t in static_tags:
+        if t.lower() not in seen:
+            per_doc.append(t)
+            seen.add(t.lower())
+    return per_doc
 
 
 def load_acronym_mapping(acronym_file: str) -> dict[str, dict[str, str]]:
@@ -495,7 +508,8 @@ class DocxToJsonl:
         stem = os.path.splitext(self.filename)[0]
         doc_name = stem.replace("_", " ")
         url = _resolve_url_for_jsonl(self.url_mapping, self.filename, self.config)
-        tags = _resolve_tags(self.tag_mapping, self.filename)
+        static_tags = self.config.get("metadata", {}).get("tags", {}).get("static_tags", []) or []
+        tags = _resolve_tags(self.tag_mapping, self.filename, static_tags)
         total = len(self.chunks)
 
         for idx, chunk in enumerate(self.chunks):

@@ -1165,7 +1165,7 @@ The default config points to `input/Doc_URL.xlsx`. These settings are on the **6
 | `metadata.tags.acronym_definitions_file` | `"./input/Acronym_Definitions.xlsx"` | Path to the human-verified Acronym Definitions file (same file used by Steps 7/8). Preferred source for acronym tags. |
 | `metadata.tags.acronym_audit_file` | `""` | Path to raw Acronym Finder output Excel. Used as fallback only when no definitions file is found. |
 | `metadata.tags.max_acronym_tags` | `15` | Maximum acronym tags per document (most-frequent first). `0` = unlimited. |
-| `metadata.tags.static_tags` | `[]` | Static tags added to ALL documents (e.g., `["InfoSec", "GCC-High"]`). |
+| `metadata.tags.static_tags` | `[]` | Org-wide tags added to EVERY document (e.g., `["InfoSec", "GCC-High"]`). **Single source of truth** — Step 6 writes them to the Word doc tags field, Step 7 merges them into the `Tags:` line of the `.md` frontmatter, and Step 8 merges them into each JSONL chunk's `tags` array. Configure once here; no other step needs its own copy. |
 
 #### Custom Tags (Per-Document)
 
@@ -1181,22 +1181,32 @@ Open `input/Acronym_Definitions.xlsx` and add a sheet called **"Custom Tags"** w
 | Incident Response Policy | SOC, CIRT, Critical-Path |
 | Data Protection Policy | PII, Encryption |
 
-That's it — no config changes needed. Step 6 reads the "Custom Tags" sheet automatically when it loads the acronym definitions file. Step 8 (JSONL) also reads from the same sheet.
+That's it — no config changes needed. Step 6 reads the "Custom Tags" sheet automatically when it loads the acronym definitions file. Steps 7 (Markdown frontmatter `Tags:`) and 8 (JSONL per-chunk `tags`) also read from the same sheet and append `metadata.tags.static_tags` on top.
 
 > **Tip:** If you run Step 1 (Acronym Finder) first, the output `acronym_audit.xlsx` already includes an empty "Custom Tags" sheet pre-populated with document names — just fill in the Tags column.
 
 **How it works:**
 - Tags are comma-separated in the Tags column
 - Document name matching is case-insensitive and normalized (handles underscores, extensions, suffixes)
-- Custom tags appear **after** auto-generated tags (doc type, sections, acronyms) and **before** static tags
-- Duplicates across all tag sources are automatically removed (first occurrence wins)
-- Auto-generated acronym tags, validation steps (Step 9), and all other pipeline steps are **completely unaffected**
+- Step 6 (Word doc tags field) order: auto-generated (doc type + sections + acronyms) → custom tags → static tags
+- Steps 7 (`.md` frontmatter `Tags:`) and 8 (JSONL `tags`) order: custom tags → static tags (auto-generated tags only appear in Step 6's Word-doc output)
+- Duplicates across all tag sources are automatically removed case-insensitively (first occurrence wins)
+- Validation steps (Step 9) and all other pipeline steps are **completely unaffected**
 
-**Example result** for "Access Control Policy":
+**Example results** for "Access Control Policy":
+
+*Step 6 (Word doc tags):*
 ```
-Tags: Type-C, has-scope, has-controls, AC, MFA, CUI, FedRAMP-High, Priority, InfoSec
-       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^
-       auto-generated (doc type + sections + acronyms)   custom tags           static tags
+Type-C, has-scope, has-controls, AC, MFA, CUI, FedRAMP-High, Priority, InfoSec
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^
+auto-generated (doc type + sections + acronyms)   custom tags           static tags
+```
+
+*Step 7 (`.md` frontmatter) and Step 8 (JSONL chunk tags):*
+```
+Tags: ["CUI", "FedRAMP-High", "Priority", "InfoSec"]
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^
+        custom tags                        static tags
 ```
 
 ---
@@ -1254,6 +1264,8 @@ Reads all rows in `<sheet>` where `<key>` column matches the current `.docx` fil
   default: ""
 ```
 
+> **Static tags auto-merge:** Any field named `Tags` (case-insensitive) automatically has `metadata.tags.static_tags` appended to its resolved value, case-insensitively deduplicated. Configure org-wide tags once on the **6-Metadata** sheet under "Static Tags" — they'll appear in the `.md` frontmatter without touching this field's `source`.
+
 The `doc_url` source loads the URL mapping automatically when any field uses it — `include_doc_url: true` is not required when using `metadata_fields`.
 
 > **Maintainers:** Renaming a metadata field involves coordinated edits across the YAML fallback, generator defaults, Excel config, and the hardcoded `docx2jsonl.py` chunk key. See [Appendix: Maintainer Notes](#appendix-maintainer-notes).
@@ -1296,6 +1308,8 @@ All settings live on the **8-Docx2jsonl** sheet. This section controls **Step 8*
 | Key | Default | Description |
 |-----|---------|-------------|
 | `tag_file` | `""` (empty) | Optional Excel file mapping documents to tags. Leave empty to use the "Custom Tags" sheet inside `Acronym_Definitions.xlsx` instead (recommended). |
+
+> **Static tags auto-merge:** Per-chunk `tags` arrays automatically include `metadata.tags.static_tags` from the **6-Metadata** sheet, appended after any per-doc custom tags and deduped case-insensitively. No separate configuration needed on this sheet.
 
 > **Tip:** Step 8 writes one `.jsonl.txt` file per input `.docx`. Each line is a JSON object containing `text`, `PublishedURL`, `Tags`, heading context, and acronym metadata. For ingestion into a vector DB, either concatenate the files or ingest them one at a time.
 
