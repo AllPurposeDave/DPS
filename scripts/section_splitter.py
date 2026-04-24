@@ -314,13 +314,16 @@ def process_document(filepath: str, output_dir: str, max_chars: int, chars_per_p
 
     preamble_elements = elements[:h1_element_indices[0]]
 
-    # Scope/Purpose cloning: promote matching H1 sections into the preamble
-    # so every sub-doc includes them; exclude them from the split iteration.
+    # Scope/Purpose cloning: promote matching H1 sections into the preamble so
+    # every sub-doc includes them, AND physically remove them from the element
+    # stream so neighboring kept sections don't pick them up again via their
+    # [start:end] slice (which would double the content in that chunk).
     scope_heading_set = {h.strip().lower() for h in (scope_purpose_headings or []) if h.strip()}
     if keep_scope_purpose and scope_heading_set:
         section_boundaries_full = h1_element_indices + [len(elements)]
         scope_elements: list = []
-        kept_h1_indices: list[int] = []
+        rebuilt_elements: list = list(preamble_elements)  # keep original preamble at the front
+        kept_h1_indices_new: list[int] = []
         for i, h1_idx in enumerate(h1_element_indices):
             sec_end = section_boundaries_full[i + 1]
             heading_elem = elements[h1_idx]
@@ -328,16 +331,19 @@ def process_document(filepath: str, output_dir: str, max_chars: int, chars_per_p
                 heading_elem[1].text.strip().lower()
                 if heading_elem[0] == "paragraph" else ""
             )
+            section_slice = elements[h1_idx:sec_end]
             if heading_text in scope_heading_set:
-                scope_elements.extend(elements[h1_idx:sec_end])
+                scope_elements.extend(section_slice)
             else:
-                kept_h1_indices.append(h1_idx)
+                kept_h1_indices_new.append(len(rebuilt_elements))
+                rebuilt_elements.extend(section_slice)
 
-        # Only apply if cloning leaves at least one non-scope H1 section; otherwise
-        # fall back to normal behavior so we don't produce an empty split.
-        if scope_elements and kept_h1_indices:
-            preamble_elements = list(preamble_elements) + scope_elements
-            h1_element_indices = kept_h1_indices
+        # Only apply if cloning leaves at least one non-scope H1 section;
+        # otherwise fall back to normal behavior so we don't produce an empty split.
+        if scope_elements and kept_h1_indices_new:
+            elements = rebuilt_elements
+            preamble_elements = list(elements[:kept_h1_indices_new[0]]) + scope_elements
+            h1_element_indices = kept_h1_indices_new
 
     section_boundaries = h1_element_indices + [len(elements)]
 
