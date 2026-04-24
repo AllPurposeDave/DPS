@@ -125,12 +125,11 @@ def load_doc_index(xlsx_path: Path, sheet: str, name_col: str, url_col: str,
     """
     Read the URL/deletion spreadsheet and return a lookup dict.
 
-    Keys are canonicalised document stems (filename without .docx, then run
-    through canonicalize). Values are:
-        {"url": str, "delete_headings": [str, ...], "raw_name": str}
-
-    `raw_name` preserves the original spelling from the spreadsheet for use
-    in diagnostic messages.
+    Keys are the RAW spreadsheet Document_Name values (stripped). Values are
+    {"url": str, "delete_headings": [str, ...]}. This matches the shape used
+    by the main DPS pipeline (scripts/add_metadata.py::load_url_mapping);
+    matching is performed at lookup time via _match_doc_name, which
+    normalises both sides and does a bidirectional substring match.
 
     Missing columns degrade gracefully: if Delete_Headings is absent the
     list is always []. If the workbook is currently open in Excel the
@@ -150,7 +149,7 @@ def load_doc_index(xlsx_path: Path, sheet: str, name_col: str, url_col: str,
         return {}
 
     try:
-        wb = load_workbook(xlsx_path, read_only=True, data_only=True)
+        wb = load_workbook(xlsx_path, data_only=True)
     except Exception as exc:
         print(f"  WARNING: could not open {xlsx_path.name}: {exc}")
         return {}
@@ -164,18 +163,16 @@ def load_doc_index(xlsx_path: Path, sheet: str, name_col: str, url_col: str,
         ws = wb[sheet]
         rows = ws.iter_rows(values_only=True)
 
-        # Header row: map column name -> column index.
+        # Header row: case-insensitive header match, same as the pipeline.
         try:
             header = next(rows)
         except StopIteration:
             return {}
-        # Canonicalise header cells so that hidden NBSP / casing differences
-        # in the column label don't silently drop a column.
-        header_map = {canonicalize(h): i for i, h in enumerate(header) if h is not None}
+        header_map = {str(h).strip().lower(): i for i, h in enumerate(header) if h is not None}
 
-        name_key = canonicalize(name_col)
-        url_key = canonicalize(url_col)
-        delete_key = canonicalize(delete_col)
+        name_key = name_col.strip().lower()
+        url_key = url_col.strip().lower()
+        delete_key = delete_col.strip().lower()
 
         if name_key not in header_map:
             print(f"  WARNING: column '{name_col}' not found in sheet '{sheet}'.")
@@ -194,15 +191,14 @@ def load_doc_index(xlsx_path: Path, sheet: str, name_col: str, url_col: str,
             if name is None or str(name).strip() == "":
                 continue
             raw_name = str(name).strip()
-            stem = canonicalize(raw_name)
             url = str(row[url_idx]).strip() if url_idx is not None and url_idx < len(row) and row[url_idx] else ""
             delete_raw = row[delete_idx] if delete_idx is not None and delete_idx < len(row) else None
             delete_list: list[str] = []
             if delete_raw:
                 delete_list = [h.strip() for h in str(delete_raw).split(",") if h.strip()]
-            if stem in index:
+            if raw_name in index:
                 print(f"  WARNING: duplicate Document_Name '{raw_name}' in {xlsx_path.name}; last occurrence wins.")
-            index[stem] = {"url": url, "delete_headings": delete_list, "raw_name": raw_name}
+            index[raw_name] = {"url": url, "delete_headings": delete_list}
 
         return index
     finally:
@@ -258,6 +254,40 @@ def excel_lock_file(xlsx_path: Path) -> Path | None:
     """
     lock = xlsx_path.parent / f"~${xlsx_path.name}"
     return lock if lock.exists() else None
+
+
+# ----------------------------------------------------------------------------
+# Document-name matching (aligned with the DPS pipeline)
+# ----------------------------------------------------------------------------
+#
+# These two helpers mirror scripts/shared_utils.py::normalize_doc_name and
+# match_doc_name so that Docx_Split resolves URLs using the same convention
+# as the main pipeline's Step 6 (add_metadata.py). Keeping the logic local
+# preserves Docx_Split's standalone property — no import from scripts/.
+
+
+def _normalize_doc_name(name: str) -> str:
+    """Strip extension, lowercase, collapse underscores/hyphens/spaces.
+
+    Matches scripts/shared_utils.py::normalize_doc_name so that
+    'POL-AC-2026-001', 'POL_AC_2026_001' and 'POL AC 2026 001' all produce
+    the same key.
+    """
+    stem = Path(name).stem if "." in name else name
+    return re.sub(r"[_\-\s]+", " ", stem).strip().lower()
+
+
+def _match_doc_name(needle: str, haystack_key: str) -> bool:
+    """Bidirectional substring match on normalised names.
+
+    Returns True if either value is a substring of the other after
+    normalisation. Same semantics as the pipeline's match_doc_name.
+    """
+    a = _normalize_doc_name(needle)
+    b = _normalize_doc_name(haystack_key)
+    if not a or not b:
+        return False
+    return a == b or a in b or b in a
 
 
 def heading_level(style) -> int | None:
@@ -827,6 +857,12 @@ def main() -> int:
         config["url_column"],
         config["delete_headings_column"],
     )
+    print(f"Loaded {len(doc_index)} row(s) from {xlsx_path.name}.")
+    if doc_index:
+        preview = sorted(doc_index.keys())[:5]
+        more = "" if len(doc_index) <= 5 else f" (+{len(doc_index) - 5} more)"
+        print(f"  First Document_Name values: {', '.join(preview)}{more}")
+    print("-" * 60)
 
     # Skip Word lock files (~$*.docx) and hidden files.
     docx_files = sorted(
@@ -843,21 +879,43 @@ def main() -> int:
     files_ok = 0
     files_failed = 0
     all_warnings: list[str] = []
+    unmatched_stems: list[tuple[str, str]] = []
 
     for src in docx_files:
-        stem_key = canonicalize(src.stem)
-        entry = doc_index.get(stem_key, {"url": "", "delete_headings": []})
-        if stem_key not in doc_index:
-            close = difflib.get_close_matches(stem_key, doc_index.keys(), n=3, cutoff=0.6)
+        # Pipeline-style match: normalise both sides, then bidirectional
+        # substring. First hit wins — matches add_metadata.resolve_url.
+        entry = {"url": "", "delete_headings": []}
+        matched_raw: str | None = None
+        for raw_name, row_entry in doc_index.items():
+            if _match_doc_name(src.stem, raw_name):
+                entry = row_entry
+                matched_raw = raw_name
+                break
+
+        if matched_raw is None:
+            normalised_stem = _normalize_doc_name(src.stem)
+            unmatched_stems.append((src.name, normalised_stem))
+            close = difflib.get_close_matches(
+                normalised_stem,
+                [_normalize_doc_name(k) for k in doc_index.keys()],
+                n=3,
+                cutoff=0.6,
+            )
             if close:
-                hints = ", ".join(doc_index[c]["raw_name"] for c in close)
+                # Map the normalised close matches back to their raw xlsx names.
+                raw_hits = [
+                    raw for raw in doc_index.keys()
+                    if _normalize_doc_name(raw) in close
+                ]
+                hints = ", ".join(raw_hits) if raw_hits else ", ".join(close)
                 all_warnings.append(
-                    f"{src.name}: stem not found in {xlsx_path.name} — no URL will be stamped. "
-                    f"Close matches in spreadsheet: {hints}"
+                    f"{src.name}: stem '{src.stem}' not found in {xlsx_path.name} "
+                    f"— no URL will be stamped. Close matches: {hints}"
                 )
             else:
                 all_warnings.append(
-                    f"{src.name}: stem '{src.stem}' not found in {xlsx_path.name} — no URL will be stamped"
+                    f"{src.name}: stem '{src.stem}' not found in {xlsx_path.name} "
+                    f"— no URL will be stamped"
                 )
 
         try:
@@ -880,6 +938,24 @@ def main() -> int:
         print(f"Warnings ({len(all_warnings)}):")
         for w in all_warnings:
             print(f"  - {w}")
+
+    # When any file failed to match, dump both sides side-by-side so the
+    # source of the mismatch (casing, hidden whitespace, typo) is visible.
+    if unmatched_stems:
+        print()
+        print("Stem-match diagnostics:")
+        print("  Filename stems that had NO match (normalised form shown):")
+        for name, stem in unmatched_stems:
+            print(f"    {name:<50}  ->  '{stem}'")
+        if doc_index:
+            print(f"  Rows present in {xlsx_path.name} (normalised form on the left):")
+            for raw in sorted(doc_index):
+                print(f"    '{_normalize_doc_name(raw)}'   (raw: {raw!r})")
+        else:
+            print(f"  {xlsx_path.name} produced zero rows — is the header on row 1,")
+            print(f"  is the sheet named '{config['url_xlsx_sheet']}', and is the")
+            print(f"  '{config['doc_name_column']}' column populated?")
+
     return 0 if files_failed == 0 else 2
 
 
