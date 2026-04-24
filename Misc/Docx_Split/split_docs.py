@@ -31,11 +31,7 @@ Usage
 Runtime behaviour is defined in ./config.yaml. An alternate configuration
 file may be provided via --config <path>.
 
-Design notes
-------------
-The script is self-contained. It imports only the standard library plus
-python-docx, openpyxl, and PyYAML, with no dependency on any enclosing
-repository. The folder may be copied into another project unchanged.
+
 """
 
 from __future__ import annotations
