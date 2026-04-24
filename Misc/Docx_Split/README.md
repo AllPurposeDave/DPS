@@ -174,15 +174,27 @@ select a heading paragraph, and confirm that the style dropdown reads
 `Heading 1` (etc.).
 
 **An entry in the run summary reports `(no URL)`.**
-The filename stem does not match any row in `Doc_URL.xlsx`. Verify the
-`Document_Name` column for spelling and underscore placement. Matching is
-case-insensitive.
+The filename stem does not match any row in `Doc_URL.xlsx`. The warning will
+surface close matches from the spreadsheet — inspect those for differences
+in casing, underscore placement, or accidental spaces. Matching ignores
+case, leading and trailing whitespace, non-breaking spaces, smart quotes,
+and em/en-dash vs hyphen substitutions.
+
+**The script warns that the workbook appears to be open in Excel.**
+Excel writes a hidden `~$<workbook>.xlsx` lock file while the workbook is
+open. Because the script reads only the saved copy, any unsaved edits would
+be silently ignored. Close the workbook in Excel (or save and close it)
+before re-running.
 
 **A `Delete_Headings` entry does not remove the section.**
-Matching is exact on the normalised heading text (case-insensitive; leading
-and trailing whitespace stripped; internal whitespace collapsed). If the
-heading reads `Appendix A - Control Mappings`, the full string must appear
-in the spreadsheet — not just `Appendix A`.
+Matching is performed on the canonicalised heading text: case, leading and
+trailing whitespace, non-breaking spaces, zero-width characters, smart
+quotes, and em/en-dash vs hyphen are all normalised before comparison. If a
+heading still fails to match, the run summary reports it as
+`Delete_Headings entries not found in document: '<heading>'`. The most
+common cause is an incomplete heading — if the heading reads
+`Appendix A - Control Mappings`, the full string must appear in the
+spreadsheet, not just `Appendix A`.
 
 ---
 

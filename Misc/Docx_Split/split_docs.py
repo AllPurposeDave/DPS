@@ -38,10 +38,12 @@ from __future__ import annotations
 
 import argparse
 import copy
+import difflib
 import re
 import shutil
 import sys
 import traceback
+import unicodedata
 from pathlib import Path
 
 import yaml
@@ -123,13 +125,28 @@ def load_doc_index(xlsx_path: Path, sheet: str, name_col: str, url_col: str,
     """
     Read the URL/deletion spreadsheet and return a lookup dict.
 
-    Keys are lowercased document stems (filename without .docx). Values are
-    {"url": "<url>", "delete_headings": [...]}. Missing columns degrade
-    gracefully: if Delete_Headings is absent the list is always [].
+    Keys are canonicalised document stems (filename without .docx, then run
+    through canonicalize). Values are:
+        {"url": str, "delete_headings": [str, ...], "raw_name": str}
+
+    `raw_name` preserves the original spelling from the spreadsheet for use
+    in diagnostic messages.
+
+    Missing columns degrade gracefully: if Delete_Headings is absent the
+    list is always []. If the workbook is currently open in Excel the
+    function refuses to proceed, to avoid reading the last-saved copy while
+    unsaved edits remain in Excel.
     """
     if not xlsx_path.exists():
         print(f"  WARNING: URL lookup file not found at {xlsx_path}")
         print("           Outputs will have no PublishedURL preamble.")
+        return {}
+
+    lock = excel_lock_file(xlsx_path)
+    if lock is not None:
+        print(f"  ERROR: {xlsx_path.name} appears to be open in Excel (lock file '{lock.name}' is present).")
+        print("         The script reads only the saved copy, so unsaved changes in Excel")
+        print("         would be silently ignored. Close the workbook and re-run.")
         return {}
 
     try:
@@ -152,32 +169,40 @@ def load_doc_index(xlsx_path: Path, sheet: str, name_col: str, url_col: str,
             header = next(rows)
         except StopIteration:
             return {}
-        header_map = {str(h).strip(): i for i, h in enumerate(header) if h is not None}
+        # Canonicalise header cells so that hidden NBSP / casing differences
+        # in the column label don't silently drop a column.
+        header_map = {canonicalize(h): i for i, h in enumerate(header) if h is not None}
 
-        if name_col not in header_map:
+        name_key = canonicalize(name_col)
+        url_key = canonicalize(url_col)
+        delete_key = canonicalize(delete_col)
+
+        if name_key not in header_map:
             print(f"  WARNING: column '{name_col}' not found in sheet '{sheet}'.")
+            print(f"           Columns present: {', '.join(str(h) for h in header if h is not None)}")
             return {}
-        if url_col not in header_map:
+        if url_key not in header_map:
             print(f"  WARNING: column '{url_col}' not found in sheet '{sheet}'.")
 
-        name_idx = header_map[name_col]
-        url_idx = header_map.get(url_col)
-        delete_idx = header_map.get(delete_col)
+        name_idx = header_map[name_key]
+        url_idx = header_map.get(url_key)
+        delete_idx = header_map.get(delete_key)
 
         index: dict = {}
         for row in rows:
             name = row[name_idx] if name_idx < len(row) else None
-            if not name:
+            if name is None or str(name).strip() == "":
                 continue
-            stem = str(name).strip().lower()
+            raw_name = str(name).strip()
+            stem = canonicalize(raw_name)
             url = str(row[url_idx]).strip() if url_idx is not None and url_idx < len(row) and row[url_idx] else ""
             delete_raw = row[delete_idx] if delete_idx is not None and delete_idx < len(row) else None
             delete_list: list[str] = []
             if delete_raw:
                 delete_list = [h.strip() for h in str(delete_raw).split(",") if h.strip()]
             if stem in index:
-                print(f"  WARNING: duplicate Document_Name '{stem}' in {xlsx_path.name}; last occurrence wins.")
-            index[stem] = {"url": url, "delete_headings": delete_list}
+                print(f"  WARNING: duplicate Document_Name '{raw_name}' in {xlsx_path.name}; last occurrence wins.")
+            index[stem] = {"url": url, "delete_headings": delete_list, "raw_name": raw_name}
 
         return index
     finally:
@@ -187,11 +212,52 @@ def load_doc_index(xlsx_path: Path, sheet: str, name_col: str, url_col: str,
 # ----------------------------------------------------------------------------
 # DOCX helpers
 # ----------------------------------------------------------------------------
-# These are re-implemented here (not imported from any repo) so the script
-# stays fully portable. They mirror patterns used by python-docx internals.
+
 
 _HEADING_STYLE_RE = re.compile(r"^Heading (\d)$")
 _WHITESPACE_RE = re.compile(r"\s+")
+_ZERO_WIDTH_RE = re.compile(r"[​‌‍⁠﻿]")
+_DASH_CHARS = ("‐", "‑", "‒", "–", "—", "―", "−")
+_SINGLE_QUOTE_CHARS = ("‘", "’", "‚", "‛")
+_DOUBLE_QUOTE_CHARS = ("“", "”", "„", "‟")
+
+
+def canonicalize(text) -> str:
+    """Normalise text for comparison between Excel cells and Word paragraphs.
+
+    Excel and Word frequently introduce invisible differences that defeat
+    naive `==` / `.lower()` matching: non-breaking spaces (U+00A0), zero-width
+    joiners, NFD vs NFC composition of accented characters, em/en dashes in
+    place of hyphens, and smart quotes in place of ASCII quotes. This helper
+    collapses all of those to a single canonical form so that what looks
+    identical to a human reader actually compares equal.
+    """
+    if text is None:
+        return ""
+    t = unicodedata.normalize("NFC", str(text))
+    t = t.replace(" ", " ")
+    t = _ZERO_WIDTH_RE.sub("", t)
+    for ch in _DASH_CHARS:
+        t = t.replace(ch, "-")
+    for ch in _SINGLE_QUOTE_CHARS:
+        t = t.replace(ch, "'")
+    for ch in _DOUBLE_QUOTE_CHARS:
+        t = t.replace(ch, '"')
+    t = _WHITESPACE_RE.sub(" ", t).strip().lower()
+    return t
+
+
+def excel_lock_file(xlsx_path: Path) -> Path | None:
+    """Return Excel's lock file path for this workbook if present, else None.
+
+    When Excel (or Word, or LibreOffice) has a workbook open, it writes a
+    hidden sibling file named '~$<workbook>.xlsx' alongside the original.
+    On macOS the operating system does not enforce file locks, so the script
+    would otherwise silently read the last-saved state and miss any unsaved
+    edits. Detecting the lock file lets us halt with a clear message instead.
+    """
+    lock = xlsx_path.parent / f"~${xlsx_path.name}"
+    return lock if lock.exists() else None
 
 
 def heading_level(style) -> int | None:
@@ -275,50 +341,58 @@ def count_chars(elements) -> int:
 # Section deletion
 # ----------------------------------------------------------------------------
 
-def _normalize_heading_text(text: str) -> str:
-    """Lower-case, strip, and collapse whitespace for heading comparison.
-
-    Word often leaves non-breaking spaces, tabs, or double spaces in heading
-    runs. Without collapsing them, a literal entry in Delete_Headings would
-    fail to match the actual rendered heading.
+def remove_delete_headings(elements: list,
+                           headings_to_delete: list[str]) -> tuple[list, list[str]]:
     """
-    return _WHITESPACE_RE.sub(" ", text.strip().lower())
+    Remove every section whose heading matches an entry in headings_to_delete.
 
+    Matching is performed on the canonicalised heading text (see
+    canonicalize), so non-breaking spaces, smart quotes, em/en dashes and
+    minor whitespace differences between Excel and Word do not defeat the
+    match. Subsections are included: once a matching heading is found at
+    level L, every following element is dropped until another heading at
+    level <= L is encountered (or the document ends).
 
-def remove_delete_headings(elements: list, headings_to_delete: list[str]) -> list:
-    """
-    Remove every section whose heading text matches an entry in headings_to_delete.
-
-    Matching is case-insensitive and exact on the normalised heading text
-    (leading/trailing whitespace stripped, internal whitespace collapsed).
-    'Subsections included' means: once a matching heading is found at level L,
-    every following element is dropped until another heading at level <= L
-    is encountered (or the end of the document is reached).
+    Returns (surviving_elements, unmatched_headings). Any Delete_Headings
+    entry that was never found in the document is returned so the caller
+    can surface it as a warning.
     """
     if not headings_to_delete:
-        return elements
-    target_set = {_normalize_heading_text(h) for h in headings_to_delete if h.strip()}
+        return elements, []
 
+    # Map canonical form -> original spelling, so diagnostic messages echo
+    # what the user typed rather than the normalised lowercase form.
+    target_map: dict[str, str] = {}
+    for raw in headings_to_delete:
+        if raw and raw.strip():
+            target_map[canonicalize(raw)] = raw.strip()
+
+    matched: set[str] = set()
     result: list = []
     i = 0
     while i < len(elements):
         elem_type, elem_obj = elements[i]
         if elem_type == "paragraph":
             lvl = heading_level(elem_obj.style)
-            if lvl is not None and _normalize_heading_text(elem_obj.text) in target_set:
-                # Skip this heading and everything beneath it.
-                i += 1
-                while i < len(elements):
-                    et, eo = elements[i]
-                    if et == "paragraph":
-                        nxt_lvl = heading_level(eo.style)
-                        if nxt_lvl is not None and nxt_lvl <= lvl:
-                            break  # reached a sibling or parent heading
+            if lvl is not None:
+                canon = canonicalize(elem_obj.text)
+                if canon in target_map:
+                    matched.add(canon)
+                    # Skip this heading and everything beneath it.
                     i += 1
-                continue
+                    while i < len(elements):
+                        et, eo = elements[i]
+                        if et == "paragraph":
+                            nxt_lvl = heading_level(eo.style)
+                            if nxt_lvl is not None and nxt_lvl <= lvl:
+                                break  # reached a sibling or parent heading
+                        i += 1
+                    continue
         result.append(elements[i])
         i += 1
-    return result
+
+    unmatched = [target_map[k] for k in target_map if k not in matched]
+    return result, unmatched
 
 
 # ----------------------------------------------------------------------------
@@ -679,7 +753,7 @@ def process_document(source_path: Path, output_dir: Path, doc_entry: dict,
     delete_headings = doc_entry.get("delete_headings", [])
     published_url = doc_entry.get("url", "")
 
-    elements = remove_delete_headings(elements, delete_headings)
+    elements, unmatched_headings = remove_delete_headings(elements, delete_headings)
 
     elements, flattened_n, skipped_merged_n = flatten_2_col_tables(elements, config)
 
@@ -689,6 +763,11 @@ def process_document(source_path: Path, output_dir: Path, doc_entry: dict,
         boundary_levels=config.get("heading_levels", [1, 2, 3]),
     )
 
+    if unmatched_headings:
+        warnings.append(
+            "Delete_Headings entries not found in document: "
+            + "; ".join(f"'{h}'" for h in unmatched_headings)
+        )
     if flattened_n:
         warnings.append(f"flattened {flattened_n} two-column table(s)")
     if skipped_merged_n:
@@ -766,10 +845,20 @@ def main() -> int:
     all_warnings: list[str] = []
 
     for src in docx_files:
-        stem_key = src.stem.lower()
+        stem_key = canonicalize(src.stem)
         entry = doc_index.get(stem_key, {"url": "", "delete_headings": []})
         if stem_key not in doc_index:
-            all_warnings.append(f"{src.name}: not found in {xlsx_path.name} — no URL will be stamped")
+            close = difflib.get_close_matches(stem_key, doc_index.keys(), n=3, cutoff=0.6)
+            if close:
+                hints = ", ".join(doc_index[c]["raw_name"] for c in close)
+                all_warnings.append(
+                    f"{src.name}: stem not found in {xlsx_path.name} — no URL will be stamped. "
+                    f"Close matches in spreadsheet: {hints}"
+                )
+            else:
+                all_warnings.append(
+                    f"{src.name}: stem '{src.stem}' not found in {xlsx_path.name} — no URL will be stamped"
+                )
 
         try:
             n_chunks, warnings = process_document(src, output_dir, entry, config, used_names)
