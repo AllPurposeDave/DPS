@@ -707,6 +707,49 @@ def flatten_definition_tables(doc, config: dict) -> list[dict]:
     return records
 
 
+def remove_italics(doc, config: dict) -> list[dict]:
+    """
+    Explicitly disable italic formatting on every run in the document body,
+    table cells, and headers/footers. Sets run.italic = False so italics
+    inherited from paragraph styles are also suppressed.
+    """
+    deletion_cfg = config.get("text_deletions", {})
+    if not deletion_cfg.get("remove_italics", False):
+        return []
+
+    runs_cleared = 0
+
+    def clear(para):
+        nonlocal runs_cleared
+        for run in para.runs:
+            if run.italic is not False:
+                run.italic = False
+                runs_cleared += 1
+
+    for para in doc.paragraphs:
+        clear(para)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    clear(para)
+    for section in doc.sections:
+        for attr in ("header", "first_page_header", "even_page_header",
+                     "footer", "first_page_footer", "even_page_footer"):
+            hf = getattr(section, attr, None)
+            if hf is None:
+                continue
+            for para in hf.paragraphs:
+                clear(para)
+
+    if runs_cleared == 0:
+        return []
+    return [{
+        "removal_type": "italics_removed",
+        "runs_cleared": runs_cleared,
+    }]
+
+
 def process_document(filepath: str, output_dir: str, config: dict) -> dict:
     """
     Process a single .docx file. Pipeline order:
@@ -720,6 +763,7 @@ def process_document(filepath: str, output_dir: str, config: dict) -> dict:
       7. Remove orphan revision tables
       8. Flatten definition tables to prose
       9. Apply section deletions (needs correct heading styles)
+     10. Strip italic formatting (final formatting pass)
     Saves as _fixed.docx.
 
     Returns a dict with keys for every step's records.
@@ -788,8 +832,11 @@ def process_document(filepath: str, output_dir: str, config: dict) -> dict:
     # 8. Flatten definition tables to prose (after heading fixes)
     definition_records = flatten_definition_tables(doc, config)
 
-    # 9. Apply section deletions LAST (needs correct heading styles)
+    # 9. Apply section deletions (needs correct heading styles)
     section_deletion_records = apply_section_deletions(doc, config, filename)
+
+    # 10. Strip italics from the surviving content (final formatting pass)
+    italic_records = remove_italics(doc, config)
 
     # Save the fixed document
     output_path = os.path.join(output_dir, f"{base_name}_fixed.docx")
@@ -806,6 +853,7 @@ def process_document(filepath: str, output_dir: str, config: dict) -> dict:
         "tracked_change_records": tracked_change_records,
         "comment_records": comment_records,
         "page_number_records": page_number_records,
+        "italic_records": italic_records,
     }
 
 
@@ -841,6 +889,7 @@ def main():
     total_tracked_change_docs = 0
     total_comment_strips = 0
     total_page_number_removals = 0
+    total_italic_runs_cleared = 0
     files_processed = 0
     files_failed = 0
 
@@ -858,6 +907,7 @@ def main():
             tracked_change_records = result["tracked_change_records"]
             comment_records = result["comment_records"]
             page_number_records = result["page_number_records"]
+            italic_records = result["italic_records"]
 
             # Tag heading changes
             for c in changes:
@@ -971,6 +1021,17 @@ def main():
                     "change_type": "inline_page_number_removed",
                     "phrase_deleted": pn["matched_pattern"],
                 })
+            # Convert italic-removal records to CSV rows
+            for it in italic_records:
+                all_changes.append({
+                    "doc_name": filename,
+                    "paragraph_index": "",
+                    "original_style": "",
+                    "new_style": "[ITALICS REMOVED]",
+                    "paragraph_text_preview": f"{it['runs_cleared']} run(s) de-italicized",
+                    "change_type": "italics_removed",
+                    "phrase_deleted": "",
+                })
 
             all_changes.extend(changes)
             total_deletions += len(deletion_records)
@@ -984,6 +1045,8 @@ def main():
             if comment_records:
                 total_comment_strips += 1
             total_page_number_removals += len(page_number_records)
+            for it in italic_records:
+                total_italic_runs_cleared += it.get("runs_cleared", 0)
             files_processed += 1
 
             parts = [f"{len(changes)} heading(s) fixed"]
@@ -1005,6 +1068,8 @@ def main():
                 parts.append(f"{len(revision_table_records)} revision table(s) removed")
             if definition_records:
                 parts.append(f"{len(definition_records)} definition table(s) flattened")
+            if italic_records:
+                parts.append(f"{italic_records[0]['runs_cleared']} italic run(s) cleared")
             print(f"  Processing {filename}... {', '.join(parts)}")
         except Exception as e:
             files_failed += 1
@@ -1033,6 +1098,7 @@ def main():
     print(f"Docs w/ tracked changes accepted: {total_tracked_change_docs}")
     print(f"Docs w/ comments stripped:  {total_comment_strips}")
     print(f"Total page-number paragraphs removed: {total_page_number_removals}")
+    print(f"Total italic runs cleared:  {total_italic_runs_cleared}")
     print(f"\nFixed documents written to: {output_dir}")
     print(f"Change log written to: {csv_path}")
 

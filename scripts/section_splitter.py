@@ -271,8 +271,16 @@ def split_at_heading2(
     return records
 
 
-def process_document(filepath: str, output_dir: str, max_chars: int, chars_per_page: int) -> list[dict]:
-    """Process a single _fixed.docx file: split at Heading 1 boundaries."""
+def process_document(filepath: str, output_dir: str, max_chars: int, chars_per_page: int,
+                     keep_scope_purpose: bool = False,
+                     scope_purpose_headings: list | None = None) -> list[dict]:
+    """Process a single _fixed.docx file: split at Heading 1 boundaries.
+
+    When keep_scope_purpose is TRUE, H1 sections whose heading text matches
+    scope_purpose_headings (case-insensitive, exact) are appended to the
+    effective preamble so every split sub-doc includes them, and they are
+    NOT emitted as standalone sub-docs (avoiding duplication).
+    """
     doc = Document(filepath)
     filename = os.path.basename(filepath)
     base_name = os.path.splitext(filename)[0]
@@ -305,6 +313,32 @@ def process_document(filepath: str, output_dir: str, max_chars: int, chars_per_p
         return records
 
     preamble_elements = elements[:h1_element_indices[0]]
+
+    # Scope/Purpose cloning: promote matching H1 sections into the preamble
+    # so every sub-doc includes them; exclude them from the split iteration.
+    scope_heading_set = {h.strip().lower() for h in (scope_purpose_headings or []) if h.strip()}
+    if keep_scope_purpose and scope_heading_set:
+        section_boundaries_full = h1_element_indices + [len(elements)]
+        scope_elements: list = []
+        kept_h1_indices: list[int] = []
+        for i, h1_idx in enumerate(h1_element_indices):
+            sec_end = section_boundaries_full[i + 1]
+            heading_elem = elements[h1_idx]
+            heading_text = (
+                heading_elem[1].text.strip().lower()
+                if heading_elem[0] == "paragraph" else ""
+            )
+            if heading_text in scope_heading_set:
+                scope_elements.extend(elements[h1_idx:sec_end])
+            else:
+                kept_h1_indices.append(h1_idx)
+
+        # Only apply if cloning leaves at least one non-scope H1 section; otherwise
+        # fall back to normal behavior so we don't produce an empty split.
+        if scope_elements and kept_h1_indices:
+            preamble_elements = list(preamble_elements) + scope_elements
+            h1_element_indices = kept_h1_indices
+
     section_boundaries = h1_element_indices + [len(elements)]
 
     for sec_idx in range(len(h1_element_indices)):
@@ -366,6 +400,11 @@ def main():
     split_by_heading = thresholds.get("split_by_heading", True)
     max_chars = thresholds.get("max_characters", 36_000)
     chars_per_page = thresholds.get("chars_per_page", 1800)
+    text_deletions_cfg = config.get("text_deletions", {})
+    keep_scope_purpose = bool(text_deletions_cfg.get("keep_scope_purpose", False))
+    scope_purpose_headings = text_deletions_cfg.get("scope_purpose_headings") or []
+    if isinstance(scope_purpose_headings, str):
+        scope_purpose_headings = [h.strip() for h in scope_purpose_headings.split(",") if h.strip()]
 
     # Input: Step 3's output directory (heading fixes)
     if args.input_dir:
@@ -428,7 +467,11 @@ def main():
         for filepath in docx_files:
             filename = os.path.basename(filepath)
             try:
-                records = process_document(filepath, output_dir, max_chars, chars_per_page)
+                records = process_document(
+                    filepath, output_dir, max_chars, chars_per_page,
+                    keep_scope_purpose=keep_scope_purpose,
+                    scope_purpose_headings=scope_purpose_headings,
+                )
                 all_records.extend(records)
                 files_processed += 1
                 print(f"  Processing {filename}... {len(records)} sub-document(s) created")
@@ -448,6 +491,8 @@ def main():
     print("=" * 60)
     if not split_by_heading:
         print("Mode:                   PASS-THROUGH (split_by_heading = false)")
+    elif keep_scope_purpose and scope_purpose_headings:
+        print(f"Scope/Purpose cloning:  ON — headings: {', '.join(scope_purpose_headings)}")
     print(f"Files processed:        {files_processed}")
     print(f"Files failed:           {files_failed}")
     print(f"Total sub-docs created: {len(all_records)}")

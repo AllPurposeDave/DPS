@@ -324,6 +324,16 @@ def _parse_text_deletions_sheet(ws):
     result.setdefault("remove_headers_footers", False)
     result.setdefault("remove_revision_tables", False)
     result.setdefault("flatten_definition_tables", False)
+    result.setdefault("remove_italics", False)
+    result.setdefault("keep_scope_purpose", False)
+    raw_scope = result.get("scope_purpose_headings",
+                           "Purpose, Scope, Applicability, Applicability and Scope")
+    if isinstance(raw_scope, str):
+        result["scope_purpose_headings"] = [h.strip() for h in raw_scope.split(",") if h.strip()]
+    elif isinstance(raw_scope, list):
+        result["scope_purpose_headings"] = [str(h).strip() for h in raw_scope if str(h).strip()]
+    else:
+        result["scope_purpose_headings"] = ["Purpose", "Scope", "Applicability", "Applicability and Scope"]
     return result
 
 

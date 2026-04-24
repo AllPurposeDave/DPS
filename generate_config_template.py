@@ -578,6 +578,16 @@ def _build_text_deletions_sheet(wb, cfg: dict):
                  "Remove tables with Version/Date/Changes columns [default: FALSE]")
     _add_setting(ws, "flatten_definition_tables", td.get("flatten_definition_tables", False),
                  "Convert Terms & Definitions tables to prose paragraphs [default: FALSE]")
+    _add_setting(ws, "remove_italics", td.get("remove_italics", False),
+                 "Strip italic formatting from every run in body, tables, and headers/footers [default: FALSE]")
+    _add_setting(ws, "keep_scope_purpose", td.get("keep_scope_purpose", False),
+                 "When TRUE (Step 4 splitter), clone matching H1 sections into every split sub-doc so scope/purpose context rides along [default: FALSE]")
+    default_scope_purpose = td.get("scope_purpose_headings",
+                                   "Purpose, Scope, Applicability, Applicability and Scope")
+    if isinstance(default_scope_purpose, list):
+        default_scope_purpose = ", ".join(default_scope_purpose)
+    _add_setting(ws, "scope_purpose_headings", default_scope_purpose,
+                 "Comma-separated H1 heading texts cloned into every split chunk when keep_scope_purpose=TRUE. Case-insensitive exact match on trimmed heading text.")
 
     # Bool validations
     for r in range(2, ws.max_row + 1):
@@ -585,7 +595,8 @@ def _build_text_deletions_sheet(wb, cfg: dict):
         if val in ("enabled", "case_sensitive",
                    "strip_tracked_changes", "remove_comments", "remove_inline_page_numbers",
                    "remove_table_of_content", "remove_headers_footers",
-                   "remove_revision_tables", "flatten_definition_tables"):
+                   "remove_revision_tables", "flatten_definition_tables",
+                   "remove_italics", "keep_scope_purpose"):
             _add_bool_validation(ws, "B", r, r)
 
     _add_subheader(ws, "Phrases to Delete")
@@ -1142,11 +1153,16 @@ def _build_metadata_sheet(wb, cfg: dict):
             _add_bool_validation(ws, "B", r, r)
 
     _add_subheader(ws, "Metadata Fields", ncols=5)
+    # Column header row — prefix "## " keeps the parser treating it as a
+    # comment (see _parse_metadata_sheet), but we style it like a subheader
+    # so Excel shows it as a proper table header instead of grey comment text.
     col_headers = ["## Key", "Label", "Enabled", "Source", "Value (for static source)"]
     ws.append(col_headers)
     for col_idx in range(1, len(col_headers) + 1):
         cell = ws.cell(row=ws.max_row, column=col_idx)
-        cell.font = DESC_FONT
+        cell.font = SUBHEADER_FONT
+        cell.fill = SUBHEADER_FILL
+        cell.border = THIN_BORDER
     fields = meta.get("fields", [
         {"key": "name", "label": "Document", "enabled": True, "source": "auto"},
         {"key": "url", "label": "URL", "enabled": True, "source": "auto"},
@@ -1155,12 +1171,16 @@ def _build_metadata_sheet(wb, cfg: dict):
         {"key": "tags", "label": "Tags", "enabled": True, "source": "auto"},
         {"key": "acronyms", "label": "Acronyms", "enabled": True, "source": "auto"},
     ])
+    fields_data_start = ws.max_row + 1
     for field in fields:
         ws.append([field.get("key", ""), field.get("label", ""),
                    field.get("enabled", True), field.get("source", "auto"),
                    field.get("value", "")])
+    # TRUE/FALSE dropdown for the Enabled column (C) across every field row
+    if ws.max_row >= fields_data_start:
+        _add_bool_validation(ws, "C", fields_data_start, ws.max_row)
 
-    _add_subheader(ws, "URL Resolution")
+    _add_subheader(ws, "URL Resolution", ncols=5)
     url = meta.get("url", {})
     _add_setting(ws, "url.lookup_file", url.get("lookup_file", "./input/Doc_URL.xlsx"),
                  "Excel file mapping document names to URLs [default: ./input/Doc_URL.xlsx]")
@@ -1173,13 +1193,13 @@ def _build_metadata_sheet(wb, cfg: dict):
     _add_setting(ws, "url.fallback_template", url.get("fallback_template", ""),
                  "URL template when no Excel match. Use {filename} placeholder [default: empty]")
 
-    _add_subheader(ws, "Advanced Settings")
+    _add_subheader(ws, "Advanced Settings", ncols=5)
     _add_setting(ws, "max_scope_chars", meta.get("max_scope_chars", 300),
                  "Max chars for scope text extraction [default: 300]")
     _add_setting(ws, "max_intent_chars", meta.get("max_intent_chars", 300),
                  "Max chars for intent text extraction [default: 300]")
 
-    _add_subheader(ws, "Tag Generation")
+    _add_subheader(ws, "Tag Generation", ncols=5)
     tags = meta.get("tags", {})
     _add_setting(ws, "tags.include_doc_type", tags.get("include_doc_type", True),
                  'Add "Type-B" etc. from profiler [default: TRUE]')
@@ -1202,7 +1222,7 @@ def _build_metadata_sheet(wb, cfg: dict):
         if val in ("tags.include_doc_type", "tags.include_sections_found"):
             _add_bool_validation(ws, "B", r, r)
 
-    _add_subheader(ws, "Static Tags")
+    _add_subheader(ws, "Static Tags", ncols=5)
     ws.append(['## Org-wide tags applied to EVERY document. Single source of truth for all pipeline outputs.', "", ""])
     ws.cell(row=ws.max_row, column=1).font = DESC_FONT
     ws.append(['## Applied by: Step 6 (Word doc tags field), Step 7 (.md frontmatter Tags), Step 8 (per-chunk JSONL tags).', "", ""])
